@@ -406,7 +406,7 @@ window.makeSupabaseApi = function (cfg) {
     listCustomers: () => q(sb.rpc('list_customers')),
     async saveCustomer(c) {
       const row = { name: c.name, owner_name: c.owner_name || null, phone: c.phone || null, address: c.address || null, area: c.area || null,
-        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null };
+        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null, map_url: c.map_url || null };
       const mgr = me && (me.role === 'admin' || (me.perms || []).includes('customers.manage'));
       if (c.assigned_to !== undefined && mgr) row.assigned_to = c.assigned_to || null;
       if (c.credit_limit !== undefined && mgr) row.credit_limit = +c.credit_limit || 0;
@@ -925,7 +925,7 @@ window.makeDemoApi = function () {
     async saveCustomer(c) {
       if (!role()) fail('Your account is not active');
       const row = { name: c.name, owner_name: c.owner_name || null, phone: c.phone || null, address: c.address || null, area: c.area || null,
-        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null };
+        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null, map_url: c.map_url || null };
       const boss = allow('customers.manage'), autoOk = allow('customers.approve');
       if (!c.id && !allow('customers.create')) fail('You are not allowed to add shops');
       if (c.assigned_to !== undefined && boss) row.assigned_to = c.assigned_to || null;
@@ -2898,7 +2898,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       };
       $('#clist').innerHTML = list.map(c => `<div class="list-item">${K.allow('customers.manage') ? `<input type="checkbox" data-sel="${c.id}" ${sel.has(c.id) ? 'checked' : ''} aria-label="Select ${esc(c.name)}" style="width:22px;height:22px;accent-color:var(--p);flex-shrink:0">` : ''}
         <button class="grow" data-c="${c.id}" style="border:0;background:none;text-align:left;padding:0;display:flex;gap:12px;align-items:center"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(c.name)}</div>
-        <div class="st">${esc(c.province || 'No province')} · ${c.rep_name ? esc(c.rep_name) : '<b style="color:var(--rd)">no sales rep</b>'} · ${c.order_count} orders · ${c.last_visit_at ? 'visited ' + when(c.last_visit_at) : 'never visited'}</div></div></button>
+        <div class="st">${esc(c.province || 'No province')} · ${c.rep_name ? esc(c.rep_name) : c.import_rep ? `<b style="color:var(--or)">${esc(c.import_rep)} (no account yet)</b>` : '<b style="color:var(--rd)">no sales rep</b>'} · ${c.order_count} orders · ${c.last_visit_at ? 'visited ' + when(c.last_visit_at) : 'never visited'}</div></div></button>
         ${K.custPill(c.status) || (+c.owed ? `<span class="pill rd">owes ${money(c.owed)}</span>` : '<span class="pill gr">Paid up</span>')}</div>`).join('') || emptyBox('store', 'No shops found');
       $$('[data-sel]').forEach(x => x.onchange = () => { x.checked ? sel.add(+x.dataset.sel) : sel.delete(+x.dataset.sel); draw(); });
       $$('[data-c]').forEach(b => b.onclick = () => customerSheet(customers.find(c => c.id === +b.dataset.c), staff)); };
@@ -2930,6 +2930,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       <div class="btns"><label class="f">Owner<input class="inp" id="ow" value="${esc(c.owner_name || '')}"></label><label class="f">Phone<input class="inp" id="ph" type="tel" value="${esc(c.phone || '')}"></label></div>
       <label class="f">Area / market<input class="inp" id="ar" value="${esc(c.area || '')}"></label>
       <label class="f">Address<input class="inp" id="ad" value="${esc(c.address || '')}"></label>
+      <label class="f">Google Maps link (optional)${c.map_url || c.lat != null ? ` · <a href="${esc(c.lat != null ? `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}` : c.map_url)}" target="_blank" rel="noopener">open map</a>` : ''}<input class="inp" id="mu" value="${esc(c.map_url || '')}" placeholder="https://maps.app.goo.gl/..."></label>
       <div class="btns"><label class="f">Credit days (0 = cash only)<input class="inp" id="cd" type="number" inputmode="numeric" value="${c.credit_days || 0}"></label>
         <label class="f">Credit limit $ (0 = no limit)<input class="inp" id="cl" type="number" inputmode="decimal" value="${Number(c.credit_limit) || 0}" ${K.allow('customers.manage') ? '' : 'disabled'}></label></div>
       <div class="small muted" style="margin-top:-6px">With a limit, staff cannot make new orders when the shop already owes more than the limit.</div>
@@ -2945,7 +2946,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
     };
     if ($('#ok', s.el)) $('#ok', s.el).onclick = async e => {
       const row = Object.assign({}, c, { name: $('#nm', s.el).value.trim(), owner_name: $('#ow', s.el).value.trim(), phone: $('#ph', s.el).value.trim(), area: $('#ar', s.el).value.trim(),
-        address: $('#ad', s.el).value.trim(), credit_days: $('#cd', s.el).value, notes: $('#no', s.el).value.trim(), province: $('#pv', s.el).value });
+        address: $('#ad', s.el).value.trim(), credit_days: $('#cd', s.el).value, notes: $('#no', s.el).value.trim(), province: $('#pv', s.el).value, map_url: $('#mu', s.el).value.trim() });
       if (K.allow('customers.manage')) { row.assigned_to = $('#rp', s.el).value || null; row.credit_limit = +$('#cl', s.el).value || 0; } else { delete row.assigned_to; delete row.credit_limit; }
       if (!row.name) return toast('Enter the shop name');
       if (!row.province) return toast('Choose the province');
