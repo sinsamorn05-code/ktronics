@@ -405,7 +405,7 @@ window.makeSupabaseApi = function (cfg) {
     listCustomers: () => q(sb.rpc('list_customers')),
     async saveCustomer(c) {
       const row = { name: c.name, owner_name: c.owner_name || null, phone: c.phone || null, address: c.address || null, area: c.area || null,
-        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null };
+        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null, map_url: c.map_url || null };
       const mgr = me && (me.role === 'admin' || (me.perms || []).includes('customers.manage'));
       if (c.assigned_to !== undefined && mgr) row.assigned_to = c.assigned_to || null;
       if (c.credit_limit !== undefined && mgr) row.credit_limit = +c.credit_limit || 0;
@@ -924,7 +924,7 @@ window.makeDemoApi = function () {
     async saveCustomer(c) {
       if (!role()) fail('Your account is not active');
       const row = { name: c.name, owner_name: c.owner_name || null, phone: c.phone || null, address: c.address || null, area: c.area || null,
-        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null };
+        lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null, map_url: c.map_url || null };
       const boss = allow('customers.manage'), autoOk = allow('customers.approve');
       if (!c.id && !allow('customers.create')) fail('You are not allowed to add shops');
       if (c.assigned_to !== undefined && boss) row.assigned_to = c.assigned_to || null;
@@ -2531,10 +2531,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       ${boss ? `<input class="inp" id="rn" placeholder="Note to sales rep (optional)"><div class="btns"><button class="btn red sm" data-rv="rejected">${icon('x', 16)}Reject</button><button class="btn green sm" data-rv="approved">${icon('check', 16)}Approve shop</button></div>` : ''}</div>`;
     const unpaid = orders.filter(o => o.customer_id === id && o.status === 'delivered' && K.owedOf(o) > 0);
     const myOrders = orders.filter(o => o.customer_id === id).slice(0, 10), myVisits = visits.filter(v => v.customer_id === id).slice(0, 10);
-    const maps = c.lat != null ? `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}` : c.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}` : null;
+    const maps = c.lat != null ? `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}` : c.map_url ? esc(c.map_url) : c.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}` : null;
     main.innerHTML = `<div class="pad">${banner}
       <div class="card"><div class="row"><div class="ic-av sq" style="width:52px;height:52px">${icon('store', 26)}</div><div class="grow"><div class="tt" style="font-size:18px">${esc(c.name)}</div><div class="st">${esc([c.owner_name, c.address || c.area].filter(Boolean).join(' · ') || 'No address yet')}</div></div></div>
-        <div class="row small" style="gap:6px;flex-wrap:wrap">${icon('pin', 16)}<b>${esc(c.province || 'No province')}</b><span class="muted">· Sales rep:</span><b>${esc(c.rep_name || 'none')}</b></div>
+        <div class="row small" style="gap:6px;flex-wrap:wrap">${icon('pin', 16)}<b>${esc(c.province || 'No province')}</b><span class="muted">· Sales rep:</span><b>${esc(c.rep_name || (c.import_rep ? c.import_rep + ' (no account yet)' : 'none'))}</b></div>
         <div class="row" style="gap:6px;flex-wrap:wrap">${c.credit_days ? `<span class="pill bl">Credit ${c.credit_days} days</span>` : '<span class="pill gy">Cash only</span>'}${c.lat == null ? '<span class="pill or">No GPS location</span>' : ''}</div>
         <div class="btns">${c.phone ? `<a class="btn out sm" href="tel:${esc(c.phone.replace(/\s/g, ''))}">${icon('phone', 18)}Call</a>` : ''}${maps ? `<a class="btn out sm" href="${maps}" target="_blank" rel="noopener">${icon('nav', 18)}Map</a>` : ''}</div></div>
       <div class="stats"><div class="stat"><b style="color:${Number(c.owed) ? 'var(--rd)' : 'inherit'}">${money(c.owed)}</b><span>Still owed${c.oldest_unpaid_at ? ' · oldest ' + K.daysSince(c.oldest_unpaid_at) + ' days' : ''}</span></div><div class="stat"><b>${Number(c.credit_limit) ? money(c.credit_limit) : 'No limit'}</b><span>Credit limit</span></div><div class="stat"><b>${c.order_count}</b><span>Orders</span></div></div>
@@ -2560,6 +2560,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       <div class="btns"><label class="f">Owner<input class="inp" id="ow" value="${esc(c.owner_name || '')}"></label><label class="f">Phone<input class="inp" id="ph" type="tel" value="${esc(c.phone || '')}"></label></div>
       <label class="f">Area / market<input class="inp" id="ar" value="${esc(c.area || '')}" placeholder="e.g. Orussey Market"></label>
       <label class="f">Address<input class="inp" id="ad" value="${esc(c.address || '')}"></label>
+      <label class="f">Google Maps link (optional)<input class="inp" id="mu" value="${esc(c.map_url || '')}" placeholder="https://maps.app.goo.gl/..."></label>
       <div class="card" style="background:var(--bg)"><div class="row"><div class="grow"><b>GPS location</b><div class="small muted" id="locx">${loc ? 'Saved ✓' : 'Not saved — stand at the shop and tap the button'}</div></div><button class="btn sm ghost" id="gps">${icon('pin', 18)}Use my location</button></div></div>
       <div class="btns"><label class="f">Credit days (0 = cash only)<input class="inp" id="cd" type="number" inputmode="numeric" value="${c.credit_days || 0}"></label>
         ${boss ? `<label class="f">Credit limit $ (0 = no limit)<input class="inp" id="cl" type="number" inputmode="decimal" value="${Number(c.credit_limit) || 0}"></label>` : ''}</div>
@@ -2577,7 +2578,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
     $('#ok', s.el).onclick = async e => {
       const row = { id: c.id, name: $('#nm', s.el).value.trim(), owner_name: $('#ow', s.el).value.trim(), phone: $('#ph', s.el).value.trim(), area: $('#ar', s.el).value.trim(),
         address: $('#ad', s.el).value.trim(), price_level: c.price_level || 'Retail', credit_days: $('#cd', s.el).value, notes: $('#no', s.el).value.trim(), lat: loc ? loc.lat : null, lng: loc ? loc.lng : null,
-        province: $('#pv', s.el).value };
+        province: $('#pv', s.el).value, map_url: $('#mu', s.el).value.trim() };
       if ($('#rp', s.el)) row.assigned_to = $('#rp', s.el).value || null;
       if ($('#cl', s.el)) row.credit_limit = +$('#cl', s.el).value || 0;
       if (!row.name) return toast('Enter the shop name');
