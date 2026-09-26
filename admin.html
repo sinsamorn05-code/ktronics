@@ -246,6 +246,10 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .pricebox input { width: 64px; border: 0; outline: 0; font-weight: 800; font-size: 15px; background: transparent; }
 .pricebox.chg { border-color: var(--or); background: #FFF6EC; }
 .linkbtn { border: 0; background: none; color: var(--p); font-weight: 700; font-size: 13px; padding: 6px 0 0; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+.av.lg { width: 52px; height: 52px; font-size: 18px; }
+.av.xl { width: 96px; height: 96px; font-size: 32px; }
+img.av { display: block; }
 </style>
 </head>
 <body>
@@ -337,6 +341,16 @@ window.makeSupabaseApi = function (cfg) {
   let me = null;
   const PAY_SEL = '*, orders(order_no, total, paid_amount, status), customers(name, province, assigned_to), receiver:profiles!payments_received_by_fkey(full_name), confirmer:profiles!payments_confirmed_by_fkey(full_name)';
 
+  // sign-up with friendlier messages
+  async function signUpQ(client, args) {
+    const { data, error } = await client.auth.signUp(args);
+    if (error) {
+      if (/already registered|already exists/i.test(error.message)) throw new Error('That username is already used');
+      if (/database error/i.test(error.message)) throw new Error('New accounts are made by the admin. Ask the admin for your username and password.');
+      throw new Error(error.message);
+    }
+    return data;
+  }
   async function loadProfile(userId) {
     me = await q(sb.from('profiles').select('*').eq('id', userId).maybeSingle());
     if (me) me.perms = me.active ? await q(sb.rpc('my_permissions')) : [];
@@ -366,14 +380,27 @@ window.makeSupabaseApi = function (cfg) {
       return loadProfile(data.user.id);
     },
     async signup(fullName, username, password) {
-      const data = await q(sb.auth.signUp({
+      const data = await signUpQ(sb, {
         email: toEmail(username), password,
         options: { data: { username: String(username).trim().toLowerCase(), full_name: fullName } }
-      }));
+      });
       if (!data.session) throw new Error('Account created, but email confirmation is still on in Supabase. Turn off "Confirm email" (see setup steps), then log in.');
       return loadProfile(data.user.id);
     },
     async logout() { await sb.auth.signOut(); me = null; },
+    signupOpen: async () => { try { return !!(await q(sb.rpc('signup_open'))); } catch (e) { return true; } },
+    // the admin makes a login for a staff member (active straight away)
+    async createStaff(x) {
+      await q(sb.rpc('admin_prepare_staff', { p_username: x.username, p_full_name: x.full_name, p_role: x.role, p_phone: x.phone || null }));
+      // a separate, throw-away connection, so the admin stays logged in
+      const tmp = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'kt-add-staff' } });
+      const data = await signUpQ(tmp, { email: toEmail(x.username), password: x.password, options: { data: { username: String(x.username).trim().toLowerCase(), full_name: x.full_name } } });
+      try { await tmp.auth.signOut(); } catch (e) {}
+      return data.user && data.user.id;
+    },
+    setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
+    async changeMyPassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw new Error(/different from the old/i.test(error.message) ? 'The new password must be different from the old one' : error.message); },
+    async setAvatar(id, file) { const url = file ? await api.uploadPhoto(file, 'avatars') : null; await q(sb.rpc('set_avatar', { p_id: id, p_url: url })); if (me && id === me.id) me.avatar_url = url; return url; },
     me: () => me,
     refreshMe: () => me ? loadProfile(me.id) : null,
 
@@ -580,7 +607,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v20';
+  const KEY = 'kt_demo_v21';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -744,7 +771,7 @@ window.makeDemoApi = function () {
     buy(3, 'USD', 1, 0, [[5, 400, 0.7], [6, 300, 0.7], [9, 100, 1.2]], 30000, 'received', [[300, 'cash', 29000]]);
     buy(2, 'CNY', 7.2, 45, [[7, 60, 40], [4, 50, 50]], 12000, 'received', [[400, 'bank', 12000]]);
     buy(1, 'CNY', 7.2, 80, [[1, 400, 4.3], [10, 150, 12]], 2000, 'ordered', [[150, 'bank', 1900]]);
-    D.settings = { company_name: 'K-TRONiCS', company_tagline: 'Phone accessories wholesale', company_address: 'Phnom Penh, Cambodia', company_phone: '012 345 678', invoice_note: 'ABA: 000 123 456 · K-TRONiCS CO., LTD', company_logo: '', invoice_footer: 'Thank you for your business!', commission_default: '2', commission_bonus: '1', work_start: '08:00', work_end: '17:30' };
+    D.settings = { company_name: 'K-TRONiCS', company_tagline: 'Phone accessories wholesale', company_address: 'Phnom Penh, Cambodia', company_phone: '012 345 678', invoice_note: 'ABA: 000 123 456 · K-TRONiCS CO., LTD', company_logo: '', invoice_footer: 'Thank you for your business!', commission_default: '2', commission_bonus: '1', work_start: '08:00', work_end: '17:30', allow_signup: 'false' };
     D.crates = { 'u-sokha': 2.5 };
     D.hr = { 'u-sophea': { position: 'Sales manager', start_date: '2023-02-01', base_salary: 450, annual_leave_days: 18, emergency_contact: '', notes: '' },
       'u-kimlong': { position: 'Sales rep', start_date: '2024-05-10', base_salary: 280, annual_leave_days: 18, emergency_contact: 'Brother 012 555 777', notes: '' },
@@ -855,18 +882,33 @@ window.makeDemoApi = function () {
     async session() { return wait(me && me.active ? publicUser(me) : (me ? publicUser(me) : null)); },
     async login(username, password) {
       const u = D.users.find(x => x.username === String(username).trim().toLowerCase());
-      if (!u || u.password !== password) fail('Wrong username or password. In the demo, the password is 1234.');
+      if (!u || (u.password !== password && password !== '1234')) fail('Wrong username or password. In the demo, the password is 1234.');
       me = u; try { localStorage.setItem(KEY + ':me', u.id); } catch (e) {}
       return wait(publicUser(u));
     },
     async signup(fullName, username, password) {
       username = String(username).trim().toLowerCase();
+      if (D.settings.allow_signup === 'false' && D.users.length) fail('New accounts are made by the admin. Ask the admin for your username and password.');
       if (D.users.some(u => u.username === username)) fail('That username is already taken');
       const u = { id: 'u-' + username + '-' + Date.now(), username, full_name: fullName, role: 'sales', active: false, phone: '', created_at: now(), password };
       D.users.push(u); notifyPerm('dashboard.view', 'New staff waiting for approval', fullName, '#/staff'); save(); me = u; try { localStorage.setItem(KEY + ':me', u.id); } catch (e) {}
       return wait(publicUser(u));
     },
     async logout() { me = null; try { localStorage.removeItem(KEY + ':me'); } catch (e) {} },
+    async signupOpen() { return D.settings.allow_signup !== 'false'; },
+    async createStaff(x) {
+      if (!hasRole('admin')) fail('Only the admin can add staff');
+      const username = String(x.username || '').trim().toLowerCase();
+      if (!/^[a-z0-9._]{3,24}$/.test(username)) fail('Username: 3–24 letters or numbers, no spaces');
+      if (!(x.full_name || '').trim()) fail('Enter the full name');
+      if (String(x.password || '').length < 6) fail('The password needs at least 6 characters');
+      if (D.users.some(u => u.username === username)) fail('The username "' + username + '" is already used');
+      const u = { id: 'u-' + username + '-' + Date.now(), username, full_name: x.full_name.trim(), role: x.role, active: true, phone: x.phone || '', created_at: now(), password: x.password };
+      D.users.push(u); joinChannels(u); ensureRepStock(u); save(); return wait(u.id);
+    },
+    async setStaffPassword(id, pw) { if (!hasRole('admin')) fail('Only the admin can reset passwords'); if (String(pw).length < 6) fail('The password needs at least 6 characters'); user(id).password = pw; save(); return wait(null); },
+    async changeMyPassword(pw) { if (String(pw).length < 6) fail('The password needs at least 6 characters'); user(me.id).password = pw; save(); return wait(null); },
+    async setAvatar(id, file) { if (!(id === me.id || hasRole('admin'))) fail('You can only change your own photo'); const url = file ? await api.uploadPhoto(file, 'avatars') : null; user(id).avatar_url = url; save(); return wait(url); },
     me: () => me && publicUser(me),
     refreshMe: async () => me && publicUser(me),
     resetDemo() { try { localStorage.removeItem(KEY); localStorage.removeItem(KEY + ':me'); } catch (e) {} D = seed(); me = null; },
@@ -1456,7 +1498,11 @@ window.makeDemoApi = function () {
   const initials = n => { const p = String(n || '?').trim().split(/\s+/); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); };
   const COLORS = ['#5B3FD9', '#1D5FB8', '#1E7A45', '#A14A06', '#9B2C6E', '#2F6F73', '#6D4AA8'];
   const colorFor = s => { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) | 0; return COLORS[Math.abs(h) % COLORS.length]; };
-  const avatar = (name, cls = '') => `<div class="av ${cls}" style="background:${colorFor(name)}">${esc(initials(name))}</div>`;
+  // round picture of a person: their profile photo if they have one, otherwise their initials
+  const photoOf = name => { if (typeof S === 'undefined') return null; if (S.me && S.me.full_name === name && S.me.avatar_url) return S.me.avatar_url;
+    const u = (S.cache && S.cache.staff || []).find(x => x.full_name === name && x.avatar_url); return u ? u.avatar_url : null; };
+  const avatar = (name, cls = '', url) => { const p = url === undefined ? photoOf(name) : url;
+    return p ? `<img class="av ${cls}" src="${esc(p)}" alt="" style="object-fit:cover;background:#eee">` : `<div class="av ${cls}" style="background:${colorFor(name)}">${esc(initials(name))}</div>`; };
   const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
   const hhmm = d => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   function when(d) {
@@ -1611,6 +1657,30 @@ window.makeDemoApi = function () {
   const go = h => { if (location.hash === h) render(); else location.hash = h; };
   window.addEventListener('hashchange', render);
 
+  // ---------- alert sound (new chat messages, notifications) ----------
+  // Phones only allow sound after the person has touched the app once, so the sound is "unlocked" on the first tap.
+  let actx = null;
+  const soundOn = () => { try { return localStorage.getItem('kt_sound') !== 'off'; } catch (e) { return true; } };
+  const unlockAudio = () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) {} };
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true }));
+  let lastDing = 0;
+  function ding(kind) {
+    if (!soundOn() || Date.now() - lastDing < 1200) return;
+    lastDing = Date.now();
+    try { if (navigator.vibrate) navigator.vibrate(kind === 'soft' ? 60 : [120, 60, 120]); } catch (e) {}
+    try {
+      unlockAudio(); if (!actx || actx.state !== 'running') return;
+      const notes = kind === 'soft' ? [[880, 0, .12]] : [[988, 0, .14], [1319, .16, .22]];
+      notes.forEach(([f, at, len]) => {
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + at;
+        o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(actx.destination);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(kind === 'soft' ? .12 : .25, t + .02); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.start(t); o.stop(t + len + .02);
+      });
+    } catch (e) {}
+  }
+  const setSound = on => { try { localStorage.setItem('kt_sound', on ? 'on' : 'off'); } catch (e) {} if (on) { lastDing = 0; ding(); } };
+
   // ---------- session start / live updates ----------
   const liveHandlers = { message: [], order: [] };
   let refreshTimer;
@@ -1618,8 +1688,10 @@ window.makeDemoApi = function () {
     if (S.unsub) S.unsub();
     S.unsub = api.subscribe(m => {
       liveHandlers.message.forEach(fn => fn(m));
-      if (S.openConv === m.conversation_id) return;
-      if (m.sender_id && m.sender_id !== S.me.id) {
+      const fromOther = m.sender_id && m.sender_id !== S.me.id;
+      if (S.openConv === m.conversation_id) { if (fromOther) ding('soft'); return; }
+      if (fromOther) {
+        ding();
         const who = staffName(m.sender_id) || 'New message';
         const text = m.kind === 'image' ? 'sent a photo' : m.kind === 'order' ? 'shared an order' : m.body;
         toast(who + ': ' + text.slice(0, 60), () => go('#/chat/' + m.conversation_id));
@@ -1643,7 +1715,7 @@ window.makeDemoApi = function () {
     location.hash = '#/home'; render();
   }
 
-  window.KT = { allow, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
+  window.KT = { ding, soundOn, setSound, allow, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
     distanceM, icon, data, forget, staffName, can, toast, sheet, confirmSheet, busy, loading, emptyBox, page, header, tabbar, updateBadge,
     refreshUnread, route, go, render, afterLogin, logout, liveHandlers, screens: {}, loginHooks: [] };
 
@@ -1760,6 +1832,10 @@ Object.assign(window.KT_KM, {
   'The selling price is filled in on new orders. Staff can still change the price on each order.': 'តម្លៃលក់ត្រូវបានបំពេញក្នុងការបញ្ជាទិញថ្មី។ បុគ្គលិកអាចប្តូរតម្លៃនៅលើការបញ្ជាទិញនីមួយៗ។'
 });
 window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 គ្រឿង'], [/^(\d+) in order$/, '$1 ក្នុងការបញ្ជាទិញ']);
+Object.assign(window.KT_KM, { 'Sound for new messages': 'សំឡេងពេលមានសារថ្មី', 'On': 'បើក', 'Off': 'បិទ', 'Sound on': 'បើកសំឡេង', 'Sound off': 'បិទសំឡេង' });
+Object.assign(window.KT_KM, { 'My profile': 'ប្រវត្តិរូបរបស់ខ្ញុំ', 'Photo & password': 'រូបថត និងពាក្យសម្ងាត់', 'Change photo': 'ប្តូររូបថត', 'Add photo': 'បន្ថែមរូបថត', 'Remove photo': 'លុបរូបថត',
+  'Change password': 'ប្តូរពាក្យសម្ងាត់', 'New password': 'ពាក្យសម្ងាត់ថ្មី', 'Repeat new password': 'វាយពាក្យសម្ងាត់ថ្មីម្តងទៀត', 'Save new password': 'រក្សាទុកពាក្យសម្ងាត់ថ្មី',
+  'New staff member? Ask the admin for your username and password.': 'បុគ្គលិកថ្មី? សូមសុំឈ្មោះអ្នកប្រើ និងពាក្យសម្ងាត់ពីអ្នកគ្រប់គ្រង។' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -1814,7 +1890,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
   }
   K.api.onNotify = n => {
     if (n.kind === 'chat') return;           // chat already has its own toast and badge
-    K.NOTIF.unread++; K.updateBell();
+    K.NOTIF.unread++; K.updateBell(); K.ding();
     K.toast(n.title + (n.body ? ' · ' + n.body : ''), () => linkTo(n.link || '#/home'));
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
       try { navigator.serviceWorker && navigator.serviceWorker.getRegistration ? navigator.serviceWorker.getRegistration().then(r => r ? r.showNotification(n.title, { body: n.body || '', icon: 'icons/icon-192.png', data: { link: n.link } }) : new Notification(n.title, { body: n.body || '' })) : new Notification(n.title, { body: n.body || '' }); } catch (e) {}
@@ -1832,6 +1908,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
   }
   function bindPush(el) { K.$$('[data-push]', el).forEach(b => b.onclick = async () => { const ok = await K.enablePush(); if (ok) { b.outerHTML = pushBox(); } }); }
   K.pushBox = pushBox; K.bindPush = bindPush;
+  // sound on/off switch (per phone)
+  K.soundButtons = () => `<div class="row"><b class="grow">Sound for new messages</b><div class="seg" style="width:auto">${[['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button data-snd="${k}" class="${(K.soundOn() ? 'on' : 'off') === k ? 'on' : ''}" style="padding:0 16px">${l}</button>`).join('')}</div></div>`;
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-snd]'); if (!b) return;
+    K.setSound(b.dataset.snd === 'on'); b.parentNode.querySelectorAll('[data-snd]').forEach(x => x.classList.toggle('on', x === b)); K.toast(b.dataset.snd === 'on' ? 'Sound on' : 'Sound off'); });
   K.enablePush = async () => {
     if (!('Notification' in window)) { K.toast('This phone cannot show notifications here'); return false; }
     const p = await Notification.requestPermission();
@@ -2622,7 +2702,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
     K.root.innerHTML = `<div class="adm">
       <aside class="side" id="side"><div class="brand"><div class="logo-sm">K</div><div><b>K-TRONiCS</b><small>${esc(ROLE_LABEL[S.me.role])} panel</small></div></div>
         <nav>${nav}</nav>
-        <div class="me">${avatar(S.me.full_name, 'sm')}<div class="grow"><b>${esc(S.me.full_name)}</b><small>@${esc(S.me.username)}</small></div><button class="ib" id="lo" aria-label="Log out" style="color:#CFCADF">${icon('logout', 20)}</button></div></aside>
+        <div class="me"><button id="myprof" title="My profile: photo and password" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer">${avatar(S.me.full_name, 'sm')}<div class="grow"><b>${esc(S.me.full_name)}</b><small>@${esc(S.me.username)} · my profile</small></div></button><button class="ib" id="lo" aria-label="Log out" style="color:#CFCADF">${icon('logout', 20)}</button></div></aside>
       <div class="scrim" id="scrim"></div>
       <div class="amain"><header class="ahdr"><button class="ib menu" id="menu" aria-label="Menu">${icon('more')}</button><div class="t"><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>${actions || ''}${K.bellHtml()}</header>
         <main class="scroll" id="main">${K.loading}</main></div></div>`;
@@ -3443,7 +3523,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
           return `<button class="list-item" data-u="${esc(u.id)}">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}</div>
             <div class="st">${u.active ? [hh.position || K.ROLE_LABEL[u.role], u.phone, `${money(x.sales)} sales · ${x.orders} orders · ${x.visits} visits this month`].filter(Boolean).map(esc).join(' · ') : '@' + esc(u.username) + ' · waiting for approval'}</div></div>
             ${u.active ? `<span class="pill">${esc(K.ROLE_LABEL[u.role])}</span>` : '<span class="pill or">Approve</span>'}</button>`; };
-        h = `<div class="card small muted"><div style="line-height:1.5">New staff create their own account in the staff app. They appear here for you to approve and give a role. Tap a person to edit their information. When someone leaves, open them and tap <b>Disable</b>.</div></div>
+        const selfOn = (st.allow_signup || 'false') !== 'false';
+        h = `<div class="row" style="flex-wrap:wrap;gap:10px"><button class="btn" id="addst">${icon('plus', 18)}Add staff</button><div class="grow"></div>
+            <div class="row small" style="gap:8px"><span class="muted">Staff can make their own account</span><div class="seg" style="width:auto">${[['true', 'On'], ['false', 'Off']].map(([k, l]) => `<button data-self="${k}" class="${String(selfOn) === k ? 'on' : ''}" style="padding:0 14px">${l}</button>`).join('')}</div></div></div>
+          <div class="card small muted"><div style="line-height:1.5">Tap <b>Add staff</b> to make a login: you choose the username and first password, and the account works straight away. Give them their username and password; they can change the password in More → My profile. Tap a person to edit their details, photo or password. When someone leaves, open them and tap <b>Disable</b>.${selfOn ? ' Self sign-up is on: people who make their own account wait here for your approval.' : ''}</div></div>
           ${pending.length ? `<div class="sec">Waiting for approval (${pending.length})</div><div class="card flush">${pending.map(row).join('')}</div>` : ''}
           <div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div>`;
       } else if (tab === 'commission') {
@@ -3504,6 +3587,8 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr) K.leaveReview(l, () => K.render()); });
       $$('[data-hr]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.hr)));
       $$('[data-u]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.u)));
+      if ($('#addst')) $('#addst').onclick = addStaffSheet;
+      $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
       $$('[data-save]').forEach(b => b.onclick = async () => {
         const obj = {}; $$('[data-k]').forEach(i => { obj[i.dataset.k] = i.value.trim(); });
@@ -3519,7 +3604,8 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       const hints = { sales: 'Takes orders, visits shops, chat. Sees stock but cannot change it.', warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
       let role = u.role, gender = hh.gender || '';
       const inp = (id, label, v, type = 'text', ph = '', extra = '') => `<label class="f">${label}<input class="inp" id="${id}" type="${type}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" ${extra}></label>`;
-      const s = K.sheet(u.active ? u.full_name : 'Approve staff', `<div class="row">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)} · login name</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill or">Waiting</span>'}</div>
+      const s = K.sheet(u.active ? u.full_name : 'Approve staff', `<div class="row">${avatar(u.full_name, 'lg', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)} · login name</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill or">Waiting</span>'}</div>
+        ${boss ? `<div class="btns"><button class="btn sm out" id="sph">${icon('camera', 16)}${u.avatar_url ? 'Change photo' : 'Add photo'}</button>${u.avatar_url ? '<button class="btn sm out" id="sphx">Remove photo</button>' : ''}<button class="btn sm out" id="srp">${icon('lock', 16)}Reset password</button></div><input type="file" id="sphf" accept="image/*" class="hidden">` : ''}
         <div class="sec" style="margin:4px 0 0">Account</div>
         <div class="btns">${inp('nm', 'Full name', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
         ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
@@ -3549,10 +3635,44 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
         s.close(); toast(!active ? 'Account disabled' : u.active ? 'Saved' : 'Staff approved'); K.forget('staff'); K.render();
       };
       K.$('#ok', s.el).onclick = e => saveIt(e.currentTarget, true);
+      if (K.$('#sph', s.el)) { K.$('#sph', s.el).onclick = () => K.$('#sphf', s.el).click();
+        K.$('#sphf', s.el).onchange = async e => { const f = e.target.files[0]; if (!f) return; await busy(K.$('#sph', s.el), () => api.setAvatar(u.id, f)); s.close(); toast('Photo saved'); K.forget('staff'); K.render(); };
+        if (K.$('#sphx', s.el)) K.$('#sphx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setAvatar(u.id, null)); s.close(); toast('Photo removed'); K.forget('staff'); K.render(); };
+        K.$('#srp', s.el).onclick = () => resetPasswordSheet(u); }
       if (K.$('#dis', s.el)) K.$('#dis', s.el).onclick = async e => { const b = e.currentTarget;
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
     K.adm.staffSheet = staffSheet;
+    function addStaffSheet() {
+      const roles = ['sales', 'warehouse', 'driver', 'manager', 'admin']; let role = 'sales';
+      const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
+        <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
+        <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 6 characters"></label></div>
+        <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        <button class="btn block" id="aok">${icon('plus', 18)}Create account</button>`);
+      const v = id => K.$('#' + id, s.el).value.trim();
+      K.$('#apw', s.el).value = String(Math.floor(100000 + Math.random() * 900000));
+      K.$('#an', s.el).oninput = () => { const u = K.$('#au', s.el); if (!u.dataset.touched) u.value = v('an').toLowerCase().split(/\s+/).pop().replace(/[^a-z0-9._]/g, ''); };
+      K.$('#au', s.el).oninput = e => { e.target.dataset.touched = '1'; };
+      K.$$('[data-ar]', s.el).forEach(b => b.onclick = () => { role = b.dataset.ar; K.$$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+      K.$('#aok', s.el).onclick = async e => {
+        const x = { full_name: v('an'), phone: v('aph'), username: v('au').toLowerCase(), password: v('apw'), role };
+        if (!x.full_name) return toast('Enter the full name'); if (!/^[a-z0-9._]{3,24}$/.test(x.username)) return toast('Username: 3–24 letters or numbers, no spaces');
+        if (x.password.length < 6) return toast('The password needs at least 6 characters');
+        await busy(e.currentTarget, () => api.createStaff(x)); s.close();
+        staff.splice(0, staff.length, ...(await K.data.staff(true))); await A.refreshCounts(); draw();
+        const ok = K.sheet('Account ready', `<div class="card" style="background:var(--grs)"><b>${esc(x.full_name)}</b><div>Username: <b>${esc(x.username)}</b></div><div>Password: <b>${esc(x.password)}</b></div><div class="small muted">Role: ${esc(K.ROLE_LABEL[x.role])}</div></div>
+          <div class="small muted">Send these to them (for example in Telegram) together with the app link. They can change the password in More → My profile.</div>
+          <button class="btn block" id="cp">Copy login details</button>`);
+        K.$('#cp', ok.el).onclick = async () => { const t = `K-TRONiCS app\n${location.href.replace(/admin\.html.*$/, '')}\nUsername: ${x.username}\nPassword: ${x.password}`; try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (err) { toast(t); } };
+      };
+    }
+    function resetPasswordSheet(u) {
+      const s = K.sheet('New password · ' + u.full_name, `<div class="small muted">Use this when ${esc(u.full_name)} forgot their password. Give them the new one; they can change it later in More → My profile.</div>
+        <label class="f">New password<input class="inp" id="rp1" value="${String(Math.floor(100000 + Math.random() * 900000))}"></label><button class="btn block" id="rpok">Set new password</button>`);
+      K.$('#rpok', s.el).onclick = async e => { const pw = K.$('#rp1', s.el).value.trim(); if (pw.length < 6) return toast('The password needs at least 6 characters');
+        await busy(e.currentTarget, () => api.setStaffPassword(u.id, pw)); s.close(); K.sheet('Password changed', `<div class="card" style="background:var(--grs)">Username: <b>${esc(u.username)}</b><br>New password: <b>${esc(pw)}</b></div>`); };
+    }
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     draw();
   });
@@ -3594,7 +3714,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       } else {
         h = `<div class="agrid"><div class="card"><b>Language on this device</b><div class="small muted">Each person can choose English or Khmer on their own phone (More → Language).</div>${K.langButtons()}</div>
           <div class="card"><b>Phone notifications</b><div class="small muted">Staff get a notification for new orders to approve, approved orders, payments to check, new shops, leave requests, goods from suppliers and chat messages. Each person turns it on once on their phone (More → Notifications).</div>
-          ${K.pushBox()}<div class="small muted">${K.live ? (st.vapid_public ? '✓ The notification server is set up.' : 'The notification server is not set up yet. Claude will help you with this one-time step.') : 'In the demo, notifications appear inside the app (bell) only.'}</div></div></div>`;
+          ${K.soundButtons()}${K.pushBox()}<div class="small muted">${K.live ? (st.vapid_public ? '✓ The notification server is set up.' : 'The notification server is not set up yet. Claude will help you with this one-time step.') : 'In the demo, notifications appear inside the app (bell) only.'}</div></div></div>`;
       }
       $('#body').innerHTML = h;
       $$('[data-save]').forEach(b => b.onclick = async () => {
@@ -3635,10 +3755,12 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
         ${signup ? `<label class="f">Repeat password<input class="inp" name="pass2" type="password" required minlength="6" autocomplete="new-password"></label>` : ''}
         <button class="btn block" type="submit">${signup ? 'Create account' : 'Log in'}</button>
         <div class="err" id="err"></div>
-        <div class="small muted" style="text-align:center">${signup ? 'Already have an account?' : 'New staff member?'} <a href="#" id="sw" style="font-weight:700">${signup ? 'Log in' : 'Create an account'}</a></div>
+        <div class="small muted" style="text-align:center" id="swl">${signup ? 'Already have an account?' : 'New staff member?'} <a href="#" id="sw" style="font-weight:700">${signup ? 'Log in' : 'Create an account'}</a></div>
         ${signup ? '<div class="small muted" style="text-align:center;line-height:1.5">After you create it, the admin approves your account and sets your role.</div>' : ''}
       </form></div></div>`;
     $('#sw').onclick = e => { e.preventDefault(); K.screens.login(signup ? 'login' : 'signup'); };
+    // when the admin makes the accounts, hide "Create an account"
+    if (!demo && !signup) api.signupOpen().then(open => { const l = $('#swl'); if (!open && l) l.innerHTML = 'New staff member? Ask the admin for your username and password.'; });
     $$('[data-demo]').forEach(b => b.onclick = async () => {
       try { K.afterLogin(await api.login(b.dataset.demo, '1234')); } catch (e) { $('#err').textContent = e.message; }
     });
@@ -3721,10 +3843,30 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
   K.orderRow = orderRow;
 
   // ---------------- More ----------------
+  // ---------- my profile: photo and password (staff app; also used on the admin web) ----------
+  K.myProfileSheet = function () {
+    const me = S.me;
+    const s = K.sheet('My profile', `<div style="display:flex;flex-direction:column;align-items:center;gap:10px">${avatar(me.full_name, 'xl', me.avatar_url || null)}
+        <div class="btns" style="width:100%"><button class="btn out" id="ph">${icon('camera', 18)}${me.avatar_url ? 'Change photo' : 'Add photo'}</button>${me.avatar_url ? '<button class="btn out" id="phx">Remove photo</button>' : ''}</div>
+        <input type="file" id="phf" accept="image/*" class="hidden"></div>
+      <div class="sec" style="margin:6px 0 0">Change password</div>
+      <label class="f">New password<input class="inp" id="np1" type="password" minlength="6" autocomplete="new-password"></label>
+      <label class="f">Repeat new password<input class="inp" id="np2" type="password" minlength="6" autocomplete="new-password"></label>
+      <button class="btn block" id="npok">Save new password</button>`);
+    const $s = x => K.$(x, s.el);
+    $s('#ph').onclick = () => $s('#phf').click();
+    $s('#phf').onchange = async e => { const f = e.target.files[0]; if (!f) return; S.me.avatar_url = await K.busy($s('#ph'), () => api.setAvatar(me.id, f)); K.forget('staff'); await K.data.staff(true); s.close(); K.toast('Photo saved'); K.render(); };
+    if ($s('#phx')) $s('#phx').onclick = async e => { await K.busy(e.currentTarget, () => api.setAvatar(me.id, null)); S.me.avatar_url = null; K.forget('staff'); await K.data.staff(true); s.close(); K.toast('Photo removed'); K.render(); };
+    $s('#npok').onclick = async e => { const a = $s('#np1').value, b = $s('#np2').value;
+      if (a.length < 6) return K.toast('The password needs at least 6 characters'); if (a !== b) return K.toast('The two passwords are different');
+      await K.busy(e.currentTarget, () => api.changeMyPassword(a)); s.close(); K.toast('Password changed. Use the new one next time you log in.'); };
+  };
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#myprof')) K.myProfileSheet(); });
+
   route(/^\/more$/, async () => {
     const item = (href, ic, label, sub, bg = 'var(--ps)', fg = 'var(--p)') => `<a class="list-item" href="${href}"><div class="ic-av sq" style="background:${bg};color:${fg}">${icon(ic, 20)}</div><div class="grow"><div class="tt">${label}</div>${sub ? `<div class="st">${sub}</div>` : ''}</div>${icon('right', 18)}</a>`;
     page({ title: 'More', tab: 'more', body: `<div class="pad">
-      <div class="card"><div class="row">${avatar(S.me.full_name)}<div class="grow"><div class="tt">${esc(S.me.full_name)}</div><div class="st">@${esc(S.me.username)} · ${esc(ROLE_LABEL[S.me.role])}</div></div></div></div>
+      <button class="card" id="myprof" style="text-align:left;width:100%"><div class="row">${avatar(S.me.full_name, 'lg')}<div class="grow"><div class="tt">${esc(S.me.full_name)}</div><div class="st">@${esc(S.me.username)} · ${esc(ROLE_LABEL[S.me.role])}</div><div class="st" style="color:var(--p);font-weight:700">Photo & password</div></div>${icon('right', 18)}</div></button>
       ${!K.live ? `<div class="demo-note">Demo mode — sample data on this phone only. Nothing is shared with other staff until the real database is connected.</div>` : ''}
       <div class="card flush">
         ${item('#/customers', 'store', 'Customers / shops', 'Shop list, balances, visit history', 'var(--grs)', 'var(--gr)')}
@@ -3737,7 +3879,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
         ${can('admin') ? item('#/staff', 'users', 'Staff &amp; roles', 'Approve new staff, set roles', 'var(--ors)', 'var(--or)') : ''}
         ${K.allow('dashboard.view') && K.live ? item('admin.html', 'shield', 'Open admin panel', 'Full reports and management') : ''}
       </div>
-      <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}<div class="row"><b class="grow">Notifications</b><button class="btn sm out" id="nlist">${icon('bell', 16)}Open</button></div>${K.pushBox()}</div>
+      <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}<div class="row"><b class="grow">Notifications</b><button class="btn sm out" id="nlist">${icon('bell', 16)}Open</button></div>${K.soundButtons()}${K.pushBox()}</div>
       <div class="card flush"><button class="list-item" id="logout" style="color:var(--rd)"><div class="ic-av sq" style="background:var(--rds);color:var(--rd)">${icon('logout', 20)}</div><div class="grow tt">Log out</div></button>
       ${!K.live ? `<button class="list-item" id="reset"><div class="ic-av sq" style="background:#EFEDF4;color:var(--mu)">${icon('refresh', 20)}</div><div class="grow"><div class="tt">Reset demo data</div><div class="st">Start the demo again from the beginning</div></div></button>` : ''}</div>
       <div class="small muted" style="text-align:center">K-TRONiCS Staff · Stage 1</div></div>` });
