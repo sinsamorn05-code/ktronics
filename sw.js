@@ -1,6 +1,6 @@
 // Lets the app open instantly. The app page is always fetched fresh when
 // online, so new versions reach every phone on the next open.
-const CACHE = 'kt-staff-v2';
+const CACHE = 'kt-staff-v4';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== CACHE).map(x => caches.delete(x)))).then(() => self.clients.claim())));
