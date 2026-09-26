@@ -296,7 +296,8 @@ window.KT_PERMS = [
     ['purchases.receive', 'Receive goods from suppliers', 'Adds the goods into stock']] },
   { group: 'Shop visits', items: [
     ['visits.create', 'Check in at shops'],
-    ['visits.view_all', 'See all staff visits']] },
+    ['visits.view_all', 'See all staff visits'],
+    ['visits.manage', 'Edit or delete any staff visit', 'Without this, staff can only fix their own visits on the same day']] },
   { group: 'Expenses', items: [
     ['expenses.create', 'Write down own expenses'],
     ['expenses.approve', 'Approve and pay back expenses'],
@@ -315,7 +316,7 @@ window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
   manager: ['orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others',
-    'chat.announce', 'chat.create_group', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view'],
+    'chat.announce', 'chat.create_group', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage'],
   sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   warehouse: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
   driver: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'expenses.create', 'chat.create_group']
@@ -381,6 +382,7 @@ window.makeSupabaseApi = function (cfg) {
 
     // stock
     listWarehouses: () => q(sb.from('warehouses').select('*').order('id')),
+    deleteProduct: id => q(sb.rpc('delete_product', { p_id: id })),
     async listProducts() {
       const [products, stock] = await Promise.all([
         q(sb.from('products').select('*').eq('active', true).order('name')),
@@ -449,6 +451,8 @@ window.makeSupabaseApi = function (cfg) {
       const photo_url = v.photo ? await api.uploadPhoto(v.photo, 'visits') : null;
       return q(sb.from('visits').insert({ customer_id: v.customer_id, staff_id: me.id, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null }).select().single());
     },
+    updateVisit: (id, customerId, notes) => q(sb.rpc('update_visit', { p_id: id, p_customer: customerId, p_notes: notes || '' })),
+    deleteVisit: id => q(sb.rpc('delete_visit', { p_id: id })),
     checkOut: (id, notes) => q(sb.from('visits').update({ check_out_at: new Date().toISOString(), notes: notes || null }).eq('id', id)),
 
     // chat
@@ -575,7 +579,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v18';
+  const KEY = 'kt_demo_v20';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -831,6 +835,8 @@ window.makeDemoApi = function () {
   const payOut = p => { const o = D.orders.find(x => x.id === p.order_id) || {}, c = D.customers.find(x => x.id === p.customer_id) || {};
     return Object.assign(clone(p), { orders: { order_no: o.order_no, total: o.total, paid_amount: o.paid_amount, status: o.status }, customers: { name: c.name, province: c.province, assigned_to: c.assigned_to },
       receiver: { full_name: (user(p.received_by) || {}).full_name }, confirmer: p.confirmed_by ? { full_name: (user(p.confirmed_by) || {}).full_name } : null }); };
+  const canFixVisit = v => role() && (allow('visits.manage') || (v.staff_id === me.id && localDay0(new Date(v.check_in_at)) === localDay0(new Date())));
+  const dist = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
   const SOLD = ['approved', 'packed', 'delivering', 'delivered', 'paid'];
   // price on an order line: the typed price (0 = free), otherwise the product price
   const priceFor = (p, it) => { if (it && it.price !== undefined && it.price !== null && it.price !== '') { const v = Math.round(+it.price * 100) / 100; if (!(v >= 0)) fail('Price cannot be below 0'); return v; } return p.price; };
@@ -872,6 +878,12 @@ window.makeDemoApi = function () {
     },
 
     async listWarehouses() { return wait(clone(D.warehouses)); },
+    async deleteProduct(id) {
+      if (!allow('stock.manage')) fail('You are not allowed to delete products');
+      const p = D.products.find(x => x.id === id); if (!p) fail('Product not found');
+      if (D.items.some(i => i.product_id === id) || (D.pitems || []).some(i => i.product_id === id)) { if (p.active) { p.active = false; p.sku = p.sku + '·deleted-' + id; } save(); return wait('hidden'); }
+      D.products.splice(D.products.indexOf(p), 1); Object.keys(D.stock).forEach(k => { if (k.startsWith(id + ':')) delete D.stock[k]; }); D.moves = D.moves.filter(m => m.product_id !== id); save(); return wait('deleted');
+    },
     async listProducts() {
       if (!role()) return [];
       return wait(D.products.filter(p => p.active).sort((a, b) => a.name.localeCompare(b.name)).map(p => {
@@ -1082,6 +1094,14 @@ window.makeDemoApi = function () {
       const row = { id: ++D.seq.visit, customer_id: v.customer_id, staff_id: me.id, check_in_at: now(), check_out_at: null, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null };
       D.visits.push(row); save(); return wait(clone(row));
     },
+    async updateVisit(id, customerId, notes) {
+      const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only change your own visits from today');
+      const c = D.customers.find(x => x.id === customerId); if (!c) fail('Shop not found');
+      if (!(allow('customers.view_all') || c.assigned_to === v.staff_id)) fail('This shop belongs to another sales rep');
+      if (customerId !== v.customer_id) v.distance_m = v.lat != null && c.lat != null ? Math.round(dist(v.lat, v.lng, c.lat, c.lng)) : null;
+      v.customer_id = customerId; v.notes = (notes || '').trim() || null; save(); return wait(null);
+    },
+    async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1); save(); return wait(null); },
     async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes; save(); return wait(null); },
 
     async listConversations() {
@@ -2479,7 +2499,8 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       <div class="btns"><label class="f">SKU / code<input class="inp" id="sku" value="${esc(p.sku || '')}"></label><label class="f">Category<input class="inp" id="cat" value="${esc(p.category || '')}" placeholder="Cables"></label></div>
       <div class="btns"><label class="f">Selling price ($)<input class="inp" id="pr" type="number" step="0.01" inputmode="decimal" value="${p.price ?? ''}"></label><label class="f">Cost ($)<input class="inp" id="co" type="number" step="0.01" inputmode="decimal" value="${p.cost ?? ''}"></label></div>
       <label class="f">Warn me when stock is at or below<input class="inp" id="mn" type="number" inputmode="numeric" value="${p.min_stock ?? 10}"></label>
-      <button class="btn block" id="ok">Save product</button>`);
+      <div class="btns">${p.id ? '<button class="btn red" id="pdel">Delete</button>' : ''}<button class="btn" id="ok">Save product</button></div>`);
+    if ($('#pdel', s.el)) $('#pdel', s.el).onclick = e => K.deleteProduct(p, e.currentTarget, () => { s.close(); go('#/stock'); });
     $('#ok', s.el).onclick = async e => {
       const row = { id: p.id, name: $('#nm', s.el).value.trim(), sku: $('#sku', s.el).value.trim(), category: $('#cat', s.el).value.trim(), price: $('#pr', s.el).value, cost: $('#co', s.el).value, min_stock: $('#mn', s.el).value };
       if (!row.name || !row.sku) return toast('Name and SKU are needed');
@@ -2543,6 +2564,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
       ${c.notes ? `<div class="card small" style="line-height:1.5">${esc(c.notes)}</div>` : ''}
       <div class="sec">Orders</div><div class="card flush">${myOrders.length ? myOrders.map(K.orderRow).join('') : '<div class="empty">No orders yet</div>'}</div>
       <div class="sec">Visits</div><div class="card flush">${myVisits.length ? myVisits.map(visitRow).join('') : '<div class="empty">No visits yet</div>'}</div></div>`;
+    bindVisits(myVisits);
     $$('[data-col]').forEach(b => b.onclick = async () => { const o = await busy(b, () => api.getOrder(+b.dataset.col)); K.paymentSheet(o, () => K.render()); });
     $$('[data-rv]').forEach(b => b.onclick = async () => {
       await busy(b, () => api.reviewCustomer(c.id, b.dataset.rv, $('#rn').value.trim()));
@@ -2601,10 +2623,13 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
   // ================= VISITS =================
   function visitRow(v) {
     const mins = v.check_out_at ? Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) : null;
-    return `<div class="list-item">${v.photo_url ? `<img src="${esc(v.photo_url)}" alt="Visit photo" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0">` : `<div class="ic-av sq">${icon('pin', 20)}</div>`}
+    const fix = K.canFixVisit(v);
+    return `<${fix ? 'button' : 'div'} class="list-item" ${fix ? `data-vis="${v.id}"` : ''}>${v.photo_url ? `<img src="${esc(v.photo_url)}" alt="Visit photo" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0">` : `<div class="ic-av sq">${icon('pin', 20)}</div>`}
       <div class="grow"><div class="tt">${esc(v.customers ? v.customers.name : '')}</div><div class="st">${K.allow('visits.view_all') ? esc(v.profiles ? v.profiles.full_name : '') + ' · ' : ''}${when(v.check_in_at)}${K.sameDay(v.check_in_at, new Date()) ? '' : ' ' + hhmm(v.check_in_at)}${mins ? ' · ' + mins + ' min' : ''}${v.distance_m != null ? ' · ' + v.distance_m + ' m away' : ''}${v.notes ? ' · ' + esc(v.notes) : ''}</div></div>
-      ${v.check_out_at ? '<span class="pill gr">Done</span>' : '<span class="pill">On site</span>'}</div>`;
+      ${v.check_out_at ? '<span class="pill gr">Done</span>' : '<span class="pill">On site</span>'}${fix ? `<span class="muted" style="margin-left:4px">${icon('right', 16)}</span>` : ''}</${fix ? 'button' : 'div'}>`;
   }
+  // tap a visit to edit or delete it (bound on any page that shows visitRow)
+  const bindVisits = list => $$('[data-vis]').forEach(b => b.onclick = () => K.visitSheet(list.find(v => v.id === +b.dataset.vis), () => { forget('customers'); K.render(); }));
 
   route(/^\/visits$/, async (_, __, current) => {
     const main = page({ title: 'Shop visits', sub: K.allow('visits.view_all') ? 'All staff' : 'Your visits', back: '#/home' });
@@ -2619,7 +2644,7 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
     const today = visits.filter(v => K.sameDay(v.check_in_at, new Date()));
     html += `<div class="stats"><div class="stat"><b>${today.length}</b><span>Visits today</span></div><div class="stat"><b>${visits.length}</b><span>Visits (recent)</span></div></div>
       <div class="sec">History</div><div class="card flush">${visits.length ? visits.slice(0, 50).map(visitRow).join('') : '<div class="empty">No visits yet</div>'}</div></div>`;
-    main.innerHTML = html;
+    main.innerHTML = html; bindVisits(visits);
     if (active) {
       const tick = () => { const el = $('#timer'); if (!el) return clearInterval(iv); const s = Math.floor((Date.now() - new Date(active.check_in_at)) / 1000); el.textContent = Math.floor(s / 3600) ? Math.floor(s / 3600) + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + 'h' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
       const iv = setInterval(tick, 1000); tick();
@@ -2851,6 +2876,31 @@ window.KT_KM_PATTERNS.push([/^(\d+) lines? · (\d+) pcs$/, '$1 ជួរ · $2 �
 (function () {
   const K = window.KT;
   const { esc, money, icon } = K;
+  // ---------- delete a product (staff app and admin web) ----------
+  K.deleteProduct = async (p, btn, onDone) => {
+    if (!(await K.confirmSheet('Delete ' + p.name + '?', 'If this product was never sold or bought it is removed completely. If it is in old orders or purchases, it is hidden from lists and new orders, and old orders still show it. Its stock count is removed too.', 'Delete product', true))) return;
+    const r = await K.busy(btn, () => K.api.deleteProduct(p.id));
+    K.forget('products'); K.toast(r === 'hidden' ? p.name + ' removed (kept in old orders)' : p.name + ' deleted'); onDone && onDone();
+  };
+  // ---------- edit / delete a shop visit (staff app and admin web) ----------
+  K.canFixVisit = v => K.allow('visits.manage') || (v.staff_id === K.S.me.id && K.sameDay(v.check_in_at, new Date()));
+  K.visitSheet = function (v, onDone) {
+    if (!K.canFixVisit(v)) return K.toast('You can only change your own visits from today');
+    let shop = { id: v.customer_id, name: v.customers ? v.customers.name : '' };
+    const s = K.sheet('Edit visit', `<div class="small muted">${esc(v.profiles ? v.profiles.full_name + ' · ' : '')}${K.when(v.check_in_at)} ${K.hhmm(v.check_in_at)}${v.check_out_at ? ' – ' + K.hhmm(v.check_out_at) : ' · still on site'}${v.distance_m != null ? ' · ' + v.distance_m + ' m from shop' : ''}</div>
+      ${v.photo_url ? `<img src="${esc(v.photo_url)}" alt="Visit photo" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px">` : ''}
+      <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Shop</div>
+      <button class="btn ghost block" id="vs" style="justify-content:space-between"><span id="vsn">${esc(shop.name)}</span><span class="small">Change</span></button>
+      <div class="small muted">Change the shop only if the wrong shop was chosen. The distance is checked again.</div>
+      <label class="f">Visit notes<textarea class="inp" id="vnt">${esc(v.notes || '')}</textarea></label>
+      <div class="btns"><button class="btn red" id="vdel">Delete visit</button><button class="btn" id="vok">Save</button></div>`);
+    K.$('#vs', s.el).onclick = () => K.pickCustomer({ approvedOnly: false, noAdd: true }, c => { shop = c; K.$('#vsn', s.el).textContent = c.name; });
+    K.$('#vok', s.el).onclick = async e => { await K.busy(e.currentTarget, () => K.api.updateVisit(v.id, shop.id, K.$('#vnt', s.el).value.trim())); s.close(); K.toast('Visit saved'); onDone && onDone(); };
+    K.$('#vdel', s.el).onclick = async e => { const b = e.currentTarget;
+      if (!(await K.confirmSheet('Delete this visit?', (shop.name || 'This visit') + ' will be removed from the visit history.', 'Delete', true))) return;
+      await K.busy(b, () => K.api.deleteVisit(v.id)); s.close(); K.toast('Visit deleted'); onDone && onDone(); };
+  };
+
   // ---------- order lines (new order / edit order; staff app and admin web) ----------
   // lines = [{ pid, qty, price }]. The same product can be added more than once (e.g. one line at a
   // different price, or some pieces free). The price of every line can be changed.
