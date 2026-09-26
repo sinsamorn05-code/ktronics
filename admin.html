@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>K-TRONiCS Admin</title>
 <meta name="description" content="K-TRONiCS staff app: chat, orders, stock and shop visits.">
 <meta name="theme-color" content="#5B3FD9">
@@ -250,6 +250,10 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .av.lg { width: 52px; height: 52px; font-size: 18px; }
 .av.xl { width: 96px; height: 96px; font-size: 32px; }
 img.av { display: block; }
+
+/* behave like a phone app: no pinch / double-tap zoom, and no automatic zoom when typing */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@media (pointer: coarse) { input, select, textarea, .search input, .qty input, .composer textarea, .pricebox input { font-size: 16px !important; } }
 </style>
 </head>
 <body>
@@ -295,7 +299,8 @@ window.KT_PERMS = [
     ['customers.manage', 'Edit approved shops and change sales rep'],
     ['customers.delete', 'Delete shops']] },
   { group: 'Stock', items: [
-    ['stock.manage', 'Stock in/out, products and prices']] },
+    ['stock.manage', 'Stock in/out, products and prices'],
+    ['stock.view_main', 'See the main warehouse stock and sell from it', 'Without this, a sales rep sees and sells only their own stock (the goods they carry)']] },
   { group: 'Suppliers & purchases', items: [
     ['purchases.manage', 'Suppliers, purchases and paying suppliers', 'Also sees cost prices and profit'],
     ['purchases.receive', 'Receive goods from suppliers', 'Adds the goods into stock']] },
@@ -321,7 +326,7 @@ window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
   manager: ['orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others',
-    'chat.announce', 'chat.create_group', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage'],
+    'chat.announce', 'chat.create_group', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main'],
   sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   warehouse: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
   driver: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'expenses.create', 'chat.create_group']
@@ -607,7 +612,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v21';
+  const KEY = 'kt_demo_v22';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -929,8 +934,9 @@ window.makeDemoApi = function () {
     },
     async listProducts() {
       if (!role()) return [];
+      const vis = w => allow('stock.manage') || allow('stock.view_main') || w.rep_id === me.id;
       return wait(D.products.filter(p => p.active).sort((a, b) => a.name.localeCompare(b.name)).map(p => {
-        const stock = {}; let total = 0; D.warehouses.forEach(w => { const q = qty(p.id, w.id); if (D.stock[p.id + ':' + w.id] !== undefined) stock[w.id] = q; total += q; });
+        const stock = {}; let total = 0; D.warehouses.filter(vis).forEach(w => { const q = qty(p.id, w.id); if (D.stock[p.id + ':' + w.id] !== undefined) stock[w.id] = q; total += q; });
         return Object.assign(clone(p), { stock, total_qty: total });
       }));
     },
@@ -1056,7 +1062,8 @@ window.makeDemoApi = function () {
       if ((D.customers.find(c => c.id === o.customer_id) || {}).status !== 'approved') fail('This shop is waiting for admin approval. You can order after it is approved.');
       if (!o.items || !o.items.length) fail('Add at least one product');
       const wh = D.warehouses.find(w => w.id === o.warehouse_id);
-      if (wh && wh.rep_id && wh.rep_id !== me.id && !allow('stock.manage')) fail('You can only sell from your own stock or the main warehouse');
+      if (wh && wh.rep_id && wh.rep_id !== me.id && !allow('stock.manage')) fail('You can only sell from your own stock');
+      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) fail('You can only sell from your own stock (the goods you carry)');
       let pre = 0; o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p) pre += priceFor(p, it) * it.qty; });
       checkCredit(o.customer_id, pre, null);
       const autoOk = allow('orders.approve');
@@ -1657,6 +1664,10 @@ window.makeDemoApi = function () {
   const go = h => { if (location.hash === h) render(); else location.hash = h; };
   window.addEventListener('hashchange', render);
 
+  // iPhone Safari ignores "no zoom" in the page settings, so block its pinch gesture here
+  ['gesturestart', 'gesturechange'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
+  // (double-tap zoom is switched off by touch-action: manipulation in the styles, which keeps fast taps working)
+
   // ---------- alert sound (new chat messages, notifications) ----------
   // Phones only allow sound after the person has touched the app once, so the sound is "unlocked" on the first tap.
   let actx = null;
@@ -2236,7 +2247,9 @@ Object.assign(window.KT_KM, { 'My profile': 'ប្រវត្តិរូប�
 
   // warehouses: a sales rep's own stock is called "My stock"
   K.whLabel = w => w.rep_id ? (K.S.me && w.rep_id === K.S.me.id ? 'My stock' : 'Rep: ' + (w.name.split(' · ')[1] || w.name)) : w.name.split(' · ')[0];
-  K.sellFrom = list => K.allow('stock.manage') ? list : list.filter(w => !w.rep_id || w.rep_id === K.S.me.id);
+  // which stock a person may see and sell from: their own rep stock, plus the main warehouse(s) if allowed
+  K.seesMain = () => K.allow('stock.manage') || K.allow('stock.view_main');
+  K.sellFrom = list => K.allow('stock.manage') ? list : list.filter(w => (w.rep_id && w.rep_id === K.S.me.id) || (!w.rep_id && K.seesMain()));
   K.myRepWh = list => list.find(w => w.rep_id && K.S.me && w.rep_id === K.S.me.id);
 
   K.paymentRow = (p, opts = {}) => {
@@ -2819,6 +2832,7 @@ Object.assign(window.KT_KM, { 'My profile': 'ប្រវត្តិរូប�
   async function newOrderSheet() {
     const [products, whsAll] = await Promise.all([data.products(true), data.warehouses()]);
     const whs = K.sellFrom(whsAll);
+    if (!whs.length) return toast('No stock to sell from');
     const d = { c: null, wh: (K.myRepWh(whsAll) || whs[0]).id, pay: 'cash', lines: [], notes: '' };
     const s = sheet('New order', `<div class="card" id="nc" style="background:var(--bg)"></div>
       ${whs.length > 1 ? `<label class="f">Goods come from<select class="inp" id="nw">${whs.map(w => `<option value="${w.id}" ${w.id === d.wh ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>` : ''}
@@ -2964,6 +2978,7 @@ Object.assign(window.KT_KM, { 'My profile': 'ប្រវត្តិរូប�
       $$('[data-p]').forEach(b => b.onclick = () => K.allow('stock.manage') ? productSheet(products.find(p => p.id === +b.dataset.p), warehouses) : toast('You can view stock only')); };
     main.innerHTML = `<div class="apad"><div class="kpis">${kpi(products.length, 'Products')}${kpi(products.reduce((s, p) => s + p.total_qty, 0), 'Pieces in stock')}${kpi(money(value), 'Stock value (cost)')}
       <button class="stat" id="lowb" style="text-align:left;${onlyLow ? 'background:var(--ors)' : ''}"><b style="color:var(--or)">${products.filter(p => p.total_qty <= p.min_stock).length}</b><span>Low or out · tap to filter</span></button></div>
+      ${!warehouses.some(w => w.rep_id) && K.allow('stock.manage') ? `<div class="card small muted"><div style="line-height:1.5"><b style="color:var(--ink)">Stock with sales reps.</b> Every active <b>Sales</b> account gets its own stock automatically (the goods they carry). Add a Sales staff member in HR &amp; attendance → Staff, then use <b>Give / take back</b> here to load goods onto their motorbike. Reps see and sell only their own stock.</div></div>` : ''}
       ${warehouses.some(w => w.rep_id) ? `<div class="card"><div class="row"><b class="grow">Stock with sales reps (on motorbikes)</b>${K.allow('stock.manage') ? `<button class="btn sm out" id="rep2">${icon('swap', 16)}Give / take back</button>` : ''}</div><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Products</th><th style="text-align:right">Pieces</th><th style="text-align:right">Value (sell price)</th></tr></thead><tbody>
         ${warehouses.filter(w => w.rep_id).map(w => { const ps = products.filter(p => p.stock[w.id] > 0); return `<tr><td style="font-weight:700">${esc(w.name.split(' · ')[1] || w.name)}</td><td style="text-align:right">${ps.length}</td><td style="text-align:right">${ps.reduce((a, p) => a + p.stock[w.id], 0)}</td><td style="text-align:right">${money(ps.reduce((a, p) => a + p.stock[w.id] * p.price, 0))}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
       <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div><div class="card flush" id="plist"></div></div>`;
