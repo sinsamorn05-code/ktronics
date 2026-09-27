@@ -135,6 +135,24 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .composer { flex-shrink: 0; display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px calc(10px + var(--safe-b)); background: var(--card); border-top: 1px solid var(--line); }
 .composer textarea { flex: 1; min-height: 44px; max-height: 120px; border: 1px solid var(--line); border-radius: 22px; padding: 11px 16px; font-size: 15px; background: var(--bg); resize: none; outline: 0; }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--p); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* chat: voice, video, stickers, calls */
+.bub audio { width: 230px; max-width: 100%; height: 40px; }
+.bub video { width: 240px; max-width: 100%; max-height: 320px; border-radius: 10px; background: #000; display: block; }
+.bub.clear { background: none !important; border: 0 !important; padding: 0; }
+.stk { font-size: 76px; line-height: 1.05; }
+.stkb { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: var(--p); color: #fff; border-radius: 20px; padding: 12px 18px 8px; transform: rotate(-3deg); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.stkb b { font-size: 20px; font-weight: 900; line-height: 1.15; text-align: center; }
+.stkb i { font-style: normal; font-size: 30px; line-height: 1; }
+.stkb small { font-size: 8px; letter-spacing: .18em; font-weight: 800; opacity: .85; }
+.stkgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stkgrid button { border: 0; background: var(--bg); border-radius: 14px; padding: 8px 4px; min-height: 76px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.stkgrid .stk { font-size: 44px; }
+.stkgrid .stkb { transform: none; padding: 8px 8px 5px; border-radius: 14px; }
+.stkgrid .stkb b { font-size: 12px; } .stkgrid .stkb i { font-size: 18px; } .stkgrid .stkb small { font-size: 6px; }
+.callcard { display: flex; flex-direction: column; gap: 6px; min-width: 200px; }
+.recbar { flex-shrink: 0; display: flex; gap: 10px; align-items: center; padding: 10px 12px calc(12px + var(--safe-b)); background: var(--card); border-top: 1px solid var(--line); }
+.recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--rd); animation: recblink 1s infinite; }
+@keyframes recblink { 50% { opacity: .25; } }
 .locked { flex-shrink: 0; display: flex; gap: 8px; align-items: center; justify-content: center; padding: 16px; background: var(--card); border-top: 1px solid var(--line); font-size: 14px; color: var(--mu); }
 
 /* order timeline */
@@ -530,6 +548,7 @@ window.makeSupabaseApi = function (cfg) {
     setOrderStatus: (id, status, note) => q(sb.rpc('set_order_status', { p_order: id, p_status: status, p_note: note || null })),
 
     // visits
+    getVisit: id => q(sb.from('visits').select('*, customers(name, area, phone, lat, lng), profiles(full_name)').eq('id', id).maybeSingle()),
     listVisits: () => q(sb.from('visits').select('*, customers(name, area), profiles(full_name)').order('id', { ascending: false }).limit(200)),
     activeVisit: () => me ? q(sb.from('visits').select('*, customers(*)').eq('staff_id', me.id).is('check_out_at', null).order('id', { ascending: false }).limit(1).maybeSingle()) : null,
     async checkIn(v) {
@@ -552,6 +571,19 @@ window.makeSupabaseApi = function (cfg) {
       const url = await api.uploadPhoto(file, 'chat');
       return api.sendMessage(convId, '', 'image', { url });
     },
+    async sendVoice(convId, blob, secs) {
+      const ext = /mp4|aac|m4a/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+      const url = await api.uploadFile(blob, 'voice', ext, blob.type);
+      return api.sendMessage(convId, '', 'voice', { url, dur: Math.round(secs) });
+    },
+    async sendVideo(convId, file) {
+      if (file.size > 50 * 1024 * 1024) throw new Error('This video is too big (' + Math.round(file.size / 1048576) + ' MB). The limit is 50 MB — send a shorter video.');
+      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+      const url = await api.uploadFile(file, 'video', ext, file.type || 'video/mp4');
+      return api.sendMessage(convId, '', 'video', { url, size: file.size });
+    },
+    sendSticker: (convId, sid) => api.sendMessage(convId, '', 'sticker', { s: sid }),
+    startCall: (convId, url) => api.sendMessage(convId, '', 'call', { url }),
     markRead: convId => q(sb.rpc('mark_read', { p_conv: convId })),
     directWith: userId => q(sb.rpc('get_or_create_direct', { p_other: userId })),
     createGroup: (title, ids) => q(sb.rpc('create_group', { p_title: title, p_members: ids })),
@@ -662,6 +694,12 @@ window.makeSupabaseApi = function (cfg) {
     async getKhrRate() { const r = await q(sb.from('app_settings').select('value').eq('key', 'khr_per_usd').maybeSingle()); return r ? +r.value : 4100; },
     setKhrRate: rate => q(sb.rpc('set_khr_rate', { p_rate: rate })),
 
+    // any file (voice, video): kept as it is, no compression
+    async uploadFile(blob, folder, ext, type) {
+      const path = folder + '/' + me.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+      await q(sb.storage.from('files').upload(path, blob, { contentType: type || blob.type || 'application/octet-stream' }));
+      return sb.storage.from('files').getPublicUrl(path).data.publicUrl;
+    },
     async uploadPhoto(file, folder) {
       const blob = await compressImage(file);
       const path = folder + '/' + me.id + '/' + Date.now() + '.jpg';
@@ -676,7 +714,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v28';
+  const KEY = 'kt_demo_v30';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -685,7 +723,7 @@ window.makeDemoApi = function () {
 
   const localDay0 = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
   function seed() {
-    const U = (id, username, full_name, role, active = true) => ({ id, username, full_name, role, active, phone: '', created_at: ago(9000), password: '1234' });
+    const U = (id, username, full_name, role, active = true) => ({ id, username, full_name, role, active, phone: '012 ' + (300 + username.length * 37) + ' ' + (100 + username.charCodeAt(0) * 3), created_at: ago(9000), password: '1234' });
     const users = [
       U('u-lee', 'lee', 'Mr. Lee', 'admin'), U('u-sophea', 'sophea', 'Sophea', 'manager'),
       U('u-kimlong', 'kimlong', 'Chhin Kimlong', 'sales'), U('u-sokha', 'sokha', 'Sokha Chan', 'sales'),
@@ -730,8 +768,10 @@ window.makeDemoApi = function () {
     const msg = (c, sender, body, min, kind = 'text', meta = {}) => { D.messages.push({ id: ++D.seq.msg, conversation_id: c.id, sender_id: sender, kind, body, meta, created_at: ago(min) }); c.last_message_at = ago(min); };
 
     const ann = conv('channel', 'K-TRONiCS Announcements', { slug: 'announcements' });
-    const alerts = conv('channel', 'Order & Stock Alerts', { slug: 'alerts' });
-    users.filter(u => u.active).forEach(u => { member(ann, u.id, ago(2000)); member(alerts, u.id, ago(2000)); });
+    const alerts = conv('channel', 'Order & Payment Alerts', { slug: 'alerts' });
+    const stockA = conv('channel', 'Products & Stock Alerts', { slug: 'stock_alerts' });
+    const visitA = conv('channel', 'Shop Visit Alerts', { slug: 'visit_alerts' });
+    users.filter(u => u.active).forEach(u => [ann, alerts, stockA, visitA].forEach(c => member(c, u.id, ago(2000))));
     msg(ann, 'u-lee', 'Welcome to the new K-TRONiCS staff app. All orders, stock and chat are now in one place.', 1500);
     msg(ann, 'u-lee', 'New price list starts 1 October. Please use the new prices in the app from that day.', 70);
 
@@ -887,10 +927,10 @@ window.makeDemoApi = function () {
   const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id);
   const isMember = (cid, uid) => D.members.some(m => m.conversation_id === cid && m.user_id === uid);
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
-  const ALERT_TYPES = ['stock', 'orders', 'payments'];
+  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits'];
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
-  const canPost = c => !c ? false : c.slug === 'alerts' || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
+  const canPost = c => !c ? false : SYS_ALERT.includes(c.slug) || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
   const manageable = c => !!c && ['group', 'channel'].includes(c.kind) && !c.slug;
   const chatNote = (cid, text) => pushMessage(cid, null, 'system', text, {});
   const qty = (pid, wid) => D.stock[pid + ':' + wid] || 0;
@@ -904,7 +944,11 @@ window.makeDemoApi = function () {
     setTimeout(() => subs.forEach(fn => { try { fn(clone(m)); } catch (e) {} }), 0);
     return m;
   }
-  const alert = (body, meta, type) => D.convs.filter(c => c.slug === 'alerts' || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
+  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts'];
+  const alertSlug = t => t === 'stock' ? 'stock_alerts' : t === 'visits' ? 'visit_alerts' : 'alerts';
+  const alert = (body, meta, type) => D.convs.filter(c => c.slug === alertSlug(type) || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
+  const who = id => (user(id) || {}).full_name || 'Someone';
+  const shopName = id => (D.customers.find(c => c.id === id) || {}).name || 'shop';
   function joinChannels(u) {
     if (!u.active) return;
     D.convs.filter(c => c.kind === 'channel' && (c.slug || c.all_staff)).forEach(c => { if (!isMember(c.id, u.id)) D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now() }); });
@@ -993,8 +1037,8 @@ window.makeDemoApi = function () {
     async updateStaff(id, r, active, fullName, phone) {
       if (!hasRole('admin')) fail('Only the admin can manage staff');
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
-      const u = user(id); u.role = r; u.active = active;
-      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; joinChannels(u); ensureRepStock(u); save(); return wait(null);
+      const u = user(id); const wasActive = u.active; u.role = r; u.active = active;
+      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
     },
 
     async listWarehouses() { return wait(clone(D.warehouses)); },
@@ -1067,7 +1111,8 @@ window.makeDemoApi = function () {
         out = D.customers.find(x => x.id === c.id);
         if (!boss && (out.assigned_to !== me.id || out.status === 'approved')) fail('This shop is approved. Only the admin can change it now.');
         Object.assign(out, row); if (!autoOk) out.status = 'pending';
-      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row); D.customers.push(out); }
+      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row); D.customers.push(out);
+        alert('🏪 New shop ' + out.name + (out.province ? ' (' + out.province + ')' : '') + ' added by ' + me.full_name + (out.status === 'pending' ? ' · waiting for approval' : ''), { customer_id: out.id }, 'visits'); }
       save(); return wait(clone(out));
     },
 
@@ -1091,7 +1136,8 @@ window.makeDemoApi = function () {
     },
     async reviewCustomer(id, status, note) {
       if (!allow('customers.approve')) fail('You are not allowed to approve shops');
-      const cu = D.customers.find(c => c.id === id); Object.assign(cu, { status, review_note: note || null });
+      const cu = D.customers.find(c => c.id === id); const before = cu.status; Object.assign(cu, { status, review_note: note || null });
+      if (before !== status && ['approved', 'rejected'].includes(status)) alert((status === 'approved' ? '✅ Shop approved: ' : '❌ Shop rejected: ') + cu.name + ' · by ' + me.full_name, { customer_id: id }, 'visits');
       if (['approved', 'rejected'].includes(status)) notify(cu.assigned_to, 'Shop ' + status, cu.name + (note ? ' · ' + note : ''), '#/customers/' + id);
       save(); return wait(null);
     },
@@ -1204,6 +1250,12 @@ window.makeDemoApi = function () {
       return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all'))).sort((a, b) => b.id - a.id).map(v => Object.assign(clone(v), {
         customers: (({ name, area }) => ({ name, area }))(D.customers.find(c => c.id === v.customer_id)), profiles: { full_name: user(v.staff_id).full_name } })));
     },
+    async getVisit(id) {
+      const v = D.visits.find(x => x.id === id);
+      if (!v || !role() || !(v.staff_id === me.id || allow('visits.view_all'))) return wait(null);
+      const c = D.customers.find(x => x.id === v.customer_id) || {};
+      return wait(Object.assign(clone(v), { customers: { name: c.name, area: c.area, phone: c.phone, lat: c.lat, lng: c.lng }, profiles: { full_name: user(v.staff_id).full_name } }));
+    },
     async activeVisit() {
       const v = me && D.visits.filter(x => x.staff_id === me.id && !x.check_out_at).sort((a, b) => b.id - a.id)[0];
       return wait(v ? Object.assign(clone(v), { customers: clone(D.customers.find(c => c.id === v.customer_id)) }) : null);
@@ -1214,17 +1266,27 @@ window.makeDemoApi = function () {
       if (!allow('customers.view_all') && (D.customers.find(c => c.id === v.customer_id) || {}).assigned_to !== me.id) fail('This shop belongs to another sales rep');
       const photo_url = v.photo ? await api.uploadPhoto(v.photo) : null;
       const row = { id: ++D.seq.visit, customer_id: v.customer_id, staff_id: me.id, check_in_at: now(), check_out_at: null, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null };
-      D.visits.push(row); save(); return wait(clone(row));
+      D.visits.push(row);
+      const sn = shopName(row.customer_id), d = row.distance_m;
+      alert(d == null ? '📍 ' + me.full_name + ' checked in at ' + sn + ' (no GPS)' : d > 200 ? '⚠️ ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m from the shop' : '📍 ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m away', { customer_id: row.customer_id, visit_id: row.id }, 'visits');
+      save(); return wait(clone(row));
     },
     async updateVisit(id, customerId, notes) {
       const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only change your own visits from today');
       const c = D.customers.find(x => x.id === customerId); if (!c) fail('Shop not found');
       if (!(allow('customers.view_all') || c.assigned_to === v.staff_id)) fail('This shop belongs to another sales rep');
       if (customerId !== v.customer_id) v.distance_m = v.lat != null && c.lat != null ? Math.round(dist(v.lat, v.lng, c.lat, c.lng)) : null;
-      v.customer_id = customerId; v.notes = (notes || '').trim() || null; save(); return wait(null);
+      const oldShop = v.customer_id, oldNote = v.notes, mine = v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s";
+      v.customer_id = customerId; v.notes = (notes || '').trim() || null;
+      if (oldShop !== customerId) alert('✏️ ' + me.full_name + ' changed ' + mine + ' visit: ' + shopName(oldShop) + ' → ' + shopName(customerId), { customer_id: customerId, visit_id: id }, 'visits');
+      else if (oldNote !== v.notes) alert('✏️ ' + me.full_name + ' edited the note on ' + mine + ' visit at ' + shopName(customerId), { customer_id: customerId, visit_id: id }, 'visits');
+      save(); return wait(null);
     },
-    async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1); save(); return wait(null); },
-    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes; save(); return wait(null); },
+    async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1);
+      alert('🗑 ' + me.full_name + ' deleted ' + (v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s") + ' visit at ' + shopName(v.customer_id) + ' (' + new Date(v.check_in_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')', { customer_id: v.customer_id }, 'visits'); save(); return wait(null); },
+    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes;
+      alert('✅ ' + me.full_name + ' finished the visit at ' + shopName(v.customer_id) + ' · ' + Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) + ' min', { customer_id: v.customer_id, visit_id: v.id }, 'visits');
+      save(); return wait(null); },
 
     async listConversations() {
       if (!role()) return [];
@@ -1266,6 +1328,17 @@ window.makeDemoApi = function () {
       }
       return wait(m.id);
     },
+    async sendVoice(convId, blob, secs) {
+      const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+      return api.sendMessage(convId, '', 'voice', { url, dur: Math.round(secs) });
+    },
+    async sendVideo(convId, file) {
+      if (file.size > 50 * 1024 * 1024) fail('This video is too big (' + Math.round(file.size / 1048576) + ' MB). The limit is 50 MB — send a shorter video.');
+      // demo: the video plays on this phone until the page is reloaded
+      return api.sendMessage(convId, '', 'video', { url: URL.createObjectURL(file), size: file.size, demo: true });
+    },
+    sendSticker: (convId, sid) => api.sendMessage(convId, '', 'sticker', { s: sid }),
+    startCall: (convId, url) => api.sendMessage(convId, '', 'call', { url }),
     async sendImage(convId, file) { const url = await api.uploadPhoto(file); return api.sendMessage(convId, '', 'image', { url }); },
     async markRead(convId) { const m = me && D.members.find(x => x.conversation_id === convId && x.user_id === me.id); if (m) { m.last_read_at = now(); save(); } return wait(null); },
     async directWith(uid) {
@@ -1306,7 +1379,8 @@ window.makeDemoApi = function () {
     },
     async addConvMembers(id, ids) {
       const c = D.convs.find(x => x.id === id);
-      if (!manageable(c)) fail('You cannot add people to this chat');
+      if (!(manageable(c) || (c && c.slug && c.kind === 'channel'))) fail('You cannot add people to this chat');
+      if (c.slug && role() !== 'admin') fail('Only the company admin can add people to this channel');
       if (!(convAdmin(c) || (c.kind === 'group' && isMember(id, me.id)))) fail('Only the admins can add people here');
       const add = (ids || []).filter(u => (user(u) || {}).active && !isMember(id, u));
       add.forEach(u => D.members.push({ conversation_id: id, user_id: u, last_read_at: now(), is_admin: false }));
@@ -1315,7 +1389,8 @@ window.makeDemoApi = function () {
     },
     async removeConvMember(id, uid) {
       const c = D.convs.find(x => x.id === id);
-      if (!manageable(c)) fail('You cannot remove people from this chat');
+      if (!(manageable(c) || (c && c.slug && c.kind === 'channel'))) fail('You cannot remove people from this chat');
+      if (c.slug && role() !== 'admin') fail('Only the company admin can remove people from this channel');
       if (!convAdmin(c)) fail('Only the admins can remove people');
       if (uid === me.id) fail('Use "Leave" to leave');
       D.members = D.members.filter(m => !(m.conversation_id === id && m.user_id === uid));
@@ -1686,6 +1761,8 @@ window.makeDemoApi = function () {
     nav: 'M3 11 21 3l-8 18-2-8z', chart: 'M4 20V11M10 20V5M16 20v-6M2 20h20', store: 'M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6', swap: 'M4 8h14l-4-4M20 16H6l4 4',
     pen: 'M4 20h4L19 9l-4-4L4 16z', image: 'M3 4h18v16H3zM9 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM21 17l-5-5-9 8', logout: 'M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10',
     shield: 'M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6zM9 12l2 2 4-4', fuel: 'M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10M14 8h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V9l-3-3',
+    mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3', video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
+    smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01', stop: 'M7 7h10v10H7z',
     food: 'M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1.5-3 4-3 7h3V3zM17 10v11', bed: 'M3 18V6M3 13h18v5M21 16v-1a3 3 0 0 0-3-3h-8v1M6.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6', list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01', refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'
   };
   const icon = (n, s = 22, sw = 1.9) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n] || ''}"/></svg>`;
@@ -1994,6 +2071,11 @@ Object.assign(window.KT_KM, { 'Automatic alerts': 'ការជូនដំណ�
 Object.assign(window.KT_KM, { 'Add staff, details, photo, password': 'បន្ថែមបុគ្គលិក ព័ត៌មាន រូបថត ពាក្យសម្ងាត់', 'Staff can make their own account': 'បុគ្គលិកអាចបង្កើតគណនីខ្លួនឯង', 'Active staff': 'បុគ្គលិកកំពុងធ្វើការ', 'Add staff': 'បន្ថែមបុគ្គលិក' });
 Object.assign(window.KT_KM, { 'HR & attendance': 'ធនធានមនុស្ស និងវត្តមាន', 'Staff, today, attendance, leave, pay': 'បុគ្គលិក ថ្ងៃនេះ វត្តមាន ច្បាប់ ប្រាក់ខែ' });
 Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន និងច្បាប់របស់ខ្ញុំ', 'Start / finish work, my days off': 'ចូល / ចេញពីការងារ ថ្ងៃឈប់សម្រាករបស់ខ្ញុំ' });
+Object.assign(window.KT_KM, { 'Shop visits': 'ការចុះហាង', 'Check-in, finish, edit, delete visits, new shops': 'ចូលហាង បញ្ចប់ កែ លុបការចុះហាង ហាងថ្មី' });
+Object.assign(window.KT_KM, { 'Remove members': 'ដកសមាជិកចេញ', 'Check-in on map': 'ទីតាំងចូលហាងលើផែនទី', 'Shop on map': 'ហាងលើផែនទី', 'Edit or delete this visit': 'កែ ឬលុបការចុះហាងនេះ', 'Shop visit': 'ការចុះហាង' });
+Object.assign(window.KT_KM, { 'Stickers': 'ស្ទីកឃ័រ', 'Emoji': 'អារម្មណ៍', 'Video': 'វីដេអូ', 'Video call': 'ហៅជាវីដេអូ', 'Join the call': 'ចូលរួមការហៅ', 'Join now': 'ចូលរួមឥឡូវនេះ',
+  'Start a video call?': 'ចាប់ផ្តើមហៅជាវីដេអូ?', 'Start video call': 'ចាប់ផ្តើមហៅជាវីដេអូ', 'Video call started': 'បានចាប់ផ្តើមហៅជាវីដេអូ', 'Phone call': 'ហៅទូរស័ព្ទ',
+  'Record a voice message': 'ថតសារជាសំឡេង', 'Recording… tap send when done': 'កំពុងថត… ចុចផ្ញើពេលរួចរាល់', 'Up to 50 MB (about 1–2 minutes)': 'រហូតដល់ 50 MB (ប្រហែល 1–2 នាទី)' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -2336,13 +2418,27 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
   function convIcon(c) {
     if (c.kind === 'direct') return avatar(c.title || '?');
     if (c.slug === 'announcements') return `<div class="ic-av" style="background:var(--p);color:#fff">${icon('mega')}</div>`;
+    if (c.slug === 'stock_alerts') return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('box')}</div>`;
+    if (c.slug === 'visit_alerts') return `<div class="ic-av" style="background:var(--grs);color:var(--gr)">${icon('pin')}</div>`;
     if (c.slug === 'alerts' || (c.alert_types || []).length) return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('bell')}</div>`;
     if (c.kind === 'order') return `<div class="ic-av" style="background:var(--bls);color:var(--bl)">${icon('order')}</div>`;
     return `<div class="ic-av">${icon('users')}</div>`;
   }
+  // stickers: K-TRONiCS word stickers (English + Khmer) and big emoji
+  const BRAND_STK = [['ok', 'OK', '👌'], ['thanks', 'Thank you', '🙏'], ['recv', 'Received', '✅'], ['onway', 'On the way', '🚚'], ['paid', 'Paid', '💰'], ['good', 'Good job!', '👏'],
+    ['wait', 'Please wait', '⏳'], ['call', 'Call me', '📞'], ['km_thanks', 'អរគុណ', '🙏'], ['km_ok', 'យល់ព្រម', '👌'], ['km_onway', 'កំពុងមក', '🚚'], ['km_recv', 'ទទួលបាន', '✅']];
+  const EMOJI_STK = ['👍', '👌', '🙏', '❤️', '😂', '😮', '😢', '😡', '👏', '🎉', '🔥', '💯', '✅', '❌', '⏰', '📦', '🚚', '💰', '🤝', '😎', '🤔', '😴', '🥳', '💪'];
+  const stickerHtml = sid => {
+    sid = String(sid || '');
+    if (sid.startsWith('e:')) return `<div class="stk" translate="no">${esc(sid.slice(2))}</div>`;
+    const b = BRAND_STK.find(x => 'k:' + x[0] === sid);
+    return b ? `<div class="stkb" translate="no"><i>${b[2]}</i><b>${esc(b[1])}</b><small>K-TRONiCS</small></div>` : `<div class="stk">🙂</div>`;
+  };
+  const mmss = n => { n = Math.max(0, Math.round(n || 0)); return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0'); };
+  const KIND_TEXT = { image: '📷 Photo', order: 'Shared an order', voice: '🎤 Voice message', video: '🎬 Video', sticker: 'Sticker', call: '🎥 Video call' };
   function preview(c) {
     if (!c.last_kind) return c.kind === 'group' || c.kind === 'channel' ? c.members + ' members' : 'No messages yet';
-    const t = c.last_kind === 'image' ? 'Photo' : c.last_kind === 'order' ? 'Shared an order' : c.last_body;
+    const t = KIND_TEXT[c.last_kind] || c.last_body;
     return (c.last_sender && c.kind !== 'direct' ? c.last_sender.split(' ')[0] + ': ' : '') + t;
   }
   function convRow(c) {
@@ -2383,7 +2479,8 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
     if ($('#chn', s.el)) $('#chn', s.el).onclick = () => { s.close(); newChannel(staff); };
   }
   const pickList = staff => `<div class="card flush">${staff.map(u => `<label class="list-item" style="cursor:pointer">${avatar(u.full_name, 'sm', u.avatar_url)}<div class="grow"><div class="tt" style="font-size:14px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role] || '')}</div></div><input type="checkbox" value="${esc(u.id)}" style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('') || '<div class="empty">No one to add</div>'}</div>`;
-  const ALERTS = [['stock', 'Stock', 'Low stock, goods received'], ['orders', 'Orders', 'New orders, status changes, deleted orders'], ['payments', 'Payments', 'Payments to confirm, fully paid orders']];
+  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts'];
+  const ALERTS = [['visits', 'Shop visits', 'Check-in, finish, edit, delete visits, new shops'], ['stock', 'Stock', 'Low stock, goods received'], ['orders', 'Orders', 'New orders, status changes, deleted orders'], ['payments', 'Payments', 'Payments to confirm, fully paid orders']];
   const alertLabel = types => (types || []).map(t => (ALERTS.find(a => a[0] === t) || [t, t])[1]).join(', ');
   const alertPick = sel => `<div class="card flush">${ALERTS.map(([k, l, d]) => `<label class="list-item" style="cursor:pointer"><div class="grow"><div class="tt" style="font-size:14px">${l}</div><div class="st">${d}</div></div><input type="checkbox" data-alert="${k}" ${(sel || []).includes(k) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('')}</div>`;
   function newChannel(staff) {
@@ -2426,7 +2523,11 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
   function msgHtml(m, prev, conv) {
     let out = '';
     if (!prev || !sameDay(prev.created_at, m.created_at)) out += `<div class="day">${esc(dayLabel(m.created_at))}</div>`;
-    if (m.kind === 'system') return out + `<div class="sys" data-id="${m.id}">${m.meta && m.meta.order_id && conv.kind !== 'order' ? `<a href="#/orders/${m.meta.order_id}" style="text-decoration:none">${esc(m.body)}</a>` : esc(m.body)} · ${hhmm(m.created_at)}</div>`;
+    if (m.kind === 'system') {
+      const mt = m.meta || {};
+      const href = mt.order_id && conv.kind !== 'order' ? '#/orders/' + mt.order_id : mt.visit_id ? '#/visits/' + mt.visit_id : mt.customer_id ? '#/customers/' + mt.customer_id : mt.product_id ? '#/stock/' + mt.product_id : '';
+      return out + `<div class="sys" data-id="${m.id}">${href ? `<a href="${href}" style="text-decoration:none;color:inherit">${esc(m.body)} <span style="color:var(--p);font-weight:700">›</span></a>` : esc(m.body)} · ${hhmm(m.created_at)}</div>`;
+    }
     const mine = m.sender_id === S.me.id;
     const name = staffName(m.sender_id) || 'Staff';
     let inner;
@@ -2435,10 +2536,19 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
       const o = m.meta || {};
       inner = `<a class="ordcard" href="#/orders/${o.order_id}"><div class="row" style="justify-content:space-between"><b>${esc(o.order_no || 'Order')}</b>${o.status ? statusPill(o.status) : ''}</div>
         <div class="small muted">${esc(o.customer || '')}</div>${o.total != null ? `<b style="font-size:16px">${money(o.total)}</b>` : ''}<span style="color:var(--p);font-weight:700;font-size:13px">Open order</span></a>`;
+    } else if (m.kind === 'voice') {
+      inner = `<div class="row" style="gap:6px;align-items:center"><span style="color:var(--p)">${icon('mic', 18)}</span><audio controls preload="metadata" src="${esc(m.meta.url)}"></audio></div><div class="small muted">Voice · ${mmss(m.meta.dur)}</div>`;
+    } else if (m.kind === 'video') {
+      inner = `<video controls playsinline preload="metadata" src="${esc(m.meta.url)}${m.meta.demo ? '' : '#t=0.1'}"></video>${m.meta.size ? `<div class="small muted">Video · ${(m.meta.size / 1048576).toFixed(1)} MB</div>` : ''}`;
+    } else if (m.kind === 'sticker') {
+      inner = stickerHtml(m.meta.s);
+    } else if (m.kind === 'call') {
+      inner = `<div class="callcard"><b>${icon('video', 18)} Video call</b><div class="small muted">${esc(mine ? 'You started a video call' : name + ' started a video call')}</div>
+        <a class="btn sm" href="${esc(m.meta.url)}" target="_blank" rel="noopener">${icon('video', 16)} Join the call</a></div>`;
     } else inner = `<div class="tx">${esc(m.body)}</div>`;
     const showName = !mine && conv.kind !== 'direct' && (!prev || prev.sender_id !== m.sender_id || prev.kind === 'system');
     return out + `<div class="m ${mine ? 'me' : ''}" data-id="${m.id}">${!mine && conv.kind !== 'direct' ? (showName ? avatar(name, 'sm') : '<div style="width:32px"></div>') : ''}
-      <div class="bub">${showName ? `<div class="who" style="color:${K.colorFor(name)}">${esc(name)}</div>` : ''}${inner}<div class="tm">${hhmm(m.created_at)}</div></div></div>`;
+      <div class="bub${m.kind === 'sticker' ? ' clear' : ''}">${showName ? `<div class="who" style="color:${K.colorFor(name)}">${esc(name)}</div>` : ''}${inner}<div class="tm">${hhmm(m.created_at)}</div></div></div>`;
   }
 
   route(/^\/chat\/(\d+)$/, async ([idStr], _, current) => {
@@ -2450,16 +2560,23 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
       conv = { id, kind: 'order', title: 'Order chat', members: 0 };
     }
     if (!current()) return;
-    const locked = conv.can_post === false || (conv.can_post == null && (conv.slug === 'alerts' || (conv.kind === 'channel' && !K.allow('chat.announce'))));
-    const managed = (conv.kind === 'group' || conv.kind === 'channel') && !conv.slug;
+    const locked = conv.can_post === false || (conv.can_post == null && (SYS_ALERT.includes(conv.slug) || (conv.kind === 'channel' && !K.allow('chat.announce'))));
+    const managed = conv.kind === 'group' || conv.kind === 'channel';
     const sub = conv.kind === 'channel' ? (conv.slug || conv.all_staff ? 'Channel · all staff' : 'Channel · ' + conv.members + ' members') : conv.kind === 'order' ? 'Order chat' : conv.kind === 'group' ? conv.members + ' members' : '';
-    const right = conv.kind === 'order' && conv.order_id ? `<a class="ib" href="#/orders/${conv.order_id}" aria-label="Open order">${icon('order')}</a>`
-      : managed ? `<a class="ib" href="#/chat/${id}/info" id="info" aria-label="Members and settings">${icon('users')}</a>` : '';
+    const other = conv.kind === 'direct' ? ((await data.staff()).find(u => u.id === conv.other_user) || {}) : {};
+    if (!current()) return;
+    const tel = other.phone ? String(other.phone).replace(/[^0-9+]/g, '') : '';
+    const calls = (tel ? `<a class="ib" href="tel:${esc(tel)}" aria-label="Phone call">${icon('phone')}</a>` : '')
+      + ((conv.kind === 'direct' || conv.kind === 'group') && !locked ? `<button class="ib" id="vcall" aria-label="Video call">${icon('video')}</button>` : '');
+    const right = calls + (conv.kind === 'order' && conv.order_id ? `<a class="ib" href="#/orders/${conv.order_id}" aria-label="Open order">${icon('order')}</a>`
+      : managed ? `<a class="ib" href="#/chat/${id}/info" id="info" aria-label="Members and settings">${icon('users')}</a>` : '');
     const bottom = locked
-      ? `<div class="locked">${icon('lock', 16)} ${conv.slug === 'alerts' || (conv.alert_types || []).length ? 'Automatic alerts from the system' : conv.slug ? 'Only admins and managers can post here' : 'Only the channel admins can post here'}</div>`
+      ? `<div class="locked">${icon('lock', 16)} ${SYS_ALERT.includes(conv.slug) || (conv.alert_types || []).length ? 'Automatic alerts from the system' : conv.slug ? 'Only admins and managers can post here' : 'Only the channel admins can post here'}</div>`
       : `<div class="composer"><button class="ib" id="att" aria-label="Send photo or order" style="color:var(--mu)">${icon('plus')}</button>
           <label style="flex:1;display:flex"><span class="hidden">Message</span><textarea id="tx" rows="1" placeholder="Message" aria-label="Message"></textarea></label>
-          <button class="send" id="snd" aria-label="Send">${icon('send', 19)}</button><input type="file" id="ph" accept="image/*" class="hidden"></div>`;
+          <button class="ib" id="stkb" aria-label="Stickers" style="color:var(--mu)">${icon('smile')}</button>
+          <button class="send" id="snd" aria-label="Record a voice message">${icon('mic', 20)}</button><input type="file" id="ph" accept="image/*" class="hidden"><input type="file" id="vd" accept="video/*" class="hidden"></div>
+        <div class="recbar hidden" id="rec"><button class="ib" id="rcx" aria-label="Cancel recording" style="color:var(--rd)">${icon('x')}</button><span class="recdot"></span><b id="rct" style="font-variant-numeric:tabular-nums">0:00</b><span class="grow small muted">Recording… tap send when done</span><button class="send" id="rcs" aria-label="Send voice message">${icon('send', 19)}</button></div>`;
     K.root.innerHTML = `<div class="screen">${K.header({ title: conv.title || 'Chat', sub, back: '#/chat', right })}<div class="msgs" id="msgs">${K.loading}</div>${bottom}</div>`;
     S.openConv = id;
     const box = $('#msgs');
@@ -2491,13 +2608,62 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
     if (locked) return;
 
     const tx = $('#tx');
-    tx.oninput = () => { tx.style.height = 'auto'; tx.style.height = Math.min(120, tx.scrollHeight) + 'px'; };
+    // the round button is a microphone when the box is empty, and "send" when there is text (like Telegram)
+    const setBtn = () => { const has = !!tx.value.trim(); $('#snd').innerHTML = icon(has ? 'send' : 'mic', has ? 19 : 20); $('#snd').setAttribute('aria-label', has ? 'Send' : 'Record a voice message'); };
+    tx.oninput = () => { tx.style.height = 'auto'; tx.style.height = Math.min(120, tx.scrollHeight) + 'px'; setBtn(); };
     const send = async () => {
       const body = tx.value.trim(); if (!body) return;
       tx.value = ''; tx.oninput();
-      try { await api.sendMessage(id, body); } catch (e) { toast(e.message); tx.value = body; }
+      try { await api.sendMessage(id, body); } catch (e) { toast(e.message); tx.value = body; setBtn(); }
     };
-    $('#snd').onclick = send;
+    // voice messages
+    let rec = null;
+    const startRec = async () => {
+      if (!navigator.mediaDevices || !window.MediaRecorder) return toast('This phone cannot record voice here. Update the phone, or use the app from the Home Screen icon.');
+      let stream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { return toast('Microphone is blocked. Allow the microphone for this app in the phone settings.'); }
+      const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+      const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [], t0 = Date.now();
+      mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      $('.composer').classList.add('hidden'); $('#rec').classList.remove('hidden');
+      const tick = setInterval(() => { const sec = (Date.now() - t0) / 1000; if ($('#rct')) $('#rct').textContent = mmss(sec); if (sec >= 300) finish(true); }, 250);
+      const finish = sendIt => {
+        if (!rec) return; rec = null; clearInterval(tick);
+        mr.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          if ($('#rec')) { $('#rec').classList.add('hidden'); $('.composer').classList.remove('hidden'); }
+          if (!sendIt) return;
+          const secs = (Date.now() - t0) / 1000;
+          if (secs < 1) return toast('Too short. Tap the microphone, speak, then tap send.');
+          toast('Sending voice message…');
+          try { await api.sendVoice(id, new Blob(chunks, { type: mr.mimeType || type || 'audio/webm' }), secs); } catch (err) { toast(err.message); }
+        };
+        mr.stop();
+      };
+      rec = { finish }; mr.start(250);
+    };
+    $('#rcs').onclick = () => rec && rec.finish(true);
+    $('#rcx').onclick = () => rec && rec.finish(false);
+    $('#snd').onclick = () => tx.value.trim() ? send() : startRec();
+    // stickers
+    $('#stkb').onclick = () => {
+      const s = sheet('Stickers', `<div class="sec" style="margin-top:0">K-TRONiCS</div><div class="stkgrid">${BRAND_STK.map(b => `<button data-stk="k:${b[0]}" aria-label="${esc(b[1])}">${stickerHtml('k:' + b[0])}</button>`).join('')}</div>
+        <div class="sec">Emoji</div><div class="stkgrid">${EMOJI_STK.map(e => `<button data-stk="e:${e}" aria-label="Sticker ${e}">${stickerHtml('e:' + e)}</button>`).join('')}</div>`);
+      $$('[data-stk]', s.el).forEach(b => b.onclick = async () => { s.close(); try { await api.sendSticker(id, b.dataset.stk); } catch (e) { toast(e.message); } });
+    };
+    // video call: posts an invitation in the chat, then opens the call
+    if ($('#vcall')) $('#vcall').onclick = async () => {
+      if (!(await K.confirmSheet('Start a video call?', 'Everyone in this chat gets a "Join the call" message and a notification. The call opens in Jitsi Meet (free). On phones it may ask you to install the free Jitsi Meet app once.', 'Start video call'))) return;
+      const url = 'https://meet.jit.si/KTRONiCS-' + Array.from(crypto.getRandomValues(new Uint32Array(3))).join('');
+      try { await api.startCall(id, url); } catch (e) { return toast(e.message); }
+      sheet('Video call started', `<p class="small muted" style="margin:0 0 10px">The others got a "Join the call" message. Tap below to join now.</p>
+        <a class="btn block" href="${esc(url)}" target="_blank" rel="noopener" data-close>${icon('video', 18)} Join now</a>`);
+    };
+    $('#vd').onchange = async e => {
+      const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+      if (file.size > 50 * 1024 * 1024) return toast('This video is too big (' + Math.round(file.size / 1048576) + ' MB). The limit is 50 MB — send a shorter video.');
+      toast('Sending video… keep the app open'); try { await api.sendVideo(id, file); toast('Video sent'); } catch (err) { toast(err.message); }
+    };
     tx.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !('ontouchstart' in window))) { if (!e.shiftKey) { e.preventDefault(); send(); } } };
     $('#ph').onchange = async e => {
       const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -2506,8 +2672,10 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
     };
     $('#att').onclick = () => {
       const s = sheet('Send', `<button class="list-item" id="p1" style="border-radius:12px">${`<div class="ic-av sq">${icon('camera', 20)}</div>`}<div class="grow tt">Photo</div></button>
+        <button class="list-item" id="p3" style="border-radius:12px"><div class="ic-av sq" style="background:var(--grs);color:var(--gr)">${icon('video', 20)}</div><div class="grow"><div class="tt">Video</div><div class="st">Up to 50 MB (about 1–2 minutes)</div></div></button>
         <button class="list-item" id="p2" style="border-radius:12px"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('order', 20)}</div><div class="grow tt">Share an order</div></button>`);
       $('#p1', s.el).onclick = () => { s.close(); $('#ph').click(); };
+      $('#p3', s.el).onclick = () => { s.close(); $('#vd').click(); };
       $('#p2', s.el).onclick = async () => {
         s.close();
         const orders = (await data.orders(true)).slice(0, 30);
@@ -2528,26 +2696,28 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
     const main = page({ title: conv.kind === 'channel' ? 'Channel info' : 'Group info', back: '#/chat/' + id });
     const [members, staff] = await Promise.all([api.convMembers(id), data.staff()]);
     if (!current()) return;
-    const iAdmin = !!conv.is_admin;
+    const sys = !!conv.slug, boss = S.me.role === 'admin';   // the 4 company channels: only the admin adds or removes people
+    const iAdmin = sys ? boss : !!conv.is_admin;
     const isCh = conv.kind === 'channel';
-    const canAdd = iAdmin || (!isCh && members.some(m => m.user_id === S.me.id));
-    const canDelete = S.me.role === 'admin' || conv.created_by === S.me.id;
+    const canAdd = iAdmin || (!sys && !isCh && members.some(m => m.user_id === S.me.id));
+    const canDelete = !sys && (boss || conv.created_by === S.me.id);
     const word = isCh ? 'channel' : 'group';
     main.innerHTML = `<div class="pad"><div class="card" style="text-align:center;padding:18px 14px">
-        <div style="display:flex;justify-content:center;margin-bottom:8px">${isCh ? `<div class="ic-av" style="width:64px;height:64px;background:var(--p);color:#fff">${icon('mega', 30)}</div>` : `<div class="ic-av" style="width:64px;height:64px">${icon('users', 30)}</div>`}</div>
+        <div style="display:flex;justify-content:center;margin-bottom:8px">${isCh ? `<div class="ic-av" style="width:64px;height:64px;background:var(--p);color:#fff">${icon(conv.slug === 'stock_alerts' ? 'box' : conv.slug === 'visit_alerts' ? 'pin' : SYS_ALERT.includes(conv.slug) || (conv.alert_types || []).length ? 'bell' : 'mega', 30)}</div>` : `<div class="ic-av" style="width:64px;height:64px">${icon('users', 30)}</div>`}</div>
         <div style="font-size:19px;font-weight:800">${esc(conv.title || '')}</div>
         <div class="small muted">${isCh ? 'Channel' : 'Group'} · ${members.length} members${isCh && conv.all_staff ? ' · everyone in the company' : ''}</div>
-        ${iAdmin ? `<button class="linkbtn" id="ren" style="margin:8px auto 0;align-self:center">${icon('pen', 16)} Rename</button>` : ''}
+        ${iAdmin && !sys ? `<button class="linkbtn" id="ren" style="margin:8px auto 0;align-self:center">${icon('pen', 16)} Rename</button>` : ''}
       </div>
-      ${isCh ? ((conv.alert_types || []).length
+      ${sys ? `<p class="small muted" style="margin:0 4px">Company channel. ${SYS_ALERT.includes(conv.slug) ? 'Only the system posts here (automatic alerts).' : 'Only admins and managers post here.'} ${boss ? 'You can add or remove people.' : 'Only the admin can add or remove people.'}</p>`
+      : isCh ? ((conv.alert_types || []).length
         ? `<div class="card"><div class="row"><div class="grow"><b>Automatic alerts</b><div class="small muted">${esc(alertLabel(conv.alert_types))} · only the system posts here</div></div>${iAdmin ? '<button class="btn sm out" id="alch">Change</button>' : ''}</div></div>`
         : `<p class="small muted" style="margin:0 4px">Only admins can post in this channel. Everyone else reads.</p>${iAdmin ? '<button class="linkbtn" id="alch" style="padding:0 4px">' + icon('bell', 16) + ' Send automatic alerts here</button>' : ''}`) : ''}
       <div><div class="sec" style="display:flex;justify-content:space-between;align-items:center;margin-top:0"><span>Members</span>${canAdd ? `<button class="linkbtn" id="add" style="padding:0">${icon('plus', 16)} Add members</button>` : ''}</div>
       <div class="card flush" id="mem">${members.map(m => `<button class="list-item" data-m="${esc(m.user_id)}">${avatar(m.full_name, '', m.avatar_url)}
         <div class="grow"><div class="tt">${esc(m.full_name)}${m.user_id === S.me.id ? ' <span class="muted small">(you)</span>' : ''}</div><div class="st">${esc(K.ROLE_LABEL[m.role] || '')}${m.active === false ? ' · disabled' : ''}</div></div>
-        ${m.is_admin ? '<span class="pill gr" style="font-size:11px">Admin</span>' : ''}</button>`).join('')}</div></div>
+        ${m.is_admin && !sys ? '<span class="pill gr" style="font-size:11px">Admin</span>' : ''}</button>`).join('')}</div></div>
       <div style="display:grid;gap:10px">
-        <button class="btn ghost block" id="leave" style="color:var(--rd)">Leave ${word}</button>
+        ${sys ? '' : `<button class="btn ghost block" id="leave" style="color:var(--rd)">Leave ${word}</button>`}
         ${canDelete ? `<button class="btn red block" id="del">Delete ${word} for everyone</button>` : ''}
       </div></div>`;
     const refresh = () => { K.forget('convs'); K.render(); };
@@ -2574,8 +2744,8 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
       const m = members.find(x => x.user_id === b.dataset.m);
       if (m.user_id === S.me.id) return;
       const s = sheet(m.full_name, `<button class="btn ghost block" id="dm">${icon('chat', 20)} Send a message</button>
-        ${iAdmin ? `<button class="btn ghost block" id="adm">${icon('shield', 20)} ${m.is_admin ? 'Remove as admin' : 'Make admin'}</button>
-        <button class="btn ghost block" id="rm" style="color:var(--rd)">Remove from ${word}</button>` : ''}`);
+        ${iAdmin && !sys ? `<button class="btn ghost block" id="adm">${icon('shield', 20)} ${m.is_admin ? 'Remove as admin' : 'Make admin'}</button>` : ''}
+        ${iAdmin ? `<button class="btn ghost block" id="rm" style="color:var(--rd)">Remove from ${word}</button>` : ''}`);
       $('#dm', s.el).onclick = async () => { const cid = await api.directWith(m.user_id); s.close(); go('#/chat/' + cid); };
       if ($('#adm', s.el)) $('#adm', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setConvAdmin(id, m.user_id, !m.is_admin)); s.close(); toast(m.is_admin ? 'No longer admin' : 'Now an admin'); refresh(); };
       if ($('#rm', s.el)) $('#rm', s.el).onclick = async e => {
@@ -2584,7 +2754,7 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
         await api.removeConvMember(id, m.user_id); toast('Removed'); refresh();
       };
     });
-    $('#leave').onclick = async () => {
+    if ($('#leave')) $('#leave').onclick = async () => {
       if (!(await K.confirmSheet('Leave ' + (conv.title || word) + '?', 'You will not see its messages any more. Someone can add you back.', 'Leave', true))) return;
       await api.leaveConv(id); K.forget('convs'); toast('You left'); go('#/chat');
     };
@@ -2979,13 +3149,40 @@ Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន �
   // ================= VISITS =================
   function visitRow(v) {
     const mins = v.check_out_at ? Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) : null;
-    const fix = K.canFixVisit(v);
+    const fix = true;   // every visit opens its detail page (edit / delete are there)
     return `<${fix ? 'button' : 'div'} class="list-item" ${fix ? `data-vis="${v.id}"` : ''}>${v.photo_url ? `<img src="${esc(v.photo_url)}" alt="Visit photo" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0">` : `<div class="ic-av sq">${icon('pin', 20)}</div>`}
       <div class="grow"><div class="tt">${esc(v.customers ? v.customers.name : '')}</div><div class="st">${K.allow('visits.view_all') ? esc(v.profiles ? v.profiles.full_name : '') + ' · ' : ''}${when(v.check_in_at)}${K.sameDay(v.check_in_at, new Date()) ? '' : ' ' + hhmm(v.check_in_at)}${mins ? ' · ' + mins + ' min' : ''}${v.distance_m != null ? ' · ' + v.distance_m + ' m away' : ''}${v.notes ? ' · ' + esc(v.notes) : ''}</div></div>
       ${v.check_out_at ? '<span class="pill gr">Done</span>' : '<span class="pill">On site</span>'}${fix ? `<span class="muted" style="margin-left:4px">${icon('right', 16)}</span>` : ''}</${fix ? 'button' : 'div'}>`;
   }
   // tap a visit to edit or delete it (bound on any page that shows visitRow)
-  const bindVisits = list => $$('[data-vis]').forEach(b => b.onclick = () => K.visitSheet(list.find(v => v.id === +b.dataset.vis), () => { forget('customers'); K.render(); }));
+  const bindVisits = () => $$('[data-vis]').forEach(b => b.onclick = () => go('#/visits/' + b.dataset.vis));
+
+  // one visit: photo, shop, who, times, distance, map, note
+  route(/^\/visits\/(\d+)$/, async ([idStr], _, current) => {
+    const main = page({ title: 'Shop visit', back: '#/visits' });
+    const v = await api.getVisit(+idStr);
+    if (!current()) return;
+    if (!v) { main.innerHTML = `<div class="pad">${emptyBox('pin', 'This visit was deleted, or only managers can see other staff visits.')}</div>`; return; }
+    const mins = v.check_out_at ? Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) : null;
+    const far = v.distance_m != null && v.distance_m > 200;
+    const t = d => new Date(d).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const line = (k, val) => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted grow">${k}</span><b style="text-align:right">${val}</b></div>`;
+    main.innerHTML = `<div class="pad">
+      ${v.photo_url ? `<a href="${esc(v.photo_url)}" target="_blank" rel="noopener"><img src="${esc(v.photo_url)}" alt="Visit photo" style="width:100%;max-height:340px;object-fit:cover;border-radius:16px"></a>` : ''}
+      <a class="card" href="#/customers/${v.customer_id}" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt" style="font-size:18px">${esc(v.customers ? v.customers.name : '')}</div><div class="st">${esc(v.customers && v.customers.area || '')}${v.customers && v.customers.phone ? ' · ' + esc(v.customers.phone) : ''}</div></div>${icon('right', 18)}</div></a>
+      <div class="card" style="gap:0">
+        ${line('Staff', esc(v.profiles ? v.profiles.full_name : ''))}
+        ${line('Checked in', esc(t(v.check_in_at)))}
+        ${line('Finished', v.check_out_at ? esc(t(v.check_out_at)) + ' · ' + mins + ' min' : '<span class="pill">Still on site</span>')}
+        ${line('Distance from shop', v.distance_m == null ? 'No GPS' : far ? `<span style="color:var(--or)">⚠️ ${v.distance_m} m</span>` : v.distance_m + ' m')}
+        ${v.notes ? `<div style="padding-top:8px"><div class="muted small">Note</div><div>${esc(v.notes)}</div></div>` : ''}
+      </div>
+      ${far ? '<div class="card small" style="background:var(--ors);color:var(--or)">Checked in far from the shop. It may be worth asking why.</div>' : ''}
+      <div class="btns">${v.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps/search/?api=1&query=${v.lat},${v.lng}" target="_blank" rel="noopener">${icon('pin', 18)}Check-in on map</a>` : ''}
+        ${v.customers && v.customers.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps/search/?api=1&query=${v.customers.lat},${v.customers.lng}" target="_blank" rel="noopener">${icon('store', 18)}Shop on map</a>` : ''}</div>
+      ${K.canFixVisit(v) ? `<button class="btn out block" id="fix">${icon('pen', 18)}Edit or delete this visit</button>` : ''}</div>`;
+    if ($('#fix')) $('#fix').onclick = () => K.visitSheet(v, () => { forget('customers'); K.render(); });
+  });
 
   route(/^\/visits$/, async (_, __, current) => {
     const main = page({ title: 'Shop visits', sub: K.allow('visits.view_all') ? 'All staff' : 'Your visits', back: '#/home' });

@@ -135,6 +135,24 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .composer { flex-shrink: 0; display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px calc(10px + var(--safe-b)); background: var(--card); border-top: 1px solid var(--line); }
 .composer textarea { flex: 1; min-height: 44px; max-height: 120px; border: 1px solid var(--line); border-radius: 22px; padding: 11px 16px; font-size: 15px; background: var(--bg); resize: none; outline: 0; }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--p); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* chat: voice, video, stickers, calls */
+.bub audio { width: 230px; max-width: 100%; height: 40px; }
+.bub video { width: 240px; max-width: 100%; max-height: 320px; border-radius: 10px; background: #000; display: block; }
+.bub.clear { background: none !important; border: 0 !important; padding: 0; }
+.stk { font-size: 76px; line-height: 1.05; }
+.stkb { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; background: var(--p); color: #fff; border-radius: 20px; padding: 12px 18px 8px; transform: rotate(-3deg); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.stkb b { font-size: 20px; font-weight: 900; line-height: 1.15; text-align: center; }
+.stkb i { font-style: normal; font-size: 30px; line-height: 1; }
+.stkb small { font-size: 8px; letter-spacing: .18em; font-weight: 800; opacity: .85; }
+.stkgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stkgrid button { border: 0; background: var(--bg); border-radius: 14px; padding: 8px 4px; min-height: 76px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.stkgrid .stk { font-size: 44px; }
+.stkgrid .stkb { transform: none; padding: 8px 8px 5px; border-radius: 14px; }
+.stkgrid .stkb b { font-size: 12px; } .stkgrid .stkb i { font-size: 18px; } .stkgrid .stkb small { font-size: 6px; }
+.callcard { display: flex; flex-direction: column; gap: 6px; min-width: 200px; }
+.recbar { flex-shrink: 0; display: flex; gap: 10px; align-items: center; padding: 10px 12px calc(12px + var(--safe-b)); background: var(--card); border-top: 1px solid var(--line); }
+.recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--rd); animation: recblink 1s infinite; }
+@keyframes recblink { 50% { opacity: .25; } }
 .locked { flex-shrink: 0; display: flex; gap: 8px; align-items: center; justify-content: center; padding: 16px; background: var(--card); border-top: 1px solid var(--line); font-size: 14px; color: var(--mu); }
 
 /* order timeline */
@@ -531,6 +549,7 @@ window.makeSupabaseApi = function (cfg) {
     setOrderStatus: (id, status, note) => q(sb.rpc('set_order_status', { p_order: id, p_status: status, p_note: note || null })),
 
     // visits
+    getVisit: id => q(sb.from('visits').select('*, customers(name, area, phone, lat, lng), profiles(full_name)').eq('id', id).maybeSingle()),
     listVisits: () => q(sb.from('visits').select('*, customers(name, area), profiles(full_name)').order('id', { ascending: false }).limit(200)),
     activeVisit: () => me ? q(sb.from('visits').select('*, customers(*)').eq('staff_id', me.id).is('check_out_at', null).order('id', { ascending: false }).limit(1).maybeSingle()) : null,
     async checkIn(v) {
@@ -553,6 +572,19 @@ window.makeSupabaseApi = function (cfg) {
       const url = await api.uploadPhoto(file, 'chat');
       return api.sendMessage(convId, '', 'image', { url });
     },
+    async sendVoice(convId, blob, secs) {
+      const ext = /mp4|aac|m4a/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+      const url = await api.uploadFile(blob, 'voice', ext, blob.type);
+      return api.sendMessage(convId, '', 'voice', { url, dur: Math.round(secs) });
+    },
+    async sendVideo(convId, file) {
+      if (file.size > 50 * 1024 * 1024) throw new Error('This video is too big (' + Math.round(file.size / 1048576) + ' MB). The limit is 50 MB — send a shorter video.');
+      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+      const url = await api.uploadFile(file, 'video', ext, file.type || 'video/mp4');
+      return api.sendMessage(convId, '', 'video', { url, size: file.size });
+    },
+    sendSticker: (convId, sid) => api.sendMessage(convId, '', 'sticker', { s: sid }),
+    startCall: (convId, url) => api.sendMessage(convId, '', 'call', { url }),
     markRead: convId => q(sb.rpc('mark_read', { p_conv: convId })),
     directWith: userId => q(sb.rpc('get_or_create_direct', { p_other: userId })),
     createGroup: (title, ids) => q(sb.rpc('create_group', { p_title: title, p_members: ids })),
@@ -663,6 +695,12 @@ window.makeSupabaseApi = function (cfg) {
     async getKhrRate() { const r = await q(sb.from('app_settings').select('value').eq('key', 'khr_per_usd').maybeSingle()); return r ? +r.value : 4100; },
     setKhrRate: rate => q(sb.rpc('set_khr_rate', { p_rate: rate })),
 
+    // any file (voice, video): kept as it is, no compression
+    async uploadFile(blob, folder, ext, type) {
+      const path = folder + '/' + me.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+      await q(sb.storage.from('files').upload(path, blob, { contentType: type || blob.type || 'application/octet-stream' }));
+      return sb.storage.from('files').getPublicUrl(path).data.publicUrl;
+    },
     async uploadPhoto(file, folder) {
       const blob = await compressImage(file);
       const path = folder + '/' + me.id + '/' + Date.now() + '.jpg';
@@ -677,7 +715,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v28';
+  const KEY = 'kt_demo_v30';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -686,7 +724,7 @@ window.makeDemoApi = function () {
 
   const localDay0 = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
   function seed() {
-    const U = (id, username, full_name, role, active = true) => ({ id, username, full_name, role, active, phone: '', created_at: ago(9000), password: '1234' });
+    const U = (id, username, full_name, role, active = true) => ({ id, username, full_name, role, active, phone: '012 ' + (300 + username.length * 37) + ' ' + (100 + username.charCodeAt(0) * 3), created_at: ago(9000), password: '1234' });
     const users = [
       U('u-lee', 'lee', 'Mr. Lee', 'admin'), U('u-sophea', 'sophea', 'Sophea', 'manager'),
       U('u-kimlong', 'kimlong', 'Chhin Kimlong', 'sales'), U('u-sokha', 'sokha', 'Sokha Chan', 'sales'),
@@ -731,8 +769,10 @@ window.makeDemoApi = function () {
     const msg = (c, sender, body, min, kind = 'text', meta = {}) => { D.messages.push({ id: ++D.seq.msg, conversation_id: c.id, sender_id: sender, kind, body, meta, created_at: ago(min) }); c.last_message_at = ago(min); };
 
     const ann = conv('channel', 'K-TRONiCS Announcements', { slug: 'announcements' });
-    const alerts = conv('channel', 'Order & Stock Alerts', { slug: 'alerts' });
-    users.filter(u => u.active).forEach(u => { member(ann, u.id, ago(2000)); member(alerts, u.id, ago(2000)); });
+    const alerts = conv('channel', 'Order & Payment Alerts', { slug: 'alerts' });
+    const stockA = conv('channel', 'Products & Stock Alerts', { slug: 'stock_alerts' });
+    const visitA = conv('channel', 'Shop Visit Alerts', { slug: 'visit_alerts' });
+    users.filter(u => u.active).forEach(u => [ann, alerts, stockA, visitA].forEach(c => member(c, u.id, ago(2000))));
     msg(ann, 'u-lee', 'Welcome to the new K-TRONiCS staff app. All orders, stock and chat are now in one place.', 1500);
     msg(ann, 'u-lee', 'New price list starts 1 October. Please use the new prices in the app from that day.', 70);
 
@@ -888,10 +928,10 @@ window.makeDemoApi = function () {
   const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id);
   const isMember = (cid, uid) => D.members.some(m => m.conversation_id === cid && m.user_id === uid);
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
-  const ALERT_TYPES = ['stock', 'orders', 'payments'];
+  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits'];
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
-  const canPost = c => !c ? false : c.slug === 'alerts' || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
+  const canPost = c => !c ? false : SYS_ALERT.includes(c.slug) || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
   const manageable = c => !!c && ['group', 'channel'].includes(c.kind) && !c.slug;
   const chatNote = (cid, text) => pushMessage(cid, null, 'system', text, {});
   const qty = (pid, wid) => D.stock[pid + ':' + wid] || 0;
@@ -905,7 +945,11 @@ window.makeDemoApi = function () {
     setTimeout(() => subs.forEach(fn => { try { fn(clone(m)); } catch (e) {} }), 0);
     return m;
   }
-  const alert = (body, meta, type) => D.convs.filter(c => c.slug === 'alerts' || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
+  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts'];
+  const alertSlug = t => t === 'stock' ? 'stock_alerts' : t === 'visits' ? 'visit_alerts' : 'alerts';
+  const alert = (body, meta, type) => D.convs.filter(c => c.slug === alertSlug(type) || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
+  const who = id => (user(id) || {}).full_name || 'Someone';
+  const shopName = id => (D.customers.find(c => c.id === id) || {}).name || 'shop';
   function joinChannels(u) {
     if (!u.active) return;
     D.convs.filter(c => c.kind === 'channel' && (c.slug || c.all_staff)).forEach(c => { if (!isMember(c.id, u.id)) D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now() }); });
@@ -994,8 +1038,8 @@ window.makeDemoApi = function () {
     async updateStaff(id, r, active, fullName, phone) {
       if (!hasRole('admin')) fail('Only the admin can manage staff');
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
-      const u = user(id); u.role = r; u.active = active;
-      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; joinChannels(u); ensureRepStock(u); save(); return wait(null);
+      const u = user(id); const wasActive = u.active; u.role = r; u.active = active;
+      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
     },
 
     async listWarehouses() { return wait(clone(D.warehouses)); },
@@ -1068,7 +1112,8 @@ window.makeDemoApi = function () {
         out = D.customers.find(x => x.id === c.id);
         if (!boss && (out.assigned_to !== me.id || out.status === 'approved')) fail('This shop is approved. Only the admin can change it now.');
         Object.assign(out, row); if (!autoOk) out.status = 'pending';
-      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row); D.customers.push(out); }
+      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row); D.customers.push(out);
+        alert('🏪 New shop ' + out.name + (out.province ? ' (' + out.province + ')' : '') + ' added by ' + me.full_name + (out.status === 'pending' ? ' · waiting for approval' : ''), { customer_id: out.id }, 'visits'); }
       save(); return wait(clone(out));
     },
 
@@ -1092,7 +1137,8 @@ window.makeDemoApi = function () {
     },
     async reviewCustomer(id, status, note) {
       if (!allow('customers.approve')) fail('You are not allowed to approve shops');
-      const cu = D.customers.find(c => c.id === id); Object.assign(cu, { status, review_note: note || null });
+      const cu = D.customers.find(c => c.id === id); const before = cu.status; Object.assign(cu, { status, review_note: note || null });
+      if (before !== status && ['approved', 'rejected'].includes(status)) alert((status === 'approved' ? '✅ Shop approved: ' : '❌ Shop rejected: ') + cu.name + ' · by ' + me.full_name, { customer_id: id }, 'visits');
       if (['approved', 'rejected'].includes(status)) notify(cu.assigned_to, 'Shop ' + status, cu.name + (note ? ' · ' + note : ''), '#/customers/' + id);
       save(); return wait(null);
     },
@@ -1205,6 +1251,12 @@ window.makeDemoApi = function () {
       return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all'))).sort((a, b) => b.id - a.id).map(v => Object.assign(clone(v), {
         customers: (({ name, area }) => ({ name, area }))(D.customers.find(c => c.id === v.customer_id)), profiles: { full_name: user(v.staff_id).full_name } })));
     },
+    async getVisit(id) {
+      const v = D.visits.find(x => x.id === id);
+      if (!v || !role() || !(v.staff_id === me.id || allow('visits.view_all'))) return wait(null);
+      const c = D.customers.find(x => x.id === v.customer_id) || {};
+      return wait(Object.assign(clone(v), { customers: { name: c.name, area: c.area, phone: c.phone, lat: c.lat, lng: c.lng }, profiles: { full_name: user(v.staff_id).full_name } }));
+    },
     async activeVisit() {
       const v = me && D.visits.filter(x => x.staff_id === me.id && !x.check_out_at).sort((a, b) => b.id - a.id)[0];
       return wait(v ? Object.assign(clone(v), { customers: clone(D.customers.find(c => c.id === v.customer_id)) }) : null);
@@ -1215,17 +1267,27 @@ window.makeDemoApi = function () {
       if (!allow('customers.view_all') && (D.customers.find(c => c.id === v.customer_id) || {}).assigned_to !== me.id) fail('This shop belongs to another sales rep');
       const photo_url = v.photo ? await api.uploadPhoto(v.photo) : null;
       const row = { id: ++D.seq.visit, customer_id: v.customer_id, staff_id: me.id, check_in_at: now(), check_out_at: null, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null };
-      D.visits.push(row); save(); return wait(clone(row));
+      D.visits.push(row);
+      const sn = shopName(row.customer_id), d = row.distance_m;
+      alert(d == null ? '📍 ' + me.full_name + ' checked in at ' + sn + ' (no GPS)' : d > 200 ? '⚠️ ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m from the shop' : '📍 ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m away', { customer_id: row.customer_id, visit_id: row.id }, 'visits');
+      save(); return wait(clone(row));
     },
     async updateVisit(id, customerId, notes) {
       const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only change your own visits from today');
       const c = D.customers.find(x => x.id === customerId); if (!c) fail('Shop not found');
       if (!(allow('customers.view_all') || c.assigned_to === v.staff_id)) fail('This shop belongs to another sales rep');
       if (customerId !== v.customer_id) v.distance_m = v.lat != null && c.lat != null ? Math.round(dist(v.lat, v.lng, c.lat, c.lng)) : null;
-      v.customer_id = customerId; v.notes = (notes || '').trim() || null; save(); return wait(null);
+      const oldShop = v.customer_id, oldNote = v.notes, mine = v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s";
+      v.customer_id = customerId; v.notes = (notes || '').trim() || null;
+      if (oldShop !== customerId) alert('✏️ ' + me.full_name + ' changed ' + mine + ' visit: ' + shopName(oldShop) + ' → ' + shopName(customerId), { customer_id: customerId, visit_id: id }, 'visits');
+      else if (oldNote !== v.notes) alert('✏️ ' + me.full_name + ' edited the note on ' + mine + ' visit at ' + shopName(customerId), { customer_id: customerId, visit_id: id }, 'visits');
+      save(); return wait(null);
     },
-    async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1); save(); return wait(null); },
-    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes; save(); return wait(null); },
+    async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1);
+      alert('🗑 ' + me.full_name + ' deleted ' + (v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s") + ' visit at ' + shopName(v.customer_id) + ' (' + new Date(v.check_in_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')', { customer_id: v.customer_id }, 'visits'); save(); return wait(null); },
+    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes;
+      alert('✅ ' + me.full_name + ' finished the visit at ' + shopName(v.customer_id) + ' · ' + Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) + ' min', { customer_id: v.customer_id, visit_id: v.id }, 'visits');
+      save(); return wait(null); },
 
     async listConversations() {
       if (!role()) return [];
@@ -1267,6 +1329,17 @@ window.makeDemoApi = function () {
       }
       return wait(m.id);
     },
+    async sendVoice(convId, blob, secs) {
+      const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+      return api.sendMessage(convId, '', 'voice', { url, dur: Math.round(secs) });
+    },
+    async sendVideo(convId, file) {
+      if (file.size > 50 * 1024 * 1024) fail('This video is too big (' + Math.round(file.size / 1048576) + ' MB). The limit is 50 MB — send a shorter video.');
+      // demo: the video plays on this phone until the page is reloaded
+      return api.sendMessage(convId, '', 'video', { url: URL.createObjectURL(file), size: file.size, demo: true });
+    },
+    sendSticker: (convId, sid) => api.sendMessage(convId, '', 'sticker', { s: sid }),
+    startCall: (convId, url) => api.sendMessage(convId, '', 'call', { url }),
     async sendImage(convId, file) { const url = await api.uploadPhoto(file); return api.sendMessage(convId, '', 'image', { url }); },
     async markRead(convId) { const m = me && D.members.find(x => x.conversation_id === convId && x.user_id === me.id); if (m) { m.last_read_at = now(); save(); } return wait(null); },
     async directWith(uid) {
@@ -1307,7 +1380,8 @@ window.makeDemoApi = function () {
     },
     async addConvMembers(id, ids) {
       const c = D.convs.find(x => x.id === id);
-      if (!manageable(c)) fail('You cannot add people to this chat');
+      if (!(manageable(c) || (c && c.slug && c.kind === 'channel'))) fail('You cannot add people to this chat');
+      if (c.slug && role() !== 'admin') fail('Only the company admin can add people to this channel');
       if (!(convAdmin(c) || (c.kind === 'group' && isMember(id, me.id)))) fail('Only the admins can add people here');
       const add = (ids || []).filter(u => (user(u) || {}).active && !isMember(id, u));
       add.forEach(u => D.members.push({ conversation_id: id, user_id: u, last_read_at: now(), is_admin: false }));
@@ -1316,7 +1390,8 @@ window.makeDemoApi = function () {
     },
     async removeConvMember(id, uid) {
       const c = D.convs.find(x => x.id === id);
-      if (!manageable(c)) fail('You cannot remove people from this chat');
+      if (!(manageable(c) || (c && c.slug && c.kind === 'channel'))) fail('You cannot remove people from this chat');
+      if (c.slug && role() !== 'admin') fail('Only the company admin can remove people from this channel');
       if (!convAdmin(c)) fail('Only the admins can remove people');
       if (uid === me.id) fail('Use "Leave" to leave');
       D.members = D.members.filter(m => !(m.conversation_id === id && m.user_id === uid));
@@ -1687,6 +1762,8 @@ window.makeDemoApi = function () {
     nav: 'M3 11 21 3l-8 18-2-8z', chart: 'M4 20V11M10 20V5M16 20v-6M2 20h20', store: 'M4 9 5.5 4h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6', swap: 'M4 8h14l-4-4M20 16H6l4 4',
     pen: 'M4 20h4L19 9l-4-4L4 16z', image: 'M3 4h18v16H3zM9 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM21 17l-5-5-9 8', logout: 'M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10',
     shield: 'M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6zM9 12l2 2 4-4', fuel: 'M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10M14 8h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V9l-3-3',
+    mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3', video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
+    smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01', stop: 'M7 7h10v10H7z',
     food: 'M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1.5-3 4-3 7h3V3zM17 10v11', bed: 'M3 18V6M3 13h18v5M21 16v-1a3 3 0 0 0-3-3h-8v1M6.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6', list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01', refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'
   };
   const icon = (n, s = 22, sw = 1.9) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n] || ''}"/></svg>`;
@@ -1995,6 +2072,11 @@ Object.assign(window.KT_KM, { 'Automatic alerts': 'ការជូនដំណ�
 Object.assign(window.KT_KM, { 'Add staff, details, photo, password': 'បន្ថែមបុគ្គលិក ព័ត៌មាន រូបថត ពាក្យសម្ងាត់', 'Staff can make their own account': 'បុគ្គលិកអាចបង្កើតគណនីខ្លួនឯង', 'Active staff': 'បុគ្គលិកកំពុងធ្វើការ', 'Add staff': 'បន្ថែមបុគ្គលិក' });
 Object.assign(window.KT_KM, { 'HR & attendance': 'ធនធានមនុស្ស និងវត្តមាន', 'Staff, today, attendance, leave, pay': 'បុគ្គលិក ថ្ងៃនេះ វត្តមាន ច្បាប់ ប្រាក់ខែ' });
 Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន និងច្បាប់របស់ខ្ញុំ', 'Start / finish work, my days off': 'ចូល / ចេញពីការងារ ថ្ងៃឈប់សម្រាករបស់ខ្ញុំ' });
+Object.assign(window.KT_KM, { 'Shop visits': 'ការចុះហាង', 'Check-in, finish, edit, delete visits, new shops': 'ចូលហាង បញ្ចប់ កែ លុបការចុះហាង ហាងថ្មី' });
+Object.assign(window.KT_KM, { 'Remove members': 'ដកសមាជិកចេញ', 'Check-in on map': 'ទីតាំងចូលហាងលើផែនទី', 'Shop on map': 'ហាងលើផែនទី', 'Edit or delete this visit': 'កែ ឬលុបការចុះហាងនេះ', 'Shop visit': 'ការចុះហាង' });
+Object.assign(window.KT_KM, { 'Stickers': 'ស្ទីកឃ័រ', 'Emoji': 'អារម្មណ៍', 'Video': 'វីដេអូ', 'Video call': 'ហៅជាវីដេអូ', 'Join the call': 'ចូលរួមការហៅ', 'Join now': 'ចូលរួមឥឡូវនេះ',
+  'Start a video call?': 'ចាប់ផ្តើមហៅជាវីដេអូ?', 'Start video call': 'ចាប់ផ្តើមហៅជាវីដេអូ', 'Video call started': 'បានចាប់ផ្តើមហៅជាវីដេអូ', 'Phone call': 'ហៅទូរស័ព្ទ',
+  'Record a voice message': 'ថតសារជាសំឡេង', 'Recording… tap send when done': 'កំពុងថត… ចុចផ្ញើពេលរួចរាល់', 'Up to 50 MB (about 1–2 minutes)': 'រហូតដល់ 50 MB (ប្រហែល 1–2 នាទី)' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
