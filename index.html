@@ -2045,7 +2045,7 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
   const pushState = () => !('Notification' in window) ? 'unsupported' : Notification.permission;
   function pushBox() {
     const st = pushState();
-    if (st === 'granted') return `<div class="small muted" style="text-align:center">${icon('check', 14)} Phone notifications are on for this device</div>`;
+    if (st === 'granted') return `<div class="small muted" style="text-align:center">${icon('check', 14)} Phone notifications are on for this device</div>${K.live ? `<button class="btn ghost block" data-pushtest>${icon('bell', 18)} Send me a test notification</button>` : ''}`;
     if (st === 'unsupported') return `<div class="small muted">This browser cannot show notifications. On iPhone, add the app to the Home Screen first.</div>`;
     return `<button class="btn out block" data-push>${icon('bell', 18)} Turn on phone notifications</button>`;
   }
