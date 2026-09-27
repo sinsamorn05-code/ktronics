@@ -555,7 +555,8 @@ window.makeSupabaseApi = function (cfg) {
     markRead: convId => q(sb.rpc('mark_read', { p_conv: convId })),
     directWith: userId => q(sb.rpc('get_or_create_direct', { p_other: userId })),
     createGroup: (title, ids) => q(sb.rpc('create_group', { p_title: title, p_members: ids })),
-    createChannel: (title, allStaff, ids) => q(sb.rpc('create_channel', { p_title: title, p_all_staff: !!allStaff, p_members: ids || [] })),
+    createChannel: (title, allStaff, ids, alerts) => q(sb.rpc('create_channel', { p_title: title, p_all_staff: !!allStaff, p_members: ids || [], p_alert_types: alerts && alerts.length ? alerts : null })),
+    setConvAlerts: (id, types) => q(sb.rpc('set_conv_alerts', { p_conv: id, p_types: types || [] })),
     convMembers: id => q(sb.rpc('conv_members', { p_conv: id })),
     addConvMembers: (id, ids) => q(sb.rpc('add_conv_members', { p_conv: id, p_users: ids })),
     removeConvMember: (id, uid) => q(sb.rpc('remove_conv_member', { p_conv: id, p_user: uid })),
@@ -601,7 +602,9 @@ window.makeSupabaseApi = function (cfg) {
     markNotificationsRead: () => q(sb.rpc('mark_notifications_read')),
     async savePushSubscription(sub) { const j = sub.toJSON(); return q(sb.from('push_subscriptions').upsert({ user_id: me.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' })); },
     testPush: () => q(sb.rpc('test_push')),
-    async pushPublicKey() { const s = await api.getSettings(); if (s.vapid_public) return s.vapid_public; const r = await sb.functions.invoke('push', { body: { init: true } }); if (r.error) throw new Error('The "push" function did not answer (' + (r.error.message || r.error) + ')'); return r.data && r.data.publicKey; },
+    async pushPublicKey() { const s = await api.getSettings(); if (s.vapid_public) return s.vapid_public; const r = await sb.functions.invoke('push', { body: { init: true } });
+      if (r.error) { let d = ''; try { const c = r.error.context; d = c.status + ' ' + (await c.text()).slice(0, 160); } catch (e) { d = r.error.message || String(r.error); } throw new Error('The "push" function answered: ' + d); }
+      return r.data && r.data.publicKey; },
 
     // suppliers and purchases
     listSuppliers: () => q(sb.from('suppliers').select('*').order('name')),
@@ -673,7 +676,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v27';
+  const KEY = 'kt_demo_v28';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -884,9 +887,10 @@ window.makeDemoApi = function () {
   const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id);
   const isMember = (cid, uid) => D.members.some(m => m.conversation_id === cid && m.user_id === uid);
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
+  const ALERT_TYPES = ['stock', 'orders', 'payments'];
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
-  const canPost = c => !c ? false : c.slug === 'alerts' ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
+  const canPost = c => !c ? false : c.slug === 'alerts' || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
   const manageable = c => !!c && ['group', 'channel'].includes(c.kind) && !c.slug;
   const chatNote = (cid, text) => pushMessage(cid, null, 'system', text, {});
   const qty = (pid, wid) => D.stock[pid + ':' + wid] || 0;
@@ -900,14 +904,14 @@ window.makeDemoApi = function () {
     setTimeout(() => subs.forEach(fn => { try { fn(clone(m)); } catch (e) {} }), 0);
     return m;
   }
-  const alert = (body, meta) => pushMessage(D.convs.find(c => c.slug === 'alerts').id, null, 'system', body, meta);
+  const alert = (body, meta, type) => D.convs.filter(c => c.slug === 'alerts' || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
   function joinChannels(u) {
     if (!u.active) return;
     D.convs.filter(c => c.kind === 'channel' && (c.slug || c.all_staff)).forEach(c => { if (!isMember(c.id, u.id)) D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now() }); });
   }
   function checkLow(pid, before, after) {
     const p = D.products.find(x => x.id === pid);
-    if (after <= p.min_stock && before > p.min_stock) alert('Low stock: ' + p.name + ' — ' + after + ' left', { product_id: pid });
+    if (after <= p.min_stock && before > p.min_stock) alert('Low stock: ' + p.name + ' — ' + after + ' left', { product_id: pid }, 'stock');
   }
   function ensureRepStock(u) {
     if (u.active && u.role === 'sales' && !D.warehouses.some(w => w.rep_id === u.id)) {
@@ -927,7 +931,7 @@ window.makeDemoApi = function () {
       o.status = 'paid'; o.updated_at = now();
       D.events.push({ id: ++D.seq.event, order_id: oid, status: 'paid', note: 'Fully paid', created_by: me.id, created_at: now() });
       const c = D.convs.find(x => x.order_id === oid); if (c) pushMessage(c.id, null, 'system', o.order_no + ' fully paid', { order_id: oid });
-      alert(o.order_no + ' is fully paid', { order_id: oid });
+      alert(o.order_no + ' is fully paid', { order_id: oid }, 'payments');
     } else if (o.status === 'paid' && o.paid_amount < o.total) { o.status = 'delivered'; o.updated_at = now(); }
     notifyOrder(o);
   }
@@ -1117,7 +1121,7 @@ window.makeDemoApi = function () {
       if (!((o.status === 'pending' && (o.created_by === me.id || allow('orders.edit_any'))) || (o.status === 'cancelled' && allow('orders.edit_any')))) fail('Only waiting orders can be deleted. Cancel approved orders instead.');
       D.orders.splice(D.orders.indexOf(o), 1); D.items = D.items.filter(i => i.order_id !== id); D.events = D.events.filter(e => e.order_id !== id);
       const c = D.convs.find(x => x.order_id === id); if (c) { D.convs.splice(D.convs.indexOf(c), 1); D.members = D.members.filter(m => m.conversation_id !== c.id); D.messages = D.messages.filter(m => m.conversation_id !== c.id); }
-      alert(o.order_no + ' was deleted by ' + me.full_name, {}); save(); notifyOrder(o); return wait(null);
+      alert(o.order_no + ' was deleted by ' + me.full_name, {}, 'orders'); save(); notifyOrder(o); return wait(null);
     },
     async assignCustomers(ids, rep) {
       if (!allow('customers.manage')) fail('You are not allowed to move shops');
@@ -1147,7 +1151,7 @@ window.makeDemoApi = function () {
       const c = { id: ++D.seq.conv, kind: 'order', title: order_no, slug: null, order_id: id, created_by: me.id, created_at: now(), last_message_at: now() };
       D.convs.push(c);
       D.users.filter(u => u.active && (u.id === me.id || u.id === order.sales_rep_id || ['admin', 'manager', 'warehouse'].includes(u.role))).forEach(u => D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now() }));
-      alert('New order ' + order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), { order_id: id });
+      alert('New order ' + order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), { order_id: id }, 'orders');
       save(); notifyOrder(order);
       if (autoOk) await api.setOrderStatus(id, 'approved', 'Approved automatically');
       else notifyPerm('orders.approve', 'New order to approve', order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), '#/orders/' + id);
@@ -1187,7 +1191,7 @@ window.makeDemoApi = function () {
       const c = D.convs.find(x => x.order_id === id);
       if (!isMember(c.id, me.id)) D.members.push({ conversation_id: c.id, user_id: me.id, last_read_at: now() });
       pushMessage(c.id, null, 'system', o.order_no + ' ' + status + ' by ' + me.full_name, { order_id: id, status });
-      alert(o.order_no + ' is now ' + status, { order_id: id });
+      alert(o.order_no + ' is now ' + status, { order_id: id }, 'orders');
       if (status === 'delivered') recalc(id);
       { const shop = D.customers.find(x => x.id === o.customer_id).name, l = '#/orders/' + id;
         notify(o.sales_rep_id, o.order_no + ' ' + (status === 'paid' ? 'fully paid' : status), shop, l);
@@ -1234,7 +1238,7 @@ window.makeDemoApi = function () {
           last_sender: last && last.sender_id ? user(last.sender_id).full_name : null,
           unread: msgs.filter(x => x.created_at > m.last_read_at && x.sender_id !== me.id).length,
           other_user: c.kind === 'direct' && others[0] ? others[0].user_id : null, members: others.length + 1,
-          is_admin: convAdmin(c), can_post: canPost(c), all_staff: !!c.all_staff, created_by: c.created_by };
+          is_admin: convAdmin(c), can_post: canPost(c), all_staff: !!c.all_staff, created_by: c.created_by, alert_types: c.alert_types || null };
       }).sort((a, b) => b.last_message_at.localeCompare(a.last_message_at)));
     },
     async listMessages(convId, beforeId) {
@@ -1280,11 +1284,16 @@ window.makeDemoApi = function () {
       [...new Set([...ids, me.id])].filter(id => (user(id) || {}).active).forEach(id => D.members.push({ conversation_id: c.id, user_id: id, last_read_at: now(), is_admin: id === me.id }));
       save(); return wait(c.id);
     },
-    async createChannel(title, allStaff, ids) {
+    async setConvAlerts(id, types) {
+      const c = D.convs.find(x => x.id === id);
+      if (!c || c.kind !== 'channel' || c.slug || !convAdmin(c)) fail('Only the channel admins can change its alerts');
+      const t = [...new Set(types || [])].filter(x => ALERT_TYPES.includes(x)); c.alert_types = t.length ? t : null; save(); return wait(null);
+    },
+    async createChannel(title, allStaff, ids, alerts) {
       if (!role()) fail('Your account is not active');
       if (!allow('chat.create_channel')) fail('You are not allowed to create channels');
       if (!String(title || '').trim()) fail('Give the channel a name');
-      const c = { id: ++D.seq.conv, kind: 'channel', title: title.trim(), slug: null, order_id: null, created_by: me.id, created_at: now(), last_message_at: now(), all_staff: !!allStaff };
+      const c = { id: ++D.seq.conv, kind: 'channel', title: title.trim(), slug: null, order_id: null, created_by: me.id, created_at: now(), last_message_at: now(), all_staff: !!allStaff, alert_types: (alerts || []).filter(x => ALERT_TYPES.includes(x)).length ? [...new Set(alerts)].filter(x => ALERT_TYPES.includes(x)) : null };
       D.convs.push(c);
       D.users.filter(u => u.active && (allStaff || u.id === me.id || (ids || []).includes(u.id))).forEach(u => D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now(), is_admin: u.id === me.id }));
       chatNote(c.id, me.full_name + ' created the channel');
@@ -1394,7 +1403,7 @@ window.makeDemoApi = function () {
         status: auto ? 'confirmed' : 'pending', received_by: me.id, received_at: now(), confirmed_by: auto ? me.id : null, confirmed_at: auto ? now() : null };
       D.payments.push(row);
       D.events.push({ id: ++D.seq.event, order_id: o.id, status: o.status, note: 'Payment $' + usd.toFixed(2) + ' (' + row.method + ')', created_by: me.id, created_at: now() });
-      if (auto) recalc(o.id); else { alert('Payment $' + usd.toFixed(2) + ' for ' + o.order_no + ' waits for confirmation', { order_id: o.id }); notifyPerm('payments.confirm', 'Payment to check', '$' + usd.toFixed(2) + ' · ' + o.order_no, '#/payments?t=check'); }
+      if (auto) recalc(o.id); else { alert('Payment $' + usd.toFixed(2) + ' for ' + o.order_no + ' waits for confirmation', { order_id: o.id }, 'payments'); notifyPerm('payments.confirm', 'Payment to check', '$' + usd.toFixed(2) + ' · ' + o.order_no, '#/payments?t=check'); }
       save(); return wait(row.id);
     },
     async reviewPayment(id, status, note) {
@@ -1578,7 +1587,7 @@ window.makeDemoApi = function () {
         D.moves.push({ id: ++D.seq.move, product_id: pr.id, warehouse_id: p.warehouse_id, qty_change: i.qty, reason: 'in', ref: p.purchase_no, note: 'From ' + sup.name, created_by: me.id, created_at: now() });
       });
       Object.assign(p, { status: 'received', received_at: now(), received_by: me.id });
-      alert('Goods received: ' + p.purchase_no + ' · ' + sup.name, {}); save(); return wait(null);
+      alert('Goods received: ' + p.purchase_no + ' · ' + sup.name, {}, 'stock'); save(); return wait(null);
     },
     async cancelPurchase(id) {
       if (!allow('purchases.manage')) fail('You are not allowed to change purchases');
@@ -1979,6 +1988,12 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
   'Remove as admin': 'ដកចេញពីអ្នកគ្រប់គ្រង', 'Remove from group': 'ដកចេញពីក្រុម', 'Remove from channel': 'ដកចេញពីឆានែល', 'Send a message': 'ផ្ញើសារ',
   'Only the channel admins can post here': 'មានតែអ្នកគ្រប់គ្រងឆានែលទេដែលអាចផ្ញើសារនៅទីនេះ', 'Only admins can post in this channel. Everyone else reads.': 'មានតែអ្នកគ្រប់គ្រងទេដែលអាចផ្ញើសារក្នុងឆានែលនេះ។ អ្នកផ្សេងទៀតអានបាន។',
   'Create channels': 'បង្កើតឆានែល', 'Remove': 'ដកចេញ', 'Renamed': 'បានប្តូរឈ្មោះ', 'Added': 'បានបន្ថែម', 'Removed': 'បានដកចេញ', 'You left': 'អ្នកបានចាកចេញ', 'Deleted': 'បានលុប' });
+Object.assign(window.KT_KM, { 'Automatic alerts': 'ការជូនដំណឹងស្វ័យប្រវត្តិ', 'Automatic alerts (optional)': 'ការជូនដំណឹងស្វ័យប្រវត្តិ (មិនចាំបាច់)', 'Send automatic alerts here': 'ផ្ញើការជូនដំណឹងស្វ័យប្រវត្តិមកទីនេះ',
+  'Low stock, goods received': 'ស្តុកជិតអស់ ទទួលទំនិញ', 'New orders, status changes, deleted orders': 'ការបញ្ជាទិញថ្មី ការប្តូរស្ថានភាព ការលុប', 'Payments to confirm, fully paid orders': 'ការទូទាត់ត្រូវបញ្ជាក់ ការបញ្ជាទិញបង់គ្រប់',
+  'Automatic alerts from the system': 'ការជូនដំណឹងស្វ័យប្រវត្តិពីប្រព័ន្ធ' });
+Object.assign(window.KT_KM, { 'Add staff, details, photo, password': 'បន្ថែមបុគ្គលិក ព័ត៌មាន រូបថត ពាក្យសម្ងាត់', 'Staff can make their own account': 'បុគ្គលិកអាចបង្កើតគណនីខ្លួនឯង', 'Active staff': 'បុគ្គលិកកំពុងធ្វើការ', 'Add staff': 'បន្ថែមបុគ្គលិក' });
+Object.assign(window.KT_KM, { 'HR & attendance': 'ធនធានមនុស្ស និងវត្តមាន', 'Staff, today, attendance, leave, pay': 'បុគ្គលិក ថ្ងៃនេះ វត្តមាន ច្បាប់ ប្រាក់ខែ' });
+Object.assign(window.KT_KM, { 'My attendance & leave': 'វត្តមាន និងច្បាប់របស់ខ្ញុំ', 'Start / finish work, my days off': 'ចូល / ចេញពីការងារ ថ្ងៃឈប់សម្រាករបស់ខ្ញុំ' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -2195,7 +2210,7 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
       warehouse: [qa('#/mydash', 'chart', 'Dashboard', 'var(--grs)', 'var(--gr)'), qa('#/orders?f=approved', 'truck', 'To deliver'), qa('#/stock', 'list', 'Stock', 'var(--bls)', 'var(--bl)'), qa('#/orders?f=delivered', 'check', 'Delivered', 'var(--grs)', 'var(--gr)'), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')],
       driver: [qa('#/mydash', 'chart', 'Dashboard', 'var(--grs)', 'var(--gr)'), qa('#/orders?f=approved', 'truck', 'To deliver'), qa('#/orders?f=delivered', 'check', 'Delivered', 'var(--grs)', 'var(--gr)'), qa('#/customers', 'store', 'Shops', 'var(--bls)', 'var(--bl)'), (K.canCollect() ? qa('#/payments', 'cash', 'Collect money', 'var(--grs)', 'var(--gr)') : ''), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')],
       manager: [qa('#/orders?f=pending', 'check', 'Approvals', 'var(--ors)', 'var(--or)'), qa('#/dashboard', 'chart', 'Dashboard'), qa('#/orders/new', 'order', 'New order', 'var(--grs)', 'var(--gr)'), qa('#/stock', 'box', 'Stock', 'var(--bls)', 'var(--bl)'),
-        qa('#/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)'), qa('#/payments?t=check', 'cash', 'Payments', 'var(--grs)', 'var(--gr)'), qa('#/chat/channel/announcements', 'mega', 'Announce'), qa('#/staff', 'users', 'Staff', 'var(--ors)', 'var(--or)')]
+        qa('#/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)'), qa('#/payments?t=check', 'cash', 'Payments', 'var(--grs)', 'var(--gr)'), qa('#/chat/channel/announcements', 'mega', 'Announce'), qa('#/hr', 'users', 'HR', 'var(--ors)', 'var(--or)')]
     };
     list.admin = list.manager;
     return (list[r] || list.sales).join('');
@@ -2271,9 +2286,10 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
-        ${item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
+        ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view')
+          ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + item('#/hr', 'users', 'HR & attendance', 'Staff, today, attendance, leave, pay', 'var(--ors)', 'var(--or)')
+          : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
         ${K.allow('dashboard.view') ? item('#/dashboard', 'chart', 'Dashboard', 'Sales, orders, money owed') : item('#/mydash', 'chart', 'My dashboard', 'My sales, target, ranking, shops')}
-        ${can('admin') ? item('#/staff', 'users', 'Staff &amp; roles', 'Approve new staff, set roles', 'var(--ors)', 'var(--or)') : ''}
         ${K.allow('dashboard.view') && K.live ? item('admin.html', 'shield', 'Open admin panel', 'Full reports and management') : ''}
       </div>
       <div class="card"><div class="row"><b class="grow">Appearance</b></div>${K.themeButtons()}<div class="row"><b class="grow">Language</b></div>${K.langButtons()}<div class="row"><b class="grow">Notifications</b><button class="btn sm out" id="nlist">${icon('bell', 16)}Open</button></div>${K.soundButtons()}${K.pushBox()}</div>
@@ -2286,40 +2302,8 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
   });
 
   // ---------------- Staff (admin) ----------------
-  route(/^\/staff$/, async (_, __, current) => {
-    if (!can('admin')) return go('#/more');
-    const main = page({ title: 'Staff & roles', back: '#/more' });
-    const staff = await data.staff(true);
-    if (!current()) return;
-    const pending = staff.filter(u => !u.active), active = staff.filter(u => u.active);
-    const row = u => `<button class="list-item" data-u="${esc(u.id)}">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)}</div></div>${u.active ? `<span class="pill">${esc(ROLE_LABEL[u.role])}</span>` : '<span class="pill or">Approve</span>'}</button>`;
-    main.innerHTML = `<div class="pad">
-      <div class="card small muted"><div style="line-height:1.5">New staff tap <b>Create an account</b> on the login screen. They appear here, and you approve them and choose their role. To remove someone who left, open them and tap <b>Disable</b>.</div></div>
-      ${pending.length ? `<div class="sec">Waiting for approval (${pending.length})</div><div class="card flush">${pending.map(row).join('')}</div>` : ''}
-      <div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div></div>`;
-    $$('[data-u]').forEach(b => b.onclick = () => editStaff(staff.find(u => u.id === b.dataset.u)));
-  });
-  function editStaff(u) {
-    const roles = ['sales', 'warehouse', 'driver', 'manager', 'admin'];
-    const s = sheet(u.active ? 'Edit staff' : 'Approve staff', `
-      <div class="row">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)}</div></div></div>
-      <label class="f">Full name<input class="inp" id="nm" value="${esc(u.full_name)}"></label>
-      <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div>
-      <div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 30%">${ROLE_LABEL[r]}</button>`).join('')}</div>
-      <div class="small muted" id="rh"></div>
-      <div class="btns">${u.active ? '<button class="btn red" id="dis">Disable</button>' : ''}<button class="btn" id="ok">${u.active ? 'Save' : 'Approve'}</button></div>`);
-    let role = u.role;
-    const hints = { sales: 'Orders for own shops, visits, chat. Sees stock (view only).', warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
-    const setHint = () => { $('#rh', s.el).textContent = hints[role]; };
-    setHint();
-    $$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; $$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); setHint(); });
-    const saveIt = async (btn, active) => {
-      await busy(btn, () => api.updateStaff(u.id, role, active, $('#nm', s.el).value));
-      s.close(); toast(active ? 'Saved' : 'Account disabled'); K.forget('staff'); K.render();
-    };
-    $('#ok', s.el).onclick = e => saveIt(e.currentTarget, true);
-    if ($('#dis', s.el)) $('#dis', s.el).onclick = e => saveIt(e.currentTarget, false);
-  }
+  // old link: Staff now lives in HR & attendance (same as the admin panel)
+  route(/^\/staff$/, async () => { location.replace('#/hr?t=staff'); });
 
   // ---------------- Dashboard ----------------
   route(/^\/dashboard$/, async (_, __, current) => {
@@ -2352,7 +2336,7 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
   function convIcon(c) {
     if (c.kind === 'direct') return avatar(c.title || '?');
     if (c.slug === 'announcements') return `<div class="ic-av" style="background:var(--p);color:#fff">${icon('mega')}</div>`;
-    if (c.slug === 'alerts') return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('bell')}</div>`;
+    if (c.slug === 'alerts' || (c.alert_types || []).length) return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('bell')}</div>`;
     if (c.kind === 'order') return `<div class="ic-av" style="background:var(--bls);color:var(--bl)">${icon('order')}</div>`;
     return `<div class="ic-av">${icon('users')}</div>`;
   }
@@ -2399,18 +2383,25 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
     if ($('#chn', s.el)) $('#chn', s.el).onclick = () => { s.close(); newChannel(staff); };
   }
   const pickList = staff => `<div class="card flush">${staff.map(u => `<label class="list-item" style="cursor:pointer">${avatar(u.full_name, 'sm', u.avatar_url)}<div class="grow"><div class="tt" style="font-size:14px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role] || '')}</div></div><input type="checkbox" value="${esc(u.id)}" style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('') || '<div class="empty">No one to add</div>'}</div>`;
+  const ALERTS = [['stock', 'Stock', 'Low stock, goods received'], ['orders', 'Orders', 'New orders, status changes, deleted orders'], ['payments', 'Payments', 'Payments to confirm, fully paid orders']];
+  const alertLabel = types => (types || []).map(t => (ALERTS.find(a => a[0] === t) || [t, t])[1]).join(', ');
+  const alertPick = sel => `<div class="card flush">${ALERTS.map(([k, l, d]) => `<label class="list-item" style="cursor:pointer"><div class="grow"><div class="tt" style="font-size:14px">${l}</div><div class="st">${d}</div></div><input type="checkbox" data-alert="${k}" ${(sel || []).includes(k) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('')}</div>`;
   function newChannel(staff) {
     const s = sheet('New channel', `<p class="small muted" style="margin:0 0 10px">In a channel only the admins post. Everyone else reads. You are the admin.</p>
       <label class="f">Channel name<input class="inp" id="gn" placeholder="e.g. Price updates"></label>
       <label class="list-item" style="cursor:pointer;border-radius:12px;border:1px solid var(--bd)"><div class="grow"><div class="tt">Everyone in the company</div><div class="st">All staff join, and new staff join by themselves</div></div><input type="checkbox" id="all" style="width:22px;height:22px;accent-color:var(--p)"></label>
       <div id="pick"><div class="sec">Members</div>${pickList(staff)}</div>
+      <div class="sec">Automatic alerts (optional)</div>
+      <p class="small muted" style="margin:0 0 8px">Tick one or more and the system posts these alerts here (for example low stock for the warehouse team). Then only the system posts in this channel.</p>
+      ${alertPick([])}
       <button class="btn block" id="mk">Create channel</button>`);
     $('#all', s.el).onchange = e => { $('#pick', s.el).style.display = e.target.checked ? 'none' : ''; };
     $('#mk', s.el).onclick = async e => {
       const all = $('#all', s.el).checked;
       const ids = all ? [] : $$('#pick input[type=checkbox]:checked', s.el).map(x => x.value);
       if (!all && !ids.length) return toast('Choose members, or tick "Everyone in the company"');
-      const id = await busy(e.currentTarget, () => api.createChannel($('#gn', s.el).value, all, ids));
+      const alerts = $$('[data-alert]:checked', s.el).map(x => x.dataset.alert);
+      const id = await busy(e.currentTarget, () => api.createChannel($('#gn', s.el).value, all, ids, alerts));
       K.forget('convs'); s.close(); go('#/chat/' + id);
     };
   }
@@ -2465,7 +2456,7 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
     const right = conv.kind === 'order' && conv.order_id ? `<a class="ib" href="#/orders/${conv.order_id}" aria-label="Open order">${icon('order')}</a>`
       : managed ? `<a class="ib" href="#/chat/${id}/info" id="info" aria-label="Members and settings">${icon('users')}</a>` : '';
     const bottom = locked
-      ? `<div class="locked">${icon('lock', 16)} ${conv.slug === 'alerts' ? 'Automatic alerts from the system' : conv.slug ? 'Only admins and managers can post here' : 'Only the channel admins can post here'}</div>`
+      ? `<div class="locked">${icon('lock', 16)} ${conv.slug === 'alerts' || (conv.alert_types || []).length ? 'Automatic alerts from the system' : conv.slug ? 'Only admins and managers can post here' : 'Only the channel admins can post here'}</div>`
       : `<div class="composer"><button class="ib" id="att" aria-label="Send photo or order" style="color:var(--mu)">${icon('plus')}</button>
           <label style="flex:1;display:flex"><span class="hidden">Message</span><textarea id="tx" rows="1" placeholder="Message" aria-label="Message"></textarea></label>
           <button class="send" id="snd" aria-label="Send">${icon('send', 19)}</button><input type="file" id="ph" accept="image/*" class="hidden"></div>`;
@@ -2548,7 +2539,9 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
         <div class="small muted">${isCh ? 'Channel' : 'Group'} · ${members.length} members${isCh && conv.all_staff ? ' · everyone in the company' : ''}</div>
         ${iAdmin ? `<button class="linkbtn" id="ren" style="margin:8px auto 0;align-self:center">${icon('pen', 16)} Rename</button>` : ''}
       </div>
-      ${isCh ? `<p class="small muted" style="margin:0 4px">Only admins can post in this channel. Everyone else reads.</p>` : ''}
+      ${isCh ? ((conv.alert_types || []).length
+        ? `<div class="card"><div class="row"><div class="grow"><b>Automatic alerts</b><div class="small muted">${esc(alertLabel(conv.alert_types))} · only the system posts here</div></div>${iAdmin ? '<button class="btn sm out" id="alch">Change</button>' : ''}</div></div>`
+        : `<p class="small muted" style="margin:0 4px">Only admins can post in this channel. Everyone else reads.</p>${iAdmin ? '<button class="linkbtn" id="alch" style="padding:0 4px">' + icon('bell', 16) + ' Send automatic alerts here</button>' : ''}`) : ''}
       <div><div class="sec" style="display:flex;justify-content:space-between;align-items:center;margin-top:0"><span>Members</span>${canAdd ? `<button class="linkbtn" id="add" style="padding:0">${icon('plus', 16)} Add members</button>` : ''}</div>
       <div class="card flush" id="mem">${members.map(m => `<button class="list-item" data-m="${esc(m.user_id)}">${avatar(m.full_name, '', m.avatar_url)}
         <div class="grow"><div class="tt">${esc(m.full_name)}${m.user_id === S.me.id ? ' <span class="muted small">(you)</span>' : ''}</div><div class="st">${esc(K.ROLE_LABEL[m.role] || '')}${m.active === false ? ' · disabled' : ''}</div></div>
@@ -2561,6 +2554,10 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
     if ($('#ren')) $('#ren').onclick = () => {
       const s = sheet('Rename', `<label class="f">Name<input class="inp" id="nm" value="${esc(conv.title || '')}"></label><button class="btn block" id="ok">Save</button>`);
       $('#ok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.renameConv(id, $('#nm', s.el).value)); s.close(); toast('Renamed'); refresh(); };
+    };
+    if ($('#alch')) $('#alch').onclick = () => {
+      const s = sheet('Automatic alerts', `<p class="small muted" style="margin:0 0 8px">Choose which alerts the system posts in this channel. With none ticked, the channel admins post as normal.</p>${alertPick(conv.alert_types)}<button class="btn block" id="ok">Save</button>`);
+      $('#ok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setConvAlerts(id, $$('[data-alert]:checked', s.el).map(x => x.dataset.alert))); s.close(); toast('Saved'); refresh(); };
     };
     if ($('#add')) $('#add').onclick = () => {
       const inIds = new Set(members.map(m => m.user_id));
@@ -4025,6 +4022,231 @@ Object.assign(window.KT_KM, { 'New channel': 'ឆានែលថ្មី', 'Cha
     $('#ask').onclick = () => K.leaveSheet(() => K.render());
     if (hr) $$('#oth [data-lv]').forEach(b => b.onclick = () => K.leaveReview(list.find(l => l.id === +b.dataset.lv), () => K.render()));
     $$('#my [data-lv]').forEach(b => { const l = mine.find(x => x.id === +b.dataset.lv); if (l.status === 'pending') b.onclick = async () => { if (await K.confirmSheet('Delete this request?', 'You can ask again later.', 'Delete', true)) { await api.deleteLeave(l.id); K.render(); } }; });
+  });
+})();
+
+// Staff account + details form, shared by the admin web and the phone app (so both always match).
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, busy, toast, avatar } = K;
+    // one form for everything about a person: account (admin) + personal & job details (HR)
+  K.staffSheet = function staffSheet(u, ctx) {
+      ctx = ctx || {};
+      const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'warehouse', 'driver', 'manager', 'admin'];
+      const hints = { sales: 'Takes orders, visits shops, chat. Sees stock but cannot change it.', warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
+      let role = u.role, gender = hh.gender || '';
+      const inp = (id, label, v, type = 'text', ph = '', extra = '') => `<label class="f">${label}<input class="inp" id="${id}" type="${type}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" ${extra}></label>`;
+      const s = K.sheet(u.active ? u.full_name : 'Approve staff', `<div class="row">${avatar(u.full_name, 'lg', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)} · login name</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill or">Waiting</span>'}</div>
+        ${boss ? `<div class="btns"><button class="btn sm out" id="sph">${icon('camera', 16)}${u.avatar_url ? 'Change photo' : 'Add photo'}</button>${u.avatar_url ? '<button class="btn sm out" id="sphx">Remove photo</button>' : ''}<button class="btn sm out" id="srp">${icon('lock', 16)}Reset password</button></div><input type="file" id="sphf" accept="image/*" class="hidden">` : ''}
+        ${K.namesOf(u.id).length ? `<div class="card" style="background:var(--bg);gap:4px"><b style="font-size:13px">Name history (who used this login before)</b>${K.namesOf(u.id).map(h => `<div class="small">${esc(h.old_name)} <span class="muted">→ ${esc(h.new_name)} on ${esc(K.poDate ? K.poDate(h.changed_at.slice(0, 10)) : h.changed_at.slice(0, 10))}</span></div>`).join('')}<div class="small muted">Orders and visits made before a change show the old name as "(then …)".</div></div>` : ''}
+        <div class="sec" style="margin:4px 0 0">Account</div>
+        <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
+        ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        <div class="small muted" id="rh">${hints[role]}</div>` : ''}
+        ${hr ? `<div class="sec" style="margin:8px 0 0">Personal details</div>
+        <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Gender</div><div class="seg">${[['male', 'Male'], ['female', 'Female']].map(([k, l]) => `<button data-g="${k}" class="${gender === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <div class="btns">${inp('hbd', 'Date of birth', hh.birth_date, 'date')}${inp('hid', 'ID card number', hh.id_card, 'text', 'National ID / passport')}</div>
+        ${inp('had', 'Home address', hh.address, 'text', 'Village, commune, district, province')}
+        ${inp('he', 'Emergency contact', hh.emergency_contact, 'text', 'Name, relation and phone')}
+        <div class="sec" style="margin:8px 0 0">Job & pay</div>
+        <div class="btns">${inp('hp', 'Position', hh.position, 'text', 'e.g. Sales rep')}${inp('hs', 'Start date', hh.start_date, 'date')}</div>
+        <div class="btns">${inp('hb', 'Base salary ($ per month)', hh.base_salary, 'number', '', 'step="0.01" inputmode="decimal"')}${inp('hl', 'Annual leave days', hh.annual_leave_days ?? 18, 'number', '', 'step="0.5"')}</div>
+        ${inp('hbk', 'Bank account for salary', hh.bank_account, 'text', 'e.g. ABA 000 123 456 · name')}
+        <label class="f">Notes<textarea class="inp" id="hn">${esc(hh.notes || '')}</textarea></label>
+        <div class="small muted">Personal details and salary are private: only you and people with the HR permission can see them. Each person sees only their own.</div>` : ''}
+        <div class="btns">${boss && u.active && u.id !== K.S.me.id ? '<button class="btn red" id="dis">Disable</button>' : ''}<button class="btn" id="ok">${u.active ? 'Save' : 'Approve'}</button></div>`);
+      K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; });
+      K.$$('[data-g]', s.el).forEach(b => b.onclick = () => { gender = gender === b.dataset.g ? '' : b.dataset.g; K.$$('[data-g]', s.el).forEach(x => x.classList.toggle('on', x.dataset.g === gender)); });
+      const v = id => K.$('#' + id, s.el).value.trim();
+      const saveIt = async (btn, active) => {
+        if (!v('nm')) return toast('Enter the full name');
+        await busy(btn, async () => {
+          if (boss) await api.updateStaff(u.id, role, active, v('nm'), v('ph'));
+          if (hr) await api.saveStaffHr({ user_id: u.id, position: v('hp'), start_date: v('hs'), base_salary: v('hb'), annual_leave_days: v('hl'), emergency_contact: v('he'), notes: v('hn'),
+            gender, birth_date: v('hbd'), address: v('had'), id_card: v('hid'), bank_account: v('hbk') });
+        });
+        if (boss && v('nm') !== u.full_name) { try { K.NAMEHIST = await api.listNameHistory(); } catch (e) {} }
+        s.close(); toast(!active ? 'Account disabled' : v('nm') !== u.full_name ? 'Saved. ' + u.full_name + ' is kept in the name history.' : u.active ? 'Saved' : 'Staff approved'); K.forget('staff'); K.render();
+      };
+      K.$('#ok', s.el).onclick = e => saveIt(e.currentTarget, true);
+      if (K.$('#sph', s.el)) { K.$('#sph', s.el).onclick = () => K.$('#sphf', s.el).click();
+        K.$('#sphf', s.el).onchange = async e => { const f = e.target.files[0]; if (!f) return; await busy(K.$('#sph', s.el), () => api.setAvatar(u.id, f)); s.close(); toast('Photo saved'); K.forget('staff'); K.render(); };
+        if (K.$('#sphx', s.el)) K.$('#sphx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setAvatar(u.id, null)); s.close(); toast('Photo removed'); K.forget('staff'); K.render(); };
+        K.$('#srp', s.el).onclick = () => K.resetPasswordSheet(u); }
+      if (K.$('#dis', s.el)) K.$('#dis', s.el).onclick = async e => { const b = e.currentTarget;
+        if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
+    }
+  K.addStaffSheet = function addStaffSheet(onCreated) {
+      const roles = ['sales', 'warehouse', 'driver', 'manager', 'admin']; let role = 'sales';
+      const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
+        <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
+        <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 6 characters"></label></div>
+        <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        <button class="btn block" id="aok">${icon('plus', 18)}Create account</button>`);
+      const v = id => K.$('#' + id, s.el).value.trim();
+      K.$('#apw', s.el).value = String(Math.floor(100000 + Math.random() * 900000));
+      K.$('#an', s.el).oninput = () => { const u = K.$('#au', s.el); if (!u.dataset.touched) u.value = v('an').toLowerCase().split(/\s+/).pop().replace(/[^a-z0-9._]/g, ''); };
+      K.$('#au', s.el).oninput = e => { e.target.dataset.touched = '1'; };
+      K.$$('[data-ar]', s.el).forEach(b => b.onclick = () => { role = b.dataset.ar; K.$$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+      K.$('#aok', s.el).onclick = async e => {
+        const x = { full_name: v('an'), phone: v('aph'), username: v('au').toLowerCase(), password: v('apw'), role };
+        if (!x.full_name) return toast('Enter the full name'); if (!/^[a-z0-9._]{3,24}$/.test(x.username)) return toast('Username: 3–24 letters or numbers, no spaces');
+        if (x.password.length < 6) return toast('The password needs at least 6 characters');
+        await busy(e.currentTarget, () => api.createStaff(x)); s.close();
+        K.forget('staff'); await K.data.staff(true); if (onCreated) await onCreated();
+        const ok = K.sheet('Account ready', `<div class="card" style="background:var(--grs)"><b>${esc(x.full_name)}</b><div>Username: <b>${esc(x.username)}</b></div><div>Password: <b>${esc(x.password)}</b></div><div class="small muted">Role: ${esc(K.ROLE_LABEL[x.role])}</div></div>
+          <div class="small muted">Send these to them (for example in Telegram) together with the app link. They can change the password in More → My profile.</div>
+          <button class="btn block" id="cp">Copy login details</button>`);
+        K.$('#cp', ok.el).onclick = async () => { const t = `K-TRONiCS app\n${location.href.replace(/admin\.html.*$/, '')}\nUsername: ${x.username}\nPassword: ${x.password}`; try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (err) { toast(t); } };
+      };
+    }
+  K.resetPasswordSheet = function resetPasswordSheet(u) {
+      const s = K.sheet('New password · ' + u.full_name, `<div class="small muted">Use this when ${esc(u.full_name)} forgot their password. Give them the new one; they can change it later in More → My profile.</div>
+        <label class="f">New password<input class="inp" id="rp1" value="${String(Math.floor(100000 + Math.random() * 900000))}"></label><button class="btn block" id="rpok">Set new password</button>`);
+      K.$('#rpok', s.el).onclick = async e => { const pw = K.$('#rp1', s.el).value.trim(); if (pw.length < 6) return toast('The password needs at least 6 characters');
+        await busy(e.currentTarget, () => api.setStaffPassword(u.id, pw)); s.close(); K.sheet('Password changed', `<div class="card" style="background:var(--grs)">Username: <b>${esc(u.username)}</b><br>New password: <b>${esc(pw)}</b></div>`); };
+    }
+})();
+
+// Phone app: lets admin-panel pages (HR & attendance) run inside the phone app with a phone header.
+(function () {
+  const K = window.KT;
+  if (K.adm) return;   // the admin web has its own
+  const { api, S, icon } = K;
+  async function ensureBig(key, loader, force) { if (!force && S.cache[key]) return S.cache[key]; S.cache[key] = await loader(); return S.cache[key]; }
+  K.adm = {
+    phone: true,
+    shell: (active, title, actions, sub) => K.page({ title, sub, back: '#/more',
+      right: `<a class="ib" href="#/attendance" aria-label="My attendance">${icon('clock')}</a>` + (actions || '').replace(/class="btn sm out"/g, 'class="ib"').replace(/<span class="hide-sm">[^<]*<\/span>/g, '') }),
+    kpi: (v, l, color, href) => `<a class="stat" href="${href || '#'}" style="text-decoration:none;color:inherit"><b style="${color ? 'color:' + color : ''}">${v}</b><span>${l}</span></a>`,
+    refreshCounts: async () => {},
+    ensureBig,
+    loadOrders: f => ensureBig('orders_big', () => api.listOrders(3000), f)
+  };
+})();
+
+// Admin web: HR & attendance (staff accounts & details, today, attendance, leave, monthly pay, commission, work hours).
+(function () {
+  const K = window.KT;
+  const { api, esc, money, $, $$, icon, route, go, busy, toast, avatar } = K;
+  const hm = d => d ? new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+
+  route(/^\/hr$/, async (_, q, current) => {
+    const A = K.adm, hr = K.allow('hr.manage'), boss = K.S.me.role === 'admin', att = hr || K.allow('attendance.view');
+    if (!(att || boss)) return go('#/dashboard');
+    await A.refreshCounts();
+    const main = A.shell('hr', 'HR & attendance', `<button class="btn sm out" id="myleave">${icon('bed', 18)}<span class="hide-sm">Ask for leave</span></button>`);
+    $('#myleave').onclick = () => K.leaveSheet(() => K.render());
+    const P = K.period, since = P.range('custom')[0] < P.range('last')[0] ? P.range('custom')[0] : P.range('last')[0];
+    const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave() : [], hr ? api.listStaffHr() : [],
+      boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
+    if (!current()) return;
+    const att_ = attList;
+    const tabs = [boss && ['staff', 'Staff'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['pay', 'Staff & pay'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
+    let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), month = K.monthKey(), cmonth = K.monthKey();
+    const reps = staff.filter(u => u.active && u.role === 'sales');
+    const rateOf = id => (rates.find(r => r.user_id === id) || {}).rate;
+    const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
+    const pst = P.fresh('month');
+    const active = staff.filter(u => u.active);
+    const hrOf = id => hrs.find(h => h.user_id === id) || {};
+    const onLeave = (id, day) => leave.find(l => l.staff_id === id && l.status === 'approved' && l.from_date <= day && l.to_date >= day);
+    const draw = async () => {
+      const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active).length : 0;
+      $('#tabs').innerHTML = tabs.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}${cnt(k) ? ` <span style="opacity:.8">${cnt(k)}</span>` : ''}</button>`).join('');
+      $$('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
+      let h = '';
+      if (tab === 'staff') {
+        const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+        const stats = u => { const mine = orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && new Date(o.created_at) >= monthStart && !['pending', 'cancelled'].includes(o.status));
+          return { sales: mine.reduce((s, o) => s + +o.total, 0), orders: mine.length, visits: visits.filter(v => v.staff_id === u.id && new Date(v.check_in_at) >= monthStart).length }; };
+        const pending = staff.filter(u => !u.active), active = staff.filter(u => u.active);
+        const row = u => { const x = stats(u), hh = hrOf(u.id);
+          const was = K.namesOf(u.id);
+          return `<button class="list-item" data-u="${esc(u.id)}">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}${was.length ? ` <span class="small muted" style="font-weight:600">· was ${was.map(h => esc(h.old_name)).join(', ')}</span>` : ''}</div>
+            <div class="st">${u.active ? [hh.position || K.ROLE_LABEL[u.role], u.phone, `${money(x.sales)} sales · ${x.orders} orders · ${x.visits} visits this month`].filter(Boolean).map(esc).join(' · ') : '@' + esc(u.username) + ' · waiting for approval'}</div></div>
+            ${u.active ? `<span class="pill">${esc(K.ROLE_LABEL[u.role])}</span>` : '<span class="pill or">Approve</span>'}</button>`; };
+        const selfOn = (st.allow_signup || 'false') !== 'false';
+        h = `<div class="row" style="flex-wrap:wrap;gap:10px"><button class="btn" id="addst">${icon('plus', 18)}Add staff</button><div class="grow"></div>
+            <div class="row small" style="gap:8px"><span class="muted">Staff can make their own account</span><div class="seg" style="width:auto">${[['true', 'On'], ['false', 'Off']].map(([k, l]) => `<button data-self="${k}" class="${String(selfOn) === k ? 'on' : ''}" style="padding:0 14px">${l}</button>`).join('')}</div></div></div>
+          <div class="card small muted"><div style="line-height:1.5">Tap <b>Add staff</b> to make a login: you choose the username and first password, and the account works straight away. Give them their username and password; they can change the password in More → My profile. Tap a person to edit their details, photo or password. When someone leaves, open them and tap <b>Disable</b>.${selfOn ? ' Self sign-up is on: people who make their own account wait here for your approval.' : ''}</div></div>
+          ${pending.length ? `<div class="sec">Waiting for approval (${pending.length})</div><div class="card flush">${pending.map(row).join('')}</div>` : ''}
+          <div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div>`;
+      } else if (tab === 'commission') {
+        const rep = await api.commissionReport(cmonth), tot = rep.reduce((a, r) => a + +r.commission, 0);
+        const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
+        h = `<div class="agrid"><div class="card"><b>How commission is paid</b><div class="small muted">Commission = sales × rate %. Sales = the rep's approved orders in the month (orders for their shops, even if the admin typed them).</div>
+            <div class="btns"><label class="f">Rate for all reps (%)<input class="inp" data-k="commission_default" type="number" step="0.1" min="0" value="${esc(st.commission_default || '0')}"></label>
+              <label class="f">Extra bonus % on sales above target<input class="inp" data-k="commission_bonus" type="number" step="0.1" min="0" value="${esc(st.commission_bonus || '0')}"></label></div>
+            <div class="small muted">Example: rate 2%, bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
+            <button class="btn" data-save>Save rates</button></div>
+          <div class="card"><b>Different rate for one rep</b><div class="small muted">Leave empty to use the rate for all reps.</div>
+            ${reps.map(u => `<div class="row"><span class="grow" style="font-weight:700">${esc(u.full_name)}</span><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" value="${rateOf(u.id) ?? ''}" placeholder="${esc(st.commission_default || '0')}" style="width:100px;text-align:right"><span class="muted">%</span></div>`).join('') || '<div class="muted small">No sales reps yet</div>'}
+            <button class="btn out" id="scr">Save rep rates</button></div></div>
+          <div class="card"><div class="row"><button class="btn sm out" data-cm="${pm}" id="pm">‹</button><b class="grow" style="text-align:center">Commission · ${esc(K.monthName(cmonth))}</b><button class="btn sm out" data-cm="${nx}" id="nm">›</button></div>
+            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Sales</th><th style="text-align:right">Target</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
+            ${rep.map(r => `<tr><td>${esc(r.full_name)}</td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
+            <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
+            <div class="small muted">Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>`;
+      } else if (tab === 'work') {
+        h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than 5 minutes after the start time are marked "Late" in Today and Attendance.</div>
+            <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>`;
+      } else if (tab === 'today') {
+        const t = P.today(), rows = active.map(u => ({ u, a: att_.find(x => x.staff_id === u.id && x.work_date === t), l: onLeave(u.id, t) }));
+        const inN = rows.filter(r => r.a).length, late = rows.filter(r => r.a && K.isLate(r.a)).length, lv = rows.filter(r => !r.a && r.l).length;
+        h = `<div class="kpis">${A.kpi(inN + ' / ' + active.length, 'At work today', 'var(--gr)')}${A.kpi(late, 'Late today', late ? 'var(--or)' : null)}${A.kpi(lv, 'On leave today')}${A.kpi(active.length - inN - lv, 'Not in yet', 'var(--rd)')}</div>
+          <div class="small muted">Work starts ${esc((K.SETTINGS || {}).work_start || '08:00')} · change it in the <a href="#/hr?t=work">Work hours</a> tab.</div>
+          <div class="card flush">${rows.map(({ u, a, l }) => `<div class="list-item">${a && a.photo_url ? `<img src="${esc(a.photo_url)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover">` : avatar(u.full_name, 'sm')}
+            <div class="grow"><div class="tt" style="font-size:15px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role])}${a ? ' · in ' + hm(a.check_in_at) + (a.check_out_at ? ' · out ' + hm(a.check_out_at) : '') : ''}${a && a.in_lat ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${a.in_lat},${a.in_lng}" target="_blank" rel="noopener">map</a>` : ''}</div></div>
+            ${a ? (K.isLate(a) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>') : l ? `<span class="pill bl">${esc(K.LEAVE_KIND[l.kind])}</span>` : '<span class="pill gy">Not in</span>'}</div>`).join('')}</div>`;
+      } else if (tab === 'att') {
+        const [a, b] = P.range(pst.p, pst.from, pst.to);
+        const inP = att_.filter(x => x.work_date >= a && x.work_date <= b);
+        h = `<div id="per" style="display:flex;flex-direction:column;gap:10px">${P.html(pst.p, pst.from, pst.to)}<div class="small muted">${esc(P.label(pst))}</div></div>
+          <div class="card"><div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:right">Days worked</th><th style="text-align:right">Late</th><th style="text-align:right">Hours</th><th style="text-align:right">Leave days</th></tr></thead><tbody>
+          ${active.map(u => { const m = inP.filter(x => x.staff_id === u.id), lv = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.to_date >= a && l.from_date <= b).reduce((s, l) => s + +l.days, 0);
+            return `<tr><td><b>${esc(u.full_name)}</b></td><td style="text-align:right">${m.length}</td><td style="text-align:right;${m.filter(K.isLate).length ? 'color:var(--or);font-weight:800' : ''}">${m.filter(K.isLate).length}</td><td style="text-align:right">${m.reduce((s, x) => s + K.hoursOf(x), 0).toFixed(1)}</td><td style="text-align:right">${lv || '—'}</td></tr>`; }).join('')}</tbody></table></div></div>
+          <div class="card flush">${inP.slice(0, 200).map(x => `<div class="list-item">${x.photo_url ? `<img src="${esc(x.photo_url)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : `<div class="ic-av sq">${icon('clock', 18)}</div>`}<div class="grow"><div class="tt" style="font-size:14px">${esc(x.profiles ? x.profiles.full_name : '')} · ${esc(K.poDate(x.work_date))}</div><div class="st">${hm(x.check_in_at)} – ${x.check_out_at ? hm(x.check_out_at) : 'no finish'}${x.note ? ' · ' + esc(x.note) : ''}</div></div>${K.isLate(x) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>'}</div>`).join('') || '<div class="empty">No attendance for these dates</div>'}</div>`;
+      } else if (tab === 'leave') {
+        const pend = leave.filter(l => l.status === 'pending'), rest = leave.filter(l => l.status !== 'pending');
+        h = `<div class="sec">Waiting for approval</div><div class="card flush">${pend.map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests waiting</div>'}</div>
+          <div class="sec">All requests</div><div class="card flush">${rest.slice(0, 100).map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests yet</div>'}</div>`;
+      } else {
+        const com = await api.commissionReport(month), exps = await A.ensureBig('expenses', api.listExpenses);
+        const nm = new Date(month + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
+        const rows = active.filter(u => u.role !== 'admin').map(u => { const hh = hrOf(u.id), c = (com.find(r => r.user_id === u.id) || {}).commission || 0;
+          const back = exps.filter(e => e.staff_id === u.id && e.status === 'approved').reduce((s, e) => s + +e.amount_usd, 0);
+          const yr = String(nm.getFullYear()), used = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.kind === 'annual' && l.from_date.startsWith(yr)).reduce((s, l) => s + +l.days, 0);
+          return { u, hh, c: +c, back, pay: (+hh.base_salary || 0) + +c, left: (+hh.annual_leave_days || 18) - used }; });
+        h = `<div class="card"><div class="row"><button class="btn sm out" data-m="${pm}">‹</button><b class="grow" style="text-align:center">Pay summary · ${esc(K.monthName(month))}</b><button class="btn sm out" data-m="${nx}">›</button></div>
+          <div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:left" class="hide-sm">Position</th><th style="text-align:right">Base salary</th><th style="text-align:right">Commission</th><th style="text-align:right">Salary + commission</th><th style="text-align:right">Expenses to pay back</th><th style="text-align:right">Leave left</th><th></th></tr></thead><tbody>
+          ${rows.map(r => `<tr><td><b>${esc(r.u.full_name)}</b></td><td class="hide-sm">${esc(r.hh.position || K.ROLE_LABEL[r.u.role])}</td><td style="text-align:right">${money(r.hh.base_salary || 0)}</td><td style="text-align:right">${r.c ? money(r.c) : '—'}</td><td style="text-align:right"><b>${money(r.pay)}</b></td><td style="text-align:right">${r.back ? money(r.back) : '—'}</td><td style="text-align:right">${r.left} d</td><td><button class="btn sm out" data-hr="${esc(r.u.id)}">Edit</button></td></tr>`).join('')}
+          <tr style="background:var(--bg)"><td><b>Total</b></td><td class="hide-sm"></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + (+r.hh.base_salary || 0), 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.c, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.pay, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.back, 0))}</b></td><td></td><td></td></tr></tbody></table></div>
+          <div class="small muted">Salary details are private: only you (and people you give "Staff details, salary…" permission) can see them. Each person sees only their own.</div></div>`;
+      }
+      $('#body').innerHTML = h;
+      if ($('#per')) P.bind($('#per'), pst, draw);
+      $$('[data-m]').forEach(b => b.onclick = () => { month = b.dataset.m; draw(); });
+      $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr) K.leaveReview(l, () => K.render()); });
+      $$('[data-hr]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.hr)));
+      $$('[data-u]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.u)));
+      if ($('#addst')) $('#addst').onclick = addStaffSheet;
+      $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
+      $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
+      $$('[data-save]').forEach(b => b.onclick = async () => {
+        const obj = {}; $$('[data-k]').forEach(i => { obj[i.dataset.k] = i.value.trim(); });
+        await busy(b, () => api.saveSettings(obj)); Object.assign(st, obj); await K.loadSettings(); toast('Saved'); if (tab === 'commission') draw();
+      });
+      if ($('#scr')) $('#scr').onclick = async e => { await busy(e.currentTarget, async () => { for (const i of $$('[data-cr]')) { const v = i.value.trim(), old = rateOf(i.dataset.cr);
+          if (String(v) !== String(old ?? '')) await api.setCommissionRate(i.dataset.cr, v === '' ? null : +v); } });
+        rates.splice(0, rates.length, ...(await api.listCommissionRates())); toast('Rep rates saved'); draw(); };
+    };
+    const staffSheet = u => K.staffSheet(u, { hrs });
+    K.adm.staffSheet = staffSheet;
+    const addStaffSheet = () => K.addStaffSheet(async () => { staff.splice(0, staff.length, ...(await K.data.staff(true))); await A.refreshCounts(); draw(); });
+    main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
+    draw();
   });
 })();
 </script>
