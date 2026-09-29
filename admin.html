@@ -720,10 +720,13 @@ window.makeSupabaseApi = function (cfg) {
     // Telegram alerts (admin). The bot token can be saved but never read back.
     tgStatus: () => q(sb.rpc('tg_status')),
     tgSetToken: token => q(sb.rpc('tg_set_token', { p_token: token || '' })),
-    tgSetRoute: (type, chat, title, enabled) => q(sb.rpc('tg_set_route', { p_type: type, p_chat: chat || '', p_title: title || '', p_enabled: enabled !== false })),
-    tgTest: type => q(sb.rpc('tg_test', { p_type: type })),
+    tgSaveRule: (id, rule) => q(sb.rpc('tg_save_rule', { p_id: id || null, p: rule })),
+    tgPreview: rule => q(sb.rpc('tg_preview', { p: rule })),
+    tgRuleOn: (id, on) => q(sb.rpc('tg_rule_on', { p_id: id, p_on: !!on })),
+    tgDeleteRule: id => q(sb.rpc('tg_delete_rule', { p_id: id })),
+    tgTest: id => q(sb.rpc('tg_test', { p_rule: id })),
     tgFindChats: () => q(sb.rpc('tg_find_chats')),
-    tgResult: (id, type) => q(sb.rpc('tg_result', { p_id: id, p_type: type || null })),
+    tgResult: (id, rule) => q(sb.rpc('tg_result', { p_id: id, p_rule: rule || null })),
     teamSales: month => q(sb.rpc('team_sales', { p_month: month })),
     setSalesTarget: (uid, month, amount) => q(sb.rpc('set_sales_target', { p_user: uid, p_month: month, p_amount: +amount || 0 })),
 
@@ -782,6 +785,51 @@ window.makeDemoApi = function () {
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
+  // demo stand-in for the Telegram message builder in the database (same checks, sample data)
+  const K_TG = {
+    EVENTS: { order_new: ['🧾', 'New order'], order_approved: ['✅', 'Order approved'], order_delivered: ['🚚', 'Order delivered'], order_paid: ['💰', 'Order fully paid'], order_cancelled: ['⛔', 'Order cancelled'],
+      order_returned: ['↩️', 'Order returned'], order_deleted: ['🗑', 'Order deleted'], payment_new: ['💵', 'Payment collected'], payment_confirmed: ['✔️', 'Payment checked'], payment_rejected: ['❌', 'Payment rejected'],
+      shop_new: ['🏪', 'New shop'], shop_approved: ['✅', 'Shop approved'], shop_rejected: ['❌', 'Shop rejected'], visit_checkin: ['📍', 'Shop visit started'], visit_finish: ['🏁', 'Shop visit finished'],
+      stock_low: ['📦', 'Low stock'], goods_received: ['🚛', 'Goods received'], expense_new: ['🧾', 'New expense'], expense_approved: ['✅', 'Expense approved'], expense_rejected: ['❌', 'Expense rejected'],
+      leave_new: ['🏖', 'Leave request'], leave_approved: ['✅', 'Leave approved'], leave_rejected: ['❌', 'Leave rejected'], staff_checkin: ['🕗', 'Started work'], staff_late: ['⏰', 'Late for work'], staff_checkout: ['🏠', 'Finished work'] },
+    FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link'],
+    ITEMS: ['sales', 'sales_by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'low_stock', 'attendance', 'expenses'],
+    check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
+      if (!name) fail('Give the alert a name');
+      const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
+      const items = (p.items || []).filter(i => K_TG.ITEMS.includes(i)), days = [...new Set((p.days || []).map(Number).filter(d => d >= 1 && d <= 7))].sort();
+      if (tp === 'event' && !events.length) fail('Tick at least one event');
+      if (tp === 'summary') { if (!items.length) fail('Tick at least one thing for the summary'); if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(p.send_time || '')) fail('Choose the time to send it'); if (!days.length) fail('Choose at least one day'); }
+      if (!chat) fail('Choose a Telegram group'); if (!/^-?[0-9]{3,20}$/.test(chat)) fail('The group ID should be a number like -1001234567890');
+      return { name, rule_type: tp, events: tp === 'event' ? events : [], fields, items: tp === 'summary' ? items : [], send_time: tp === 'summary' ? p.send_time : null, days: tp === 'summary' ? days : null,
+        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false }; },
+    compose(ev, fields) {
+      const S = { order_no: 'SO-00125', shop: 'Lucky Phone Shop', owner: 'Mr. Dara', phone: '012 345 678', shop_tg: '@luckyphone_pp', area: 'Orussey, Chamkar Mon, Phnom Penh', map: 'https://maps.google.com/?q=11.5564,104.9282',
+        rep: 'Chhin Kimlong', staff: 'Chhin Kimlong', amount: '$245.00', items: '65W GaN charger ×10, USB-C cable ×20, Power bank 10000mAh ×5', payment: 'Credit · due 06 Oct', detail: '', note: 'Deliver before 10am', time: '29 Sep 14:05' };
+      if (/^payment/.test(ev)) Object.assign(S, { amount: '$100.00', payment: 'Cash', detail: 'Order $245.00 · still owes $145.00', note: '' });
+      if (/^visit/.test(ev)) Object.assign(S, { order_no: '', amount: '', items: '', payment: '', detail: ev === 'visit_finish' ? '17 min at the shop' : '12 m from the shop', note: 'Owner wants more cables' });
+      if (/^shop/.test(ev)) Object.assign(S, { order_no: '', amount: '', items: '', payment: '', note: '' });
+      if (/^expense/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '20,000៛ ($4.88)', items: '', payment: '', detail: 'Gasoline · 29 Sep', note: 'Moto fuel' });
+      if (/^leave/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: '', payment: '', detail: 'Annual leave · 02 Oct – 03 Oct (2 days)', note: 'Family' });
+      if (/^staff/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', rep: '', amount: '', items: '', payment: '', note: '', detail: ev === 'staff_late' ? 'Started 08:40 · 40 min late' : ev === 'staff_checkout' ? 'Worked 9h 5m' : 'Started 07:55' });
+      if (ev === 'stock_low') Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: 'Power bank 10000mAh', payment: '', note: '', detail: '4 left · warning at 20' });
+      if (ev === 'goods_received') Object.assign(S, { order_no: 'PO-00012', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '$1,904.45', items: '65W GaN charger ×200, USB-C cable ×500', payment: '', detail: 'From Shenzhen Supplier', note: '' });
+      if (ev === 'order_returned') S.detail = 'Refunded $245.00 (cash)';
+      const L = { shop: 'Shop', owner: 'Owner', phone: 'Phone', shop_tg: 'Telegram', area: 'Area', rep: 'Sales rep', staff: 'By', amount: 'Amount', items: ev === 'stock_low' ? 'Product' : 'Products', payment: 'Payment', detail: 'Details', note: 'Note', time: 'Time', map: 'Map' };
+      const [ic, t] = K_TG.EVENTS[ev] || ['🔔', ev], out = [ic + ' ' + t + (fields.includes('order_no') && S.order_no ? ' · ' + S.order_no : '')];
+      ['shop', 'owner', 'phone', 'shop_tg', 'area', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'map'].forEach(f => { if (fields.includes(f) && S[f]) out.push(L[f] + ': ' + S[f]); });
+      if (fields.includes('link') && ev !== 'expense_new' && !/^(leave|staff|expense)/.test(ev)) out.push('Open: https://sinsamorn05-code.github.io/ktronics/#/' + (/^visit/.test(ev) ? 'visits/41' : /^shop|order_deleted/.test(ev) ? 'customers/7' : /^stock/.test(ev) ? 'stock/3' : 'orders/125'));
+      return out.join('\n'); },
+    summary(r) {
+      const P = { today: 'Tue 29 Sep 2026', yesterday: 'Mon 28 Sep 2026', week: '23 Sep – 29 Sep 2026', last_week: '22 Sep – 28 Sep 2026', month: '01 Sep – 29 Sep 2026' };
+      const B = { sales: ['💰 Sales: $1,245.50 · 14 orders'], sales_by_rep: ['👤 Sales by rep:', '• Chhin Kimlong: $820.00 (9)', '• Sokha Chan: $425.50 (5)'],
+        top_products: ['🏆 Top products:', '• 65W GaN charger ×40 · $480.00', '• USB-C cable ×85 · $212.50', '• Power bank 10000mAh ×12 · $114.00'],
+        visits_by_rep: ['📍 Shop visits:', '• Chhin Kimlong: 11 visits', '• Sokha Chan: 8 visits (7 shops)'], new_shops: ['🏪 New shops: 2', '• Mobile Zone Kandal — Sokha Chan', '• Star Phone — Chhin Kimlong'],
+        collected: ['💵 Money collected: $980.00 · 9 payments', '• Cash: $720.00', '• Aba: $260.00', '⏳ Waiting to check: $57.00 (1)'],
+        owed: ['🧾 Shops owe now: $618.70 · 6 shops', '⚠️ Overdue credit: $15.00 · 1 order', '• Lucky Phone Shop: $15.00 (due 25 Sep)'], low_stock: ['📦 Low stock:', '• AirPods case clear: 0 left (warn at 20)'],
+        attendance: ['🕗 Attendance 29 Sep:', '• Came to work: 6', '• Late: Sokha Chan 08:22', '• Not in: Vanna', '• On leave: Dara'], expenses: ['🧾 Staff expenses: $42.50 · 5', '⏳ Waiting for approval: $12.00 (2)'] };
+      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i]); }); return out.join('\n'); }
+  };
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const fail = (m) => { throw new Error(m); };
 
@@ -1818,19 +1866,24 @@ window.makeDemoApi = function () {
         owed_suppliers: profit ? sum((D.purchases || []).filter(p => p.status !== 'cancelled'), p => p.total - (p.paid_amount || 0)) : null, profit_allowed: profit });
     },
     // Telegram alerts: the demo pretends to be Telegram
-    async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || { routes: {} };
-      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, routes: Object.entries(T.routes).map(([k, r]) => Object.assign({ alert_type: k }, r)) }); },
-    async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} }; tk = (tk || '').trim();
+    async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
+      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)) }); },
+    async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; tk = (tk || '').trim();
       if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
       if (!/^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/.test(tk)) fail('That does not look like a bot token. It looks like 1234567890:AAH... (numbers, a colon, then letters).');
       T.token = true; T.bot = null; save(); T.last = { ok: true, bot: 'ktronics_alerts_bot' }; return wait(1); },
-    async tgSetRoute(type, chat, title, enabled) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} };
-      if (chat && !/^-?[0-9]{3,20}$/.test(String(chat).trim())) fail('The group ID should be a number like -1001234567890');
-      T.routes[type] = { chat_id: chat ? String(chat).trim() : null, chat_title: title || null, enabled: enabled !== false }; save(); return wait(null); },
-    async tgTest(type) { const T = D.tg || { routes: {} }; if (!T.token) fail('Save the bot token first'); if (!(T.routes[type] || {}).chat_id) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
+    async tgSaveRule(id, p) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
+      const r = K_TG.check(p); if (id && !T.rules.some(x => x.id === id)) fail('This alert was deleted');
+      let row = id && T.rules.find(x => x.id === id); if (!row) { row = { id: (T.rules.reduce((m, x) => Math.max(m, x.id), 0) + 1) }; T.rules.push(row); }
+      Object.assign(row, r); save(); return wait(row.id); },
+    async tgPreview(p) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const r = K_TG.check(Object.assign({ name: 'Preview', chat_id: '000' }, p, { name: (p.name || '').trim() || 'Preview', chat_id: '000' }));
+      return wait(r.rule_type === 'summary' ? K_TG.summary(r) : K_TG.compose(r.events[0], r.fields)); },
+    async tgRuleOn(id, on) { const r = ((D.tg || {}).rules || []).find(x => x.id === id); if (r) { r.enabled = !!on; save(); } return wait(null); },
+    async tgDeleteRule(id) { const T = D.tg || {}; T.rules = (T.rules || []).filter(x => x.id !== id); save(); return wait(null); },
+    async tgTest(id) { const T = D.tg || {}; if (!T.token) fail('Save the bot token first'); if (!(T.rules || []).some(x => x.id === id)) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
     async tgFindChats() { const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
-      T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
-        { id: '-1001873400103', title: 'K-TRONiCS Payments', type: 'supergroup' }, { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }] }; return wait(3); },
+      T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders & Payments', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
+        { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }, { id: '5550001', title: 'Mr. Lee', type: 'private' }] }; return wait(3); },
     async tgResult() { const T = D.tg || {}; if (T.last && T.last.bot) { T.bot = T.last.bot; save(); } return wait(T.last || { ok: false, error: 'Not sent' }); },
     async teamSales(month) {
       if (!role()) return [];
@@ -5495,30 +5548,62 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
   };
 })();
 
-// Admin web: Settings → Telegram alerts. Order, shop visit, payment and stock alerts also go to Telegram groups.
+// Admin web: Settings → Telegram alerts. The admin builds alerts from the app's data:
+// "When something happens" (pick exact events + which details the message shows) or "Summary at a set time".
 (function () {
   const K = window.KT;
   const { api, esc, $, $$, busy, toast } = K;
-  const KINDS = [
-    ['orders', '🧾', 'Orders', 'New orders, approved, delivered, paid, returned, deleted'],
-    ['visits', '📍', 'Shop visits', 'Check-in and finish at a shop, new shops, shops approved'],
-    ['payments', '💵', 'Payments', 'Money collected, waiting to check, fully paid'],
-    ['stock', '📦', 'Stock', 'Low stock and goods received from suppliers']
+  // every event the app can send (the database has the same list in tg_events)
+  const GROUPS = [
+    ['Orders', [['order_new', '🧾', 'New order'], ['order_approved', '✅', 'Order approved'], ['order_delivered', '🚚', 'Order delivered'], ['order_paid', '💰', 'Order fully paid'],
+      ['order_cancelled', '⛔', 'Order cancelled'], ['order_returned', '↩️', 'Order returned'], ['order_deleted', '🗑', 'Order deleted']]],
+    ['Payments & debt', [['payment_new', '💵', 'Payment collected'], ['payment_confirmed', '✔️', 'Payment checked'], ['payment_rejected', '❌', 'Payment rejected']]],
+    ['Shops', [['shop_new', '🏪', 'New shop added'], ['shop_approved', '✅', 'Shop approved'], ['shop_rejected', '❌', 'Shop rejected']]],
+    ['Shop visits', [['visit_checkin', '📍', 'Visit started (check-in)'], ['visit_finish', '🏁', 'Visit finished']]],
+    ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier']]],
+    ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
+    ['Leave & attendance', [['leave_new', '🏖', 'Leave request'], ['leave_approved', '✅', 'Leave approved'], ['leave_rejected', '❌', 'Leave rejected'],
+      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work']]]
   ];
+  const EV = {}; GROUPS.forEach(([, l]) => l.forEach(([k, ic, t]) => { EV[k] = [ic, t]; }));
+  // the details a message can show (only the ones that exist for that event are shown)
+  const FIELDS = [
+    ['order_no', 'Order / purchase number'], ['shop', 'Shop name'], ['owner', 'Owner'], ['phone', 'Phone'], ['shop_tg', "Shop's Telegram"],
+    ['area', 'Area (market, district, province)'], ['map', 'Google Maps link'], ['rep', 'Sales rep'], ['staff', 'Who did it'], ['amount', 'Amount'],
+    ['items', 'Products'], ['payment', 'Payment type / due date'], ['detail', 'Details (minutes late, stock left, leave dates, refund…)'], ['note', 'Note'],
+    ['time', 'Date & time'], ['link', 'Link to open it in the app']
+  ];
+  const DEF_FIELDS = ['order_no', 'shop', 'rep', 'staff', 'amount', 'detail', 'link'];
+  const ITEMS = [
+    ['sales', 'Total sales & orders'], ['sales_by_rep', 'Sales by each rep'], ['top_products', 'Top 5 products'], ['visits_by_rep', 'Shop visits by each rep'],
+    ['new_shops', 'New shops'], ['collected', 'Money collected (by method)'], ['owed', 'Money shops owe & overdue credit'], ['low_stock', 'Low stock list'],
+    ['attendance', 'Attendance (late, not in, on leave)'], ['expenses', 'Staff expenses']
+  ];
+  const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 days (with today)'], ['last_week', 'The 7 days before today'], ['month', 'This month so far']];
+  const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']];
+  const box = 'width:20px;height:20px;accent-color:var(--p);flex:none';
   const tryB = (b, fn) => busy(b, fn).catch(() => null);   // busy already shows the error
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   // pg_net sends the request after the database call finishes; wait for Telegram's answer
-  async function answer(id, type) {
-    for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const r = await api.tgResult(id, type); if (!r || !r.pending) return r || { ok: false, error: 'No answer' }; }
+  async function answer(id, rule) {
+    for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const r = await api.tgResult(id, rule); if (!r || !r.pending) return r || { ok: false, error: 'No answer' }; }
     return { ok: false, error: 'Telegram did not answer. Please try again.' };
   }
+  const describe = r => {
+    if (r.rule_type === 'summary') {
+      const d = (r.days || []).length === 7 ? 'Every day' : (r.days || []).map(x => (DAYS.find(y => y[0] === x) || [0, '?'])[1]).join(', ');
+      return `📊 ${d} at <b>${esc(r.send_time || '')}</b> · ${esc((PERIODS.find(p => p[0] === r.period) || [0, 'Today'])[1])} · ${(r.items || []).length} part${(r.items || []).length === 1 ? '' : 's'}`;
+    }
+    const ev = (r.events || []).map(e => EV[e] ? EV[e][0] + ' ' + EV[e][1] : e);
+    return ev.slice(0, 4).map(esc).join(' · ') + (ev.length > 4 ? ` <span class="muted">+${ev.length - 4} more</span>` : '');
+  };
 
   K.telegramCard = async function (el) {
     let st = await api.tgStatus();
-    const route = k => (st.routes || []).find(r => r.alert_type === k) || {};
+    const rules = () => st.rules || [];
     const draw = () => {
       const ready = st.token_set;
-      el.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;max-width:760px">
+      el.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;max-width:780px">
         ${st.pg_net ? '' : `<div class="card" style="background:var(--ors)"><b>One step in Supabase first</b><div class="small">Run <b>1-database-setup.sql</b> again, or turn on <b>pg_net</b> in Supabase → Database → Extensions. Telegram alerts need it.</div></div>`}
         <div class="card"><div class="row"><b class="grow">1 · Your Telegram bot</b>${ready ? '<span class="pill gr">Connected</span>' : '<span class="pill or">Not set up</span>'}</div>
           ${ready ? `<div class="small">Bot: <b>${st.bot_name ? '@' + esc(st.bot_name) : 'saved'}</b>. The token is stored safely on the server and can't be shown again.</div>
@@ -5530,20 +5615,21 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
             <label class="f">Bot token<input class="inp" id="tgtok" type="password" autocomplete="off" placeholder="1234567890:AAH..."></label>
             <button class="btn" id="tgsave">Save token</button>`}
         </div>
-        <div class="card"><b>2 · Which group gets which alerts</b>
-          <div class="small muted">Make a Telegram group for each kind (or use one group for several), add your bot to it, and send <b>/start</b> in the group. Then press <b>Choose group</b>.</div>
-          ${KINDS.map(([k, ic, l, d]) => { const r = route(k), on = r.chat_id && r.enabled !== false;
-            return `<div class="row" style="gap:12px;align-items:center;border-top:1px solid var(--line);padding-top:12px;flex-wrap:wrap">
-              <div style="font-size:24px;width:32px;text-align:center">${ic}</div>
-              <div class="grow" style="min-width:180px"><b>${l}</b><div class="small muted">${d}</div>
-                <div class="small" style="margin-top:3px">${r.chat_id ? `→ <b>${esc(r.chat_title || r.chat_id)}</b>${r.enabled === false ? ' <span class="pill">Off</span>' : ''}` : '<span class="muted">No group yet</span>'}</div></div>
+        <div class="card"><div class="row" style="flex-wrap:wrap;gap:8px"><b class="grow">2 · Your alerts</b><button class="btn sm" id="tgadd" ${ready ? '' : 'disabled'}>+ New alert</button></div>
+          <div class="small muted">Build your own alerts from the app's data: pick exactly which events send a message and which details it shows, or send a summary at a time you choose.</div>
+          ${rules().map(r => { const on = r.enabled !== false;
+            return `<div class="row" style="gap:12px;align-items:center;border-top:1px solid var(--line);padding-top:12px;flex-wrap:wrap${on ? '' : ';opacity:.6'}">
+              <div class="grow" style="min-width:220px"><b>${esc(r.name)}</b> ${r.rule_type === 'summary' ? '<span class="pill">Summary</span>' : ''}${on ? '' : ' <span class="pill">Off</span>'}
+                <div class="small" style="margin-top:3px;line-height:1.5">${describe(r)}</div>
+                <div class="small" style="margin-top:3px">→ <b>${esc(r.chat_title || r.chat_id)}</b></div></div>
               <div class="btns" style="margin:0">
-                ${r.chat_id ? `<label class="row small" style="gap:6px;cursor:pointer"><input type="checkbox" data-on="${k}" ${on ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)">On</label>
-                  <button class="btn sm out" style="white-space:nowrap" data-test="${k}" ${ready ? '' : 'disabled'}>Send test</button>` : ''}
-                <button class="btn sm ${r.chat_id ? 'out' : ''}" data-pick="${k}" ${ready ? '' : 'disabled'}>${r.chat_id ? 'Change' : 'Choose group'}</button></div></div>`; }).join('')}
-          ${ready ? '' : '<div class="small muted">Save the bot token first.</div>'}
+                <label class="row small" style="gap:6px;cursor:pointer"><input type="checkbox" data-on="${r.id}" ${on ? 'checked' : ''} style="${box}">On</label>
+                <button class="btn sm out" style="white-space:nowrap" data-test="${r.id}" ${ready ? '' : 'disabled'}>${r.rule_type === 'summary' ? 'Send now' : 'Send test'}</button>
+                <button class="btn sm out" data-edit="${r.id}">Edit</button></div></div>`; }).join('')
+            || `<div class="small muted" style="border-top:1px solid var(--line);padding-top:12px">${ready ? 'No alerts yet. Press <b>+ New alert</b>.' : 'Save the bot token first.'}</div>`}
         </div>
-        <div class="small muted">Alerts still appear in the app's Alerts channels as before. Telegram gets a copy with a link that opens the order, visit or shop in the staff app.</div></div>`;
+        ${st.pg_cron === false && rules().some(r => r.rule_type === 'summary') ? '<div class="small" style="color:var(--or)">Summaries need the pg_cron extension (Supabase → Database → Extensions → pg_cron), then run the SQL file again.</div>' : ''}
+        <div class="small muted">Alerts still appear in the app's Alerts channels as before. Telegram gets its own messages from the alerts above.</div></div>`;
       bind();
     };
     const reload = async () => { st = await api.tgStatus(); draw(); };
@@ -5552,43 +5638,103 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
         const tk = $('#tgtok', el).value.trim(); if (!tk) return toast('Paste the token from BotFather');
         const r = await tryB(e.currentTarget, async () => { const id = await api.tgSetToken(tk); return answer(id); });
         if (!r) return;
-        if (r.ok) toast('Bot connected: @' + r.bot); else toast('Saved, but Telegram said: ' + ((r && r.error) || 'no answer') + '. Check the token.');
+        if (r.ok) toast('Bot connected: @' + r.bot); else toast('Saved, but Telegram said: ' + (r.error || 'no answer') + '. Check the token.');
         await reload();
       };
       if ($('#tgnew', el)) $('#tgnew', el).onclick = () => { st.token_set = false; draw(); };
       if ($('#tgdel', el)) $('#tgdel', el).onclick = async () => {
-        if (!(await K.confirmSheet('Remove the bot?', 'Alerts will stop going to Telegram. The groups you chose are kept.', 'Remove', true))) return;
+        if (!(await K.confirmSheet('Remove the bot?', 'Alerts will stop going to Telegram. Your alert list is kept.', 'Remove', true))) return;
         await api.tgSetToken(''); toast('Bot removed'); await reload();
       };
-      $$('[data-on]', el).forEach(c => c.onchange = async () => { const r = route(c.dataset.on);
-        try { await api.tgSetRoute(c.dataset.on, r.chat_id, r.chat_title, c.checked); } catch (err) { return toast(err.message); } toast(c.checked ? 'Alerts on' : 'Alerts off'); await reload(); });
+      $('#tgadd', el).onclick = () => edit(null);
+      $$('[data-edit]', el).forEach(b => b.onclick = () => edit(rules().find(r => String(r.id) === b.dataset.edit)));
+      $$('[data-on]', el).forEach(c => c.onchange = async () => {
+        try { await api.tgRuleOn(+c.dataset.on, c.checked); } catch (err) { return toast(err.message); }
+        toast(c.checked ? 'Alert on' : 'Alert off'); await reload(); });
       $$('[data-test]', el).forEach(b => b.onclick = async () => {
-        const k = b.dataset.test, r = await tryB(b, async () => answer(await api.tgTest(k), k));
-        if (!r) return; if (r.ok) toast('Sent. Check the Telegram group'); else { toast(r.error || 'Not sent'); if (r.migrated_to) await reload(); }
+        const id = +b.dataset.test, r = await tryB(b, async () => answer(await api.tgTest(id), id));
+        if (!r) return; if (r.ok) toast('Sent. Check Telegram'); else { toast(r.error || 'Not sent'); if (r.migrated_to) await reload(); }
       });
-      $$('[data-pick]', el).forEach(b => b.onclick = () => pick(b.dataset.pick));
     }
-    function pick(k) {
-      const [, ic, l] = KINDS.find(x => x[0] === k), cur = route(k);
-      const s = K.sheet(ic + ' ' + l + ' alerts → group', `<div class="small" style="line-height:1.6">1. Add <b>${st.bot_name ? '@' + esc(st.bot_name) : 'your bot'}</b> to the Telegram group.<br>2. Send <b>/start</b> in that group.<br>3. Press <b>Find my groups</b>.</div>
-        <button class="btn block" id="tgf">Find my groups</button><div id="tgl" style="display:flex;flex-direction:column;gap:8px"></div>
-        <details class="small"><summary class="muted" style="cursor:pointer">Type the group ID instead</summary>
-          <label class="f">Group ID<input class="inp" id="tgid" inputmode="numeric" value="${esc(cur.chat_id || '')}" placeholder="-1001234567890"></label>
-          <label class="f">Name to show<input class="inp" id="tgnm" value="${esc(cur.chat_title || '')}" placeholder="e.g. K-TRONiCS Orders"></label><button class="btn out block" id="tgman">Save</button></details>
-        ${cur.chat_id ? '<button class="btn out red block" id="tgclr">Stop sending these alerts to Telegram</button>' : ''}`);
-      const set = async (id, title) => { await api.tgSetRoute(k, id, title, true); s.close(); toast(id ? l + ' alerts → ' + (title || id) : 'Removed'); await reload(); };
-      $('#tgf', s.el).onclick = async e => {
-        const r = await tryB(e.currentTarget, async () => answer(await api.tgFindChats()));
-        if (!r) return;
-        const list = ((r && r.chats) || []).sort((a, b) => (a.type === 'private') - (b.type === 'private'));
-        $('#tgl', s.el).innerHTML = !r.ok ? `<div class="small" style="color:var(--rd)">${esc(r.error || 'Could not ask Telegram')}</div>`
-          : list.length ? list.map(c => `<button class="btn out block" style="justify-content:flex-start;text-align:left" data-cid="${esc(c.id)}" data-ct="${esc(c.title)}">${c.type === 'private' ? '👤' : '👥'} ${esc(c.title || c.id)}${c.type === 'private' ? ' <span class="small muted">(private chat)</span>' : ''}</button>`).join('')
-          : '<div class="small muted">No groups found yet. Make sure the bot is in the group, send /start there, wait a few seconds and press Find again.</div>';
-        $$('[data-cid]', s.el).forEach(x => x.onclick = () => set(x.dataset.cid, x.dataset.ct));
+
+    // add or change one alert
+    function edit(r) {
+      const cur = r || { name: '', rule_type: 'event', events: [], fields: DEF_FIELDS.slice(), items: ['sales', 'sales_by_rep', 'visits_by_rep', 'collected'], send_time: '18:00', days: [1, 2, 3, 4, 5, 6], period: 'today', chat_id: '', chat_title: '', enabled: true };
+      let type = cur.rule_type || 'event', chat = cur.chat_id || '', title = cur.chat_title || '';
+      const chk = (attr, k, on, label, sub) => `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;padding:3px 0"><input type="checkbox" ${attr}="${k}" ${on ? 'checked' : ''} style="${box};margin-top:1px"><div>${label}${sub ? `<div class="small muted">${sub}</div>` : ''}</div></label>`;
+      const s = K.sheet(r ? 'Edit alert' : 'New alert', `
+        <label class="f">Name<input class="inp" id="tgn" maxlength="60" value="${esc(cur.name)}" placeholder="e.g. Orders & Payments, Evening report"></label>
+        <div class="chips" style="padding:0">${[['event', 'When something happens'], ['summary', 'Summary at a set time']].map(([k, l]) => `<button class="chip ${k === type ? 'on' : ''}" data-type="${k}">${l}</button>`).join('')}</div>
+        <div id="tgev" style="display:${type === 'event' ? 'flex' : 'none'};flex-direction:column;gap:12px">
+          <div class="f" style="gap:4px"><b>Which events</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">
+            ${GROUPS.map(([g, list], gi) => `<div style="border:1px solid var(--line);border-radius:12px;padding:8px 12px">
+              <div class="row"><b class="grow small">${g}</b><button class="linkbtn small" data-all="${gi}" style="border:0;background:none;color:var(--p);font-weight:700;cursor:pointer">All</button></div>
+              ${list.map(([k, ic, t]) => chk('data-ev', k, (cur.events || []).includes(k), ic + ' ' + t)).join('')}</div>`).join('')}</div></div>
+          <div class="f" style="gap:4px"><b>What the message shows</b><div class="small muted">Only details that exist for that event are shown (e.g. a leave request has no shop).</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 12px">${FIELDS.map(([k, l]) => chk('data-fl', k, (cur.fields || []).includes(k), l)).join('')}</div></div>
+        </div>
+        <div id="tgsm" style="display:${type === 'summary' ? 'flex' : 'none'};flex-direction:column;gap:12px">
+          <div class="f" style="gap:4px"><b>What the summary includes</b>${ITEMS.map(([k, l]) => chk('data-it', k, (cur.items || []).includes(k), l)).join('')}</div>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <label class="f" style="flex:1;min-width:140px">Send at<input class="inp" id="tgtime" type="time" value="${esc(cur.send_time || '18:00')}"></label>
+            <label class="f" style="flex:2;min-width:200px">Covers<select class="inp" id="tgper">${PERIODS.map(([k, l]) => `<option value="${k}" ${k === (cur.period || 'today') ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+          <div class="f" style="gap:6px">On these days<div class="chips" style="padding:0">${DAYS.map(([d, l]) => `<button class="chip ${(cur.days || []).includes(d) ? 'on' : ''}" data-day="${d}">${l}</button>`).join('')}</div>
+            <div class="small muted">Phnom Penh time. It's sent once that day, within a few minutes after the time.</div></div>
+        </div>
+        <div class="f" style="gap:8px"><b>Send to</b><div id="tgcur" class="small"></div>
+          <div class="small muted" style="line-height:1.6">Add ${st.bot_name ? '<b>@' + esc(st.bot_name) + '</b>' : 'your bot'} to the Telegram group and send <b>/start</b> there, then press Find. For your private chat, open the bot in Telegram and press Start.</div>
+          <button class="btn out block" id="tgf">Find my groups</button><div id="tgl" style="display:flex;flex-direction:column;gap:8px"></div>
+          <details class="small"><summary class="muted" style="cursor:pointer">Type the group ID instead</summary>
+            <label class="f">Group ID<input class="inp" id="tgid" inputmode="numeric" value="${esc(chat)}" placeholder="-1001234567890"></label>
+            <label class="f">Name to show<input class="inp" id="tgnm" value="${esc(title)}" placeholder="e.g. K-TRONiCS Orders"></label></details></div>
+        <div class="f" style="gap:6px"><button class="btn out block" id="tgpv">👁 Preview the message</button>
+          <pre id="tgpvo" class="small" style="display:none;white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin:0;font-family:inherit;line-height:1.5"></pre></div>
+        <button class="btn block" id="tgok">${r ? 'Save' : 'Add alert'}</button>
+        ${r ? '<button class="btn out red block" id="tgrm">Delete this alert</button>' : ''}`);
+      const E = s.el;
+      const showCur = () => { $('#tgcur', E).innerHTML = chat ? `✓ <b>${esc(title || chat)}</b>` : '<span class="muted">No group chosen yet</span>'; };
+      showCur();
+      const collect = () => {
+        const p = { name: $('#tgn', E).value.trim(), rule_type: type, chat_id: chat, chat_title: title, enabled: cur.enabled !== false };
+        if (type === 'event') { p.events = $$('[data-ev]', E).filter(c => c.checked).map(c => c.dataset.ev); p.fields = $$('[data-fl]', E).filter(c => c.checked).map(c => c.dataset.fl); }
+        else { p.items = ITEMS.map(x => x[0]).filter(k => $(`[data-it="${k}"]`, E).checked); p.fields = []; p.send_time = $('#tgtime', E).value; p.period = $('#tgper', E).value;
+          p.days = $$('[data-day]', E).filter(b => b.classList.contains('on')).map(b => +b.dataset.day); }
+        if (!p.name) {       // a name is made from the choices if left empty
+          if (type === 'summary') p.name = 'Summary ' + (p.send_time || '');
+          else { const g = GROUPS.filter(([, l]) => l.some(([k]) => p.events.includes(k))).map(([n]) => n); p.name = g.length ? g.slice(0, 2).join(' & ') + (g.length > 2 ? ' +' + (g.length - 2) : '') : 'My alert'; }
+        }
+        return p;
       };
-      $('#tgman', s.el).onclick = async e => { const id = $('#tgid', s.el).value.trim(); if (!id) return toast('Type the group ID');
-        await tryB(e.currentTarget, () => set(id, $('#tgnm', s.el).value.trim())); };
-      if ($('#tgclr', s.el)) $('#tgclr', s.el).onclick = () => set('', '');
+      $$('[data-type]', E).forEach(b => b.onclick = () => { type = b.dataset.type; $$('[data-type]', E).forEach(x => x.classList.toggle('on', x === b));
+        $('#tgev', E).style.display = type === 'event' ? 'flex' : 'none'; $('#tgsm', E).style.display = type === 'summary' ? 'flex' : 'none'; $('#tgpvo', E).style.display = 'none'; });
+      $$('[data-all]', E).forEach(b => b.onclick = () => { const bx = $$('[data-ev]', b.closest('div[style*="border"]')); const all = bx.every(c => c.checked); bx.forEach(c => { c.checked = !all; }); });
+      $$('[data-day]', E).forEach(b => b.onclick = () => b.classList.toggle('on'));
+      $('#tgf', E).onclick = async e => {
+        const res = await tryB(e.currentTarget, async () => answer(await api.tgFindChats()));
+        if (!res) return;
+        const list = (res.chats || []).sort((a, b) => (a.type === 'private') - (b.type === 'private'));
+        $('#tgl', E).innerHTML = !res.ok ? `<div class="small" style="color:var(--rd)">${esc(res.error || 'Could not ask Telegram')}</div>`
+          : list.length ? list.map(c => `<button class="btn out block" style="justify-content:flex-start;text-align:left${String(c.id) === String(chat) ? ';border-color:var(--p)' : ''}" data-cid="${esc(c.id)}" data-ct="${esc(c.title)}">${c.type === 'private' ? '👤' : '👥'} ${esc(c.title || c.id)}${c.type === 'private' ? ' <span class="small muted">(private chat)</span>' : ''}</button>`).join('')
+          : '<div class="small muted">No groups found yet. Make sure the bot is in the group, send /start there, wait a few seconds and press Find again.</div>';
+        $$('[data-cid]', E).forEach(x => x.onclick = () => {
+          chat = x.dataset.cid; title = x.dataset.ct; $('#tgid', E).value = chat; $('#tgnm', E).value = title; showCur();
+          $$('[data-cid]', E).forEach(y => { y.style.borderColor = y === x ? 'var(--p)' : ''; }); });
+      };
+      $('#tgid', E).oninput = () => { chat = $('#tgid', E).value.trim(); showCur(); };
+      $('#tgnm', E).oninput = () => { title = $('#tgnm', E).value.trim(); showCur(); };
+      $('#tgpv', E).onclick = async e => {
+        const p = collect(); const txt = await tryB(e.currentTarget, () => api.tgPreview(Object.assign({}, p, { chat_id: '000' })));
+        if (txt == null) return; const o = $('#tgpvo', E); o.textContent = txt; o.style.display = 'block';
+      };
+      $('#tgok', E).onclick = async e => {
+        const id = await tryB(e.currentTarget, () => api.tgSaveRule(r ? r.id : null, collect()));
+        if (id == null) return;
+        s.close(); toast(r ? 'Alert saved' : 'Alert added. Press ' + (type === 'summary' ? 'Send now' : 'Send test') + ' to check it'); await reload();
+      };
+      if ($('#tgrm', E)) $('#tgrm', E).onclick = async () => {
+        if (!(await K.confirmSheet('Delete "' + r.name + '"?', 'This group will stop getting these alerts.', 'Delete', true))) return;
+        await api.tgDeleteRule(r.id); s.close(); toast('Alert deleted'); await reload();
+      };
     }
     draw();
   };

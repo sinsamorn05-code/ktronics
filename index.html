@@ -719,10 +719,13 @@ window.makeSupabaseApi = function (cfg) {
     // Telegram alerts (admin). The bot token can be saved but never read back.
     tgStatus: () => q(sb.rpc('tg_status')),
     tgSetToken: token => q(sb.rpc('tg_set_token', { p_token: token || '' })),
-    tgSetRoute: (type, chat, title, enabled) => q(sb.rpc('tg_set_route', { p_type: type, p_chat: chat || '', p_title: title || '', p_enabled: enabled !== false })),
-    tgTest: type => q(sb.rpc('tg_test', { p_type: type })),
+    tgSaveRule: (id, rule) => q(sb.rpc('tg_save_rule', { p_id: id || null, p: rule })),
+    tgPreview: rule => q(sb.rpc('tg_preview', { p: rule })),
+    tgRuleOn: (id, on) => q(sb.rpc('tg_rule_on', { p_id: id, p_on: !!on })),
+    tgDeleteRule: id => q(sb.rpc('tg_delete_rule', { p_id: id })),
+    tgTest: id => q(sb.rpc('tg_test', { p_rule: id })),
     tgFindChats: () => q(sb.rpc('tg_find_chats')),
-    tgResult: (id, type) => q(sb.rpc('tg_result', { p_id: id, p_type: type || null })),
+    tgResult: (id, rule) => q(sb.rpc('tg_result', { p_id: id, p_rule: rule || null })),
     teamSales: month => q(sb.rpc('team_sales', { p_month: month })),
     setSalesTarget: (uid, month, amount) => q(sb.rpc('set_sales_target', { p_user: uid, p_month: month, p_amount: +amount || 0 })),
 
@@ -781,6 +784,51 @@ window.makeDemoApi = function () {
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
+  // demo stand-in for the Telegram message builder in the database (same checks, sample data)
+  const K_TG = {
+    EVENTS: { order_new: ['🧾', 'New order'], order_approved: ['✅', 'Order approved'], order_delivered: ['🚚', 'Order delivered'], order_paid: ['💰', 'Order fully paid'], order_cancelled: ['⛔', 'Order cancelled'],
+      order_returned: ['↩️', 'Order returned'], order_deleted: ['🗑', 'Order deleted'], payment_new: ['💵', 'Payment collected'], payment_confirmed: ['✔️', 'Payment checked'], payment_rejected: ['❌', 'Payment rejected'],
+      shop_new: ['🏪', 'New shop'], shop_approved: ['✅', 'Shop approved'], shop_rejected: ['❌', 'Shop rejected'], visit_checkin: ['📍', 'Shop visit started'], visit_finish: ['🏁', 'Shop visit finished'],
+      stock_low: ['📦', 'Low stock'], goods_received: ['🚛', 'Goods received'], expense_new: ['🧾', 'New expense'], expense_approved: ['✅', 'Expense approved'], expense_rejected: ['❌', 'Expense rejected'],
+      leave_new: ['🏖', 'Leave request'], leave_approved: ['✅', 'Leave approved'], leave_rejected: ['❌', 'Leave rejected'], staff_checkin: ['🕗', 'Started work'], staff_late: ['⏰', 'Late for work'], staff_checkout: ['🏠', 'Finished work'] },
+    FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link'],
+    ITEMS: ['sales', 'sales_by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'low_stock', 'attendance', 'expenses'],
+    check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
+      if (!name) fail('Give the alert a name');
+      const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
+      const items = (p.items || []).filter(i => K_TG.ITEMS.includes(i)), days = [...new Set((p.days || []).map(Number).filter(d => d >= 1 && d <= 7))].sort();
+      if (tp === 'event' && !events.length) fail('Tick at least one event');
+      if (tp === 'summary') { if (!items.length) fail('Tick at least one thing for the summary'); if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(p.send_time || '')) fail('Choose the time to send it'); if (!days.length) fail('Choose at least one day'); }
+      if (!chat) fail('Choose a Telegram group'); if (!/^-?[0-9]{3,20}$/.test(chat)) fail('The group ID should be a number like -1001234567890');
+      return { name, rule_type: tp, events: tp === 'event' ? events : [], fields, items: tp === 'summary' ? items : [], send_time: tp === 'summary' ? p.send_time : null, days: tp === 'summary' ? days : null,
+        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false }; },
+    compose(ev, fields) {
+      const S = { order_no: 'SO-00125', shop: 'Lucky Phone Shop', owner: 'Mr. Dara', phone: '012 345 678', shop_tg: '@luckyphone_pp', area: 'Orussey, Chamkar Mon, Phnom Penh', map: 'https://maps.google.com/?q=11.5564,104.9282',
+        rep: 'Chhin Kimlong', staff: 'Chhin Kimlong', amount: '$245.00', items: '65W GaN charger ×10, USB-C cable ×20, Power bank 10000mAh ×5', payment: 'Credit · due 06 Oct', detail: '', note: 'Deliver before 10am', time: '29 Sep 14:05' };
+      if (/^payment/.test(ev)) Object.assign(S, { amount: '$100.00', payment: 'Cash', detail: 'Order $245.00 · still owes $145.00', note: '' });
+      if (/^visit/.test(ev)) Object.assign(S, { order_no: '', amount: '', items: '', payment: '', detail: ev === 'visit_finish' ? '17 min at the shop' : '12 m from the shop', note: 'Owner wants more cables' });
+      if (/^shop/.test(ev)) Object.assign(S, { order_no: '', amount: '', items: '', payment: '', note: '' });
+      if (/^expense/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '20,000៛ ($4.88)', items: '', payment: '', detail: 'Gasoline · 29 Sep', note: 'Moto fuel' });
+      if (/^leave/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: '', payment: '', detail: 'Annual leave · 02 Oct – 03 Oct (2 days)', note: 'Family' });
+      if (/^staff/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', rep: '', amount: '', items: '', payment: '', note: '', detail: ev === 'staff_late' ? 'Started 08:40 · 40 min late' : ev === 'staff_checkout' ? 'Worked 9h 5m' : 'Started 07:55' });
+      if (ev === 'stock_low') Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: 'Power bank 10000mAh', payment: '', note: '', detail: '4 left · warning at 20' });
+      if (ev === 'goods_received') Object.assign(S, { order_no: 'PO-00012', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '$1,904.45', items: '65W GaN charger ×200, USB-C cable ×500', payment: '', detail: 'From Shenzhen Supplier', note: '' });
+      if (ev === 'order_returned') S.detail = 'Refunded $245.00 (cash)';
+      const L = { shop: 'Shop', owner: 'Owner', phone: 'Phone', shop_tg: 'Telegram', area: 'Area', rep: 'Sales rep', staff: 'By', amount: 'Amount', items: ev === 'stock_low' ? 'Product' : 'Products', payment: 'Payment', detail: 'Details', note: 'Note', time: 'Time', map: 'Map' };
+      const [ic, t] = K_TG.EVENTS[ev] || ['🔔', ev], out = [ic + ' ' + t + (fields.includes('order_no') && S.order_no ? ' · ' + S.order_no : '')];
+      ['shop', 'owner', 'phone', 'shop_tg', 'area', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'map'].forEach(f => { if (fields.includes(f) && S[f]) out.push(L[f] + ': ' + S[f]); });
+      if (fields.includes('link') && ev !== 'expense_new' && !/^(leave|staff|expense)/.test(ev)) out.push('Open: https://sinsamorn05-code.github.io/ktronics/#/' + (/^visit/.test(ev) ? 'visits/41' : /^shop|order_deleted/.test(ev) ? 'customers/7' : /^stock/.test(ev) ? 'stock/3' : 'orders/125'));
+      return out.join('\n'); },
+    summary(r) {
+      const P = { today: 'Tue 29 Sep 2026', yesterday: 'Mon 28 Sep 2026', week: '23 Sep – 29 Sep 2026', last_week: '22 Sep – 28 Sep 2026', month: '01 Sep – 29 Sep 2026' };
+      const B = { sales: ['💰 Sales: $1,245.50 · 14 orders'], sales_by_rep: ['👤 Sales by rep:', '• Chhin Kimlong: $820.00 (9)', '• Sokha Chan: $425.50 (5)'],
+        top_products: ['🏆 Top products:', '• 65W GaN charger ×40 · $480.00', '• USB-C cable ×85 · $212.50', '• Power bank 10000mAh ×12 · $114.00'],
+        visits_by_rep: ['📍 Shop visits:', '• Chhin Kimlong: 11 visits', '• Sokha Chan: 8 visits (7 shops)'], new_shops: ['🏪 New shops: 2', '• Mobile Zone Kandal — Sokha Chan', '• Star Phone — Chhin Kimlong'],
+        collected: ['💵 Money collected: $980.00 · 9 payments', '• Cash: $720.00', '• Aba: $260.00', '⏳ Waiting to check: $57.00 (1)'],
+        owed: ['🧾 Shops owe now: $618.70 · 6 shops', '⚠️ Overdue credit: $15.00 · 1 order', '• Lucky Phone Shop: $15.00 (due 25 Sep)'], low_stock: ['📦 Low stock:', '• AirPods case clear: 0 left (warn at 20)'],
+        attendance: ['🕗 Attendance 29 Sep:', '• Came to work: 6', '• Late: Sokha Chan 08:22', '• Not in: Vanna', '• On leave: Dara'], expenses: ['🧾 Staff expenses: $42.50 · 5', '⏳ Waiting for approval: $12.00 (2)'] };
+      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i]); }); return out.join('\n'); }
+  };
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const fail = (m) => { throw new Error(m); };
 
@@ -1817,19 +1865,24 @@ window.makeDemoApi = function () {
         owed_suppliers: profit ? sum((D.purchases || []).filter(p => p.status !== 'cancelled'), p => p.total - (p.paid_amount || 0)) : null, profit_allowed: profit });
     },
     // Telegram alerts: the demo pretends to be Telegram
-    async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || { routes: {} };
-      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, routes: Object.entries(T.routes).map(([k, r]) => Object.assign({ alert_type: k }, r)) }); },
-    async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} }; tk = (tk || '').trim();
+    async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
+      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)) }); },
+    async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; tk = (tk || '').trim();
       if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
       if (!/^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/.test(tk)) fail('That does not look like a bot token. It looks like 1234567890:AAH... (numbers, a colon, then letters).');
       T.token = true; T.bot = null; save(); T.last = { ok: true, bot: 'ktronics_alerts_bot' }; return wait(1); },
-    async tgSetRoute(type, chat, title, enabled) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} };
-      if (chat && !/^-?[0-9]{3,20}$/.test(String(chat).trim())) fail('The group ID should be a number like -1001234567890');
-      T.routes[type] = { chat_id: chat ? String(chat).trim() : null, chat_title: title || null, enabled: enabled !== false }; save(); return wait(null); },
-    async tgTest(type) { const T = D.tg || { routes: {} }; if (!T.token) fail('Save the bot token first'); if (!(T.routes[type] || {}).chat_id) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
+    async tgSaveRule(id, p) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
+      const r = K_TG.check(p); if (id && !T.rules.some(x => x.id === id)) fail('This alert was deleted');
+      let row = id && T.rules.find(x => x.id === id); if (!row) { row = { id: (T.rules.reduce((m, x) => Math.max(m, x.id), 0) + 1) }; T.rules.push(row); }
+      Object.assign(row, r); save(); return wait(row.id); },
+    async tgPreview(p) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const r = K_TG.check(Object.assign({ name: 'Preview', chat_id: '000' }, p, { name: (p.name || '').trim() || 'Preview', chat_id: '000' }));
+      return wait(r.rule_type === 'summary' ? K_TG.summary(r) : K_TG.compose(r.events[0], r.fields)); },
+    async tgRuleOn(id, on) { const r = ((D.tg || {}).rules || []).find(x => x.id === id); if (r) { r.enabled = !!on; save(); } return wait(null); },
+    async tgDeleteRule(id) { const T = D.tg || {}; T.rules = (T.rules || []).filter(x => x.id !== id); save(); return wait(null); },
+    async tgTest(id) { const T = D.tg || {}; if (!T.token) fail('Save the bot token first'); if (!(T.rules || []).some(x => x.id === id)) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
     async tgFindChats() { const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
-      T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
-        { id: '-1001873400103', title: 'K-TRONiCS Payments', type: 'supergroup' }, { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }] }; return wait(3); },
+      T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders & Payments', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
+        { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }, { id: '5550001', title: 'Mr. Lee', type: 'private' }] }; return wait(3); },
     async tgResult() { const T = D.tg || {}; if (T.last && T.last.bot) { T.bot = T.last.bot; save(); } return wait(T.last || { ok: false, error: 'Not sent' }); },
     async teamSales(month) {
       if (!role()) return [];
