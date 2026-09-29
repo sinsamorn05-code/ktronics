@@ -432,6 +432,17 @@ window.makeSupabaseApi = function (cfg) {
     return data;
   }
   let me = null;
+  // Supabase sends at most 1000 rows per request, so long lists are fetched page by page.
+  // make() must build a fresh query with a stable order each time.
+  async function all(make, max = 50000) {
+    const out = []; const PAGE = 1000;
+    for (let from = 0; from < max; from += PAGE) {
+      const rows = await q(make().range(from, Math.min(from + PAGE, max) - 1));
+      out.push(...(rows || []));
+      if (!rows || rows.length < PAGE) break;
+    }
+    return out;
+  }
   const PAY_SEL = '*, orders(order_no, total, paid_amount, status), customers(name, province, assigned_to), receiver:profiles!payments_received_by_fkey(full_name), confirmer:profiles!payments_confirmed_by_fkey(full_name)';
 
   // sign-up with friendlier messages
@@ -518,8 +529,8 @@ window.makeSupabaseApi = function (cfg) {
     deleteProduct: id => q(sb.rpc('delete_product', { p_id: id })),
     async listProducts() {
       const [products, stock] = await Promise.all([
-        q(sb.from('products').select('*').eq('active', true).order('name')),
-        q(sb.from('stock').select('*'))
+        all(() => sb.from('products').select('*').eq('active', true).order('name').order('id')),
+        all(() => sb.from('stock').select('*').order('product_id').order('warehouse_id'), 100000)
       ]);
       return products.map(p => {
         const byWh = {}; let total = 0;
@@ -541,7 +552,7 @@ window.makeSupabaseApi = function (cfg) {
     productMoves: pid => q(sb.from('stock_moves').select('*, profiles(full_name), warehouses(name)').eq('product_id', pid).order('id', { ascending: false }).limit(50)),
 
     // customers
-    listCustomers: () => q(sb.rpc('list_customers')),
+    listCustomers: () => all(() => sb.rpc('list_customers')),
     setOpeningBalances: rows => q(sb.rpc('set_opening_balances', { p_rows: rows })),
     stockCount: (wid, items, note) => q(sb.rpc('stock_count', { p_warehouse: wid, p_items: items, p_note: note || null })),
     clearData: (from, to, what, preview) => q(sb.rpc('clear_data', { p_from: from || null, p_to: to, p_what: what, p_preview: !!preview })),
@@ -572,9 +583,9 @@ window.makeSupabaseApi = function (cfg) {
 
     // orders
     async listOrders(limit) {
-      return q(sb.from('orders').select('*, customers(name, area), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name)').order('id', { ascending: false }).limit(limit || 3000));
+      return all(() => sb.from('orders').select('*, customers(name, area), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name)').order('id', { ascending: false }), limit || 5000);
     },
-    listOrderItems: () => q(sb.from('order_items').select('order_id, product_id, qty, price, cost, products(name, sku)').order('id', { ascending: false }).limit(10000)),
+    listOrderItems: () => all(() => sb.from('order_items').select('order_id, product_id, qty, price, cost, products(name, sku)').order('id', { ascending: false }), 20000),
     async getOrder(id) {
       const [order, items, events, conv, payments] = await Promise.all([
         q(sb.from('orders').select('*, customers(*), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name)').eq('id', id).single()),
@@ -659,11 +670,11 @@ window.makeSupabaseApi = function (cfg) {
     setCommissionRate: (uid, rate) => q(sb.rpc('set_commission_rate', { p_user: uid, p_rate: rate === '' || rate == null ? null : +rate })),
 
     // attendance, leave, HR
-    listAttendance: (from, to) => q(sb.from('attendance').select('*, profiles(full_name)').gte('work_date', from).lte('work_date', to).order('work_date', { ascending: false }).limit(5000)),
+    listAttendance: (from, to) => all(() => sb.from('attendance').select('*, profiles(full_name)').gte('work_date', from).lte('work_date', to).order('work_date', { ascending: false }).order('id', { ascending: false }), 10000),
     async todayAttendance() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return q(sb.from('attendance').select('*').eq('staff_id', me.id).eq('work_date', d.toISOString().slice(0, 10)).maybeSingle()); },
     async clockIn(lat, lng, photo, note) { const url = photo ? await api.uploadPhoto(photo, 'attendance') : null; return q(sb.rpc('clock_in', { p_lat: lat, p_lng: lng, p_photo: url, p_note: note || null })); },
     clockOut: (lat, lng, note) => q(sb.rpc('clock_out', { p_lat: lat, p_lng: lng, p_note: note || null })),
-    listLeave: () => q(sb.from('leave_requests').select('*, profiles!leave_requests_staff_id_fkey(full_name)').order('id', { ascending: false }).limit(2000)),
+    listLeave: () => all(() => sb.from('leave_requests').select('*, profiles!leave_requests_staff_id_fkey(full_name)').order('id', { ascending: false }), 5000),
     askLeave: x => q(sb.from('leave_requests').insert({ staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || null }).select().single()),
     deleteLeave: id => q(sb.from('leave_requests').delete().eq('id', id)),
     reviewLeave: (id, status, note) => q(sb.rpc('review_leave', { p_id: id, p_status: status, p_note: note || null })),
@@ -686,8 +697,8 @@ window.makeSupabaseApi = function (cfg) {
       if (x.id) return q(sb.from('suppliers').update(row).eq('id', x.id).select().single());
       return q(sb.from('suppliers').insert(row).select().single());
     },
-    listPurchases: () => q(sb.from('purchases').select('*, suppliers(name, country), warehouses(name)').order('id', { ascending: false }).limit(3000)),
-    listPurchaseItems: () => q(sb.from('purchase_items').select('*, products(name, sku)').order('id', { ascending: false }).limit(20000)),
+    listPurchases: () => all(() => sb.from('purchases').select('*, suppliers(name, country), warehouses(name)').order('id', { ascending: false }), 5000),
+    listPurchaseItems: () => all(() => sb.from('purchase_items').select('*, products(name, sku)').order('id', { ascending: false }), 20000),
     async getPurchase(id) {
       const [p, items, pays] = await Promise.all([
         q(sb.from('purchases').select('*, suppliers(*), warehouses(name), creator:profiles!purchases_created_by_fkey(full_name), receiver:profiles!purchases_received_by_fkey(full_name)').eq('id', id).single()),
@@ -698,14 +709,25 @@ window.makeSupabaseApi = function (cfg) {
     createPurchase: x => q(sb.rpc('create_purchase', { p_supplier: x.supplier_id, p_warehouse: x.warehouse_id, p_currency: x.currency, p_rate: +x.rate || 1, p_extra: +x.extra_cost || 0, p_note: x.note || null, p_items: x.items, p_receive: !!x.receive, p_ordered_on: x.ordered_on || null })),
     receivePurchase: id => q(sb.rpc('receive_purchase', { p_id: id })),
     cancelPurchase: id => q(sb.rpc('cancel_purchase', { p_id: id })),
-    listSupplierPayments: () => q(sb.from('supplier_payments').select('*').order('id', { ascending: false }).limit(5000)),
+    listSupplierPayments: () => all(() => sb.from('supplier_payments').select('*').order('id', { ascending: false }), 5000),
     paySupplier: (pid, amount, method, note, date) => q(sb.rpc('pay_supplier', { p_purchase: pid, p_amount: +amount, p_method: method, p_note: note || null, p_paid_on: date || null })),
     deleteSupplierPayment: id => q(sb.rpc('delete_supplier_payment', { p_id: id })),
+    reportReps: (from, to) => q(sb.rpc('report_reps', { p_from: from, p_to: to })),
+    reportStock: (from, to) => all(() => sb.rpc('report_stock', { p_from: from, p_to: to })),
+    reportShops: (from, to) => all(() => sb.rpc('report_shops', { p_from: from, p_to: to })),
+    reportMoney: (from, to) => q(sb.rpc('report_money', { p_from: from, p_to: to })),
+    // Telegram alerts (admin). The bot token can be saved but never read back.
+    tgStatus: () => q(sb.rpc('tg_status')),
+    tgSetToken: token => q(sb.rpc('tg_set_token', { p_token: token || '' })),
+    tgSetRoute: (type, chat, title, enabled) => q(sb.rpc('tg_set_route', { p_type: type, p_chat: chat || '', p_title: title || '', p_enabled: enabled !== false })),
+    tgTest: type => q(sb.rpc('tg_test', { p_type: type })),
+    tgFindChats: () => q(sb.rpc('tg_find_chats')),
+    tgResult: (id, type) => q(sb.rpc('tg_result', { p_id: id, p_type: type || null })),
     teamSales: month => q(sb.rpc('team_sales', { p_month: month })),
     setSalesTarget: (uid, month, amount) => q(sb.rpc('set_sales_target', { p_user: uid, p_month: month, p_amount: +amount || 0 })),
 
     // payments (shops pay in parts)
-    listPayments: () => q(sb.from('payments').select(PAY_SEL).order('id', { ascending: false }).limit(3000)),
+    listPayments: () => all(() => sb.from('payments').select(PAY_SEL).order('id', { ascending: false }), 10000),
     async addPayment(p) {
       const photo_url = p.photo ? await api.uploadPhoto(p.photo, 'payments') : null;
       return q(sb.rpc('add_payment', { p_order: p.order_id, p_amount: +p.amount, p_currency: p.currency || 'USD', p_method: p.method || 'cash', p_note: p.note || null, p_photo: photo_url }));
@@ -721,7 +743,7 @@ window.makeSupabaseApi = function (cfg) {
     setUserPermission: (uid, perm, allowed) => q(sb.rpc('set_user_permission', { p_user: uid, p_perm: perm, p_allowed: allowed })),
 
     // expenses
-    listExpenses: () => q(sb.from('expenses').select('*, staff:profiles!expenses_staff_id_fkey(full_name), creator:profiles!expenses_created_by_fkey(full_name)').order('spent_on', { ascending: false }).order('id', { ascending: false }).limit(3000)),
+    listExpenses: () => all(() => sb.from('expenses').select('*, staff:profiles!expenses_staff_id_fkey(full_name), creator:profiles!expenses_created_by_fkey(full_name)').order('spent_on', { ascending: false }).order('id', { ascending: false }), 10000),
     async saveExpense(e) {
       const receipt_url = e.photo ? await api.uploadPhoto(e.photo, 'receipts') : (e.receipt_url || null);
       const row = { spent_on: e.spent_on, category: e.category, amount: +e.amount, currency: e.currency, note: e.note || null, receipt_url };
@@ -1722,6 +1744,93 @@ window.makeDemoApi = function () {
       });
     },
 
+    // ---- reports (demo: worked out in the browser, same shape as the real database) ----
+    async reportReps(from, to) {
+      if (!allow('reports.view')) return wait([]);
+      const inR = d => d >= from && d <= to, sale = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening && inR(localDay(o.created_at)));
+      const [wh, wm] = String((D.settings || {}).work_start || '08:00').split(':').map(Number);
+      return wait(D.users.filter(u => u.active && u.role !== 'guest').map(u => { const mine = sale.filter(o => (o.sales_rep_id || o.created_by) === u.id);
+        const vis = D.visits.filter(v => v.staff_id === u.id && inR(localDay(v.check_in_at)));
+        const tg = Object.entries((D.targets || {})[u.id] || {}).filter(([m]) => m >= from.slice(0, 7) + '-01' && m <= to).reduce((a, [, v]) => a + v, 0);
+        const att = (D.attendance || []).filter(a => a.staff_id === u.id && inR(a.work_date));
+        return { user_id: u.id, full_name: u.full_name, role: u.role, sales: +mine.reduce((a, o) => a + o.total, 0).toFixed(2), orders: mine.length, target: tg || null,
+          visits: vis.length, visit_orders: vis.filter(v => D.orders.some(o => o.customer_id === v.customer_id && (o.created_by === u.id || o.sales_rep_id === u.id) && o.status !== 'cancelled' && localDay(o.created_at) === localDay(v.check_in_at))).length,
+          new_shops: D.customers.filter(c => c.created_by === u.id && inR(localDay(c.created_at))).length, shops: D.customers.filter(c => c.assigned_to === u.id).length,
+          collected: +D.payments.filter(p => p.received_by === u.id && p.status !== 'rejected' && inR(localDay(p.received_at))).reduce((a, p) => a + p.amount_usd, 0).toFixed(2),
+          expenses: +D.expenses.filter(e => e.staff_id === u.id && ['approved', 'paid'].includes(e.status) && inR(e.spent_on)).reduce((a, e) => a + e.amount_usd, 0).toFixed(2),
+          days_worked: att.length, late_days: att.filter(a => { const t = new Date(a.check_in_at); return t.getHours() * 60 + t.getMinutes() > wh * 60 + wm + 5; }).length };
+      }).sort((a, b) => b.sales - a.sales || a.full_name.localeCompare(b.full_name)));
+    },
+    async reportStock(from, to) {
+      if (!allow('reports.view')) return wait([]);
+      const inR = d => d >= from && d <= to, sale = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening), saleIds = new Set(sale.map(o => o.id));
+      const inRange = new Set(sale.filter(o => inR(localDay(o.created_at))).map(o => o.id)), odate = {}; sale.forEach(o => { odate[o.id] = localDay(o.created_at); });
+      const repWh = new Set(D.warehouses.filter(w => w.rep_id).map(w => w.id));
+      const mv = (p, r) => D.moves.filter(m => m.product_id === p.id && m.reason === r && inR(localDay(m.created_at))).reduce((a, m) => a + m.qty_change, 0);
+      return wait(D.products.filter(p => p.active !== false).map(p => { const its = D.items.filter(i => i.product_id === p.id && saleIds.has(i.order_id)), inr = its.filter(i => inRange.has(i.order_id));
+        const q = w => Object.entries(D.stock).filter(([k]) => +k.split(':')[0] === p.id && w(+k.split(':')[1])).reduce((a, [, v]) => a + v, 0);
+        return { product_id: p.id, name: p.name, sku: p.sku, category: p.category, price: p.price, cost: p.cost, min_stock: p.min_stock, qty_main: q(w => !repWh.has(w)), qty_reps: q(w => repWh.has(w)),
+          sold_qty: inr.reduce((a, i) => a + i.qty, 0), sold_value: +inr.reduce((a, i) => a + i.qty * i.price, 0).toFixed(2), received: mv(p, 'in'), stock_out: -mv(p, 'out'), returned: mv(p, 'return'), count_fix: mv(p, 'adjust'),
+          last_sold: its.map(i => odate[i.order_id]).sort().pop() || null }; }).sort((a, b) => b.sold_value - a.sold_value || a.name.localeCompare(b.name)));
+    },
+    async reportShops(from, to) {
+      if (!allow('reports.view')) return wait([]);
+      const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1, bf = new Date(new Date(from) - days * 86400000).toISOString().slice(0, 10), bt = new Date(new Date(from) - 86400000).toISOString().slice(0, 10);
+      const sale = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening), today = localDay(new Date().toISOString());
+      return wait(D.customers.filter(c => allow('customers.view_all') || c.assigned_to === me.id).map(c => { const mine = sale.filter(o => o.customer_id === c.id), ds = mine.map(o => localDay(o.created_at)).sort();
+        const inr = mine.filter(o => { const d = localDay(o.created_at); return d >= from && d <= to; }), bef = mine.filter(o => { const d = localDay(o.created_at); return d >= bf && d <= bt; });
+        const vs = D.visits.filter(v => v.customer_id === c.id).map(v => localDay(v.check_in_at)).sort();
+        return { customer_id: c.id, name: c.name, province: c.province, district: c.district, rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null, status: c.status, created_on: localDay(c.created_at),
+          sales: +inr.reduce((a, o) => a + o.total, 0).toFixed(2), orders: inr.length, sales_before: +bef.reduce((a, o) => a + o.total, 0).toFixed(2), last_order: ds[ds.length - 1] || null, first_order: ds[0] || null,
+          owed: +D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered').reduce((a, o) => a + o.total - (o.paid_amount || 0), 0).toFixed(2),
+          overdue: +D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < today && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0)).reduce((a, o) => a + o.total - (o.paid_amount || 0), 0).toFixed(2),
+          last_visit: vs[vs.length - 1] || null, visits: vs.filter(d => d >= from && d <= to).length }; }).sort((a, b) => b.sales - a.sales || a.name.localeCompare(b.name)));
+    },
+    async reportMoney(from, to) {
+      if (!allow('reports.view')) fail('You are not allowed to see reports');
+      const inR = d => d >= from && d <= to, profit = allow('purchases.manage'), today = localDay(new Date().toISOString());
+      const returned = new Set(D.orders.filter(o => o.status === 'returned').map(o => o.id));
+      const ok = D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at)) && !returned.has(p.order_id));
+      const grp = (list, key) => { const m = {}; list.forEach(p => { const k = key(p); m[k] = m[k] || { amount: 0, count: 0 }; m[k].amount += p.amount_usd; m[k].count++; }); return m; };
+      const byDay = grp(ok, p => localDay(p.received_at)), byM = grp(ok, p => p.method), byS = grp(ok, p => (user(p.received_by) || {}).full_name || '—');
+      const months = []; for (let d = new Date(from.slice(0, 7) + '-01T00:00:00'); d <= new Date(to + 'T00:00:00') && months.length < 36; d.setMonth(d.getMonth() + 1)) months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+      const sold = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening);
+      const open = D.orders.filter(o => o.status === 'delivered' && o.total > (o.paid_amount || 0)).map(o => ({ c: o.customer_id, owed: o.total - (o.paid_amount || 0), age: Math.floor((Date.now() - new Date(o.delivered_at || o.updated_at)) / 86400000) }));
+      const sum = (l, f) => +l.reduce((a, x) => a + f(x), 0).toFixed(2);
+      const ovd = D.orders.filter(o => o.payment_method === 'credit' && o.due_date && o.due_date < today && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0));
+      const pur = (D.purchases || []).filter(p => p.status !== 'cancelled' && inR(p.ordered_on || localDay(p.created_at)));
+      const ex = grp(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on)).map(e => ({ amount_usd: e.amount_usd, t: e.category })), x => x.t);
+      return wait({ collected_total: sum(ok, p => p.amount_usd), collected_waiting: sum(ok.filter(p => p.status === 'pending'), p => p.amount_usd),
+        by_day: Object.entries(byDay).sort().map(([day, v]) => ({ day, amount: +v.amount.toFixed(2), count: v.count })),
+        by_method: Object.entries(byM).sort((a, b) => b[1].amount - a[1].amount).map(([method, v]) => ({ method, amount: +v.amount.toFixed(2), count: v.count })),
+        by_staff: Object.entries(byS).sort((a, b) => b[1].amount - a[1].amount).map(([name, v]) => ({ name, amount: +v.amount.toFixed(2), count: v.count })),
+        months: months.map(m => { const os = sold.filter(o => localDay(o.created_at).slice(0, 7) === m), ids = new Set(os.map(o => o.id));
+          return { month: m + '-01', sales: sum(os, o => o.total), cogs: profit ? sum(D.items.filter(i => ids.has(i.order_id)), i => i.qty * (i.cost || 0)) : null,
+            expenses: sum(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && e.spent_on.slice(0, 7) === m), e => e.amount_usd),
+            collected: sum(D.payments.filter(p => p.status === 'confirmed' && localDay(p.received_at).slice(0, 7) === m), p => p.amount_usd),
+            refunded: sum(D.orders.filter(o => o.status === 'returned' && o.returned_at && localDay(o.returned_at).slice(0, 7) === m), o => o.refunded_amount || 0) }; }),
+        aging: { d0_7: sum(open.filter(x => x.age <= 7), x => x.owed), d8_30: sum(open.filter(x => x.age >= 8 && x.age <= 30), x => x.owed), d31_60: sum(open.filter(x => x.age >= 31 && x.age <= 60), x => x.owed),
+          d61: sum(open.filter(x => x.age > 60), x => x.owed), shops: new Set(open.map(x => x.c)).size, total: sum(open, x => x.owed) },
+        overdue: { count: ovd.length, amount: sum(ovd, o => o.total - (o.paid_amount || 0)), shops: new Set(ovd.map(o => o.customer_id)).size },
+        expense_types: Object.entries(ex).sort((a, b) => b[1].amount - a[1].amount).map(([type, v]) => ({ type, amount: +v.amount.toFixed(2), count: v.count })),
+        purchases: profit || allow('purchases.receive') ? { count: pur.length, total: sum(pur, p => p.total), paid: sum(pur, p => p.paid_amount || 0) } : null,
+        owed_suppliers: profit ? sum((D.purchases || []).filter(p => p.status !== 'cancelled'), p => p.total - (p.paid_amount || 0)) : null, profit_allowed: profit });
+    },
+    // Telegram alerts: the demo pretends to be Telegram
+    async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || { routes: {} };
+      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, routes: Object.entries(T.routes).map(([k, r]) => Object.assign({ alert_type: k }, r)) }); },
+    async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} }; tk = (tk || '').trim();
+      if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
+      if (!/^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/.test(tk)) fail('That does not look like a bot token. It looks like 1234567890:AAH... (numbers, a colon, then letters).');
+      T.token = true; T.bot = null; save(); T.last = { ok: true, bot: 'ktronics_alerts_bot' }; return wait(1); },
+    async tgSetRoute(type, chat, title, enabled) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || { routes: {} };
+      if (chat && !/^-?[0-9]{3,20}$/.test(String(chat).trim())) fail('The group ID should be a number like -1001234567890');
+      T.routes[type] = { chat_id: chat ? String(chat).trim() : null, chat_title: title || null, enabled: enabled !== false }; save(); return wait(null); },
+    async tgTest(type) { const T = D.tg || { routes: {} }; if (!T.token) fail('Save the bot token first'); if (!(T.routes[type] || {}).chat_id) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
+    async tgFindChats() { const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
+      T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
+        { id: '-1001873400103', title: 'K-TRONiCS Payments', type: 'supergroup' }, { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }] }; return wait(3); },
+    async tgResult() { const T = D.tg || {}; if (T.last && T.last.bot) { T.bot = T.last.bot; save(); } return wait(T.last || { ok: false, error: 'Not sent' }); },
     async teamSales(month) {
       if (!role()) return [];
       const m = String(month).slice(0, 7);
