@@ -51,7 +51,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
 .pill{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--bg);white-space:nowrap}
 .p-pending{background:var(--ors);color:var(--or)}.p-approved,.p-packed,.p-delivering{background:#dbeafe;color:#1d4ed8}.p-delivered{background:#ede9fe;color:#6d28d9}
 .p-paid{background:var(--grs);color:var(--gr)}.p-cancelled,.p-returned{background:var(--ps);color:var(--p)}
-.items{display:flex;flex-direction:column;gap:5px;border-top:1px dashed var(--line);padding-top:8px;margin-top:2px}.items .btn{align-self:flex-start;margin-top:4px}
+.items{display:flex;flex-direction:column;gap:5px;border-top:1px dashed var(--line);padding-top:8px;margin-top:2px}.items .btn{margin-top:4px}
 .qr{text-align:center}.qr img{max-width:220px;width:100%;border-radius:12px}
 .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:6}
 .tabs button{flex:1;border:0;background:none;padding:8px 4px 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11.5px;font-weight:700;color:var(--mu);cursor:pointer}
@@ -84,7 +84,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
   const W = {
     en: { products: 'Products', cart: 'Cart', orders: 'My orders', search: 'Search products', all: 'All', add: 'Add', inStock: 'In stock', left: n => `Only ${n} left`, out: 'Out of stock',
       emptyCart: 'Your cart is empty', browse: 'Browse products', total: 'Total', note: 'Note for us (optional)', notePh: 'e.g. deliver before 10am', pay: 'Payment',
-      payNow: 'Pay now', payNowSub: 'Pay with KHQR / ABA after sending the order', chat: 'Chat to us', chatSub: 'Talk to us in Telegram about payment', payTitle: a => `Please pay ${a}`, payHow: 'Scan with ABA or any bank app. Then send us the payment screenshot.', sendShot: '📷 Send us the payment screenshot', chatTitle: 'Let\'s talk about payment', chatHow: 'Tap below to chat with us in Telegram about this order.', openChat: '💬 Chat to us in Telegram', send: 'Send order', sending: 'Sending…', minOrder: m => `Minimum order is ${money(m)}`,
+      contactSeller: '💬 Chat to us in Telegram', askOrder: '💬 Ask about this order', payNow: 'Pay now', payNowSub: 'Pay with KHQR / ABA after sending the order. You can still chat to us.', chat: 'Chat to us', chatSub: 'Talk to us in Telegram about payment', payTitle: a => `Please pay ${a}`, payHow: 'Scan with ABA or any bank app. Then send us the payment screenshot.', sendShot: '📷 Send us the payment screenshot', chatTitle: 'Let\'s talk about payment', chatHow: 'Tap below to chat with us in Telegram about this order.', openChat: '💬 Chat to us in Telegram', send: 'Send order', sending: 'Sending…', minOrder: m => `Minimum order is ${money(m)}`,
       sent: 'Order sent!', sentSub: r => r ? `${r} will confirm your order soon.` : 'We will confirm your order soon.', getUpdates: '🔔 Get order updates in Telegram', updatesOn: '🔔 You will get updates in Telegram',
       again: 'Order again', owe: 'To pay', overdue: 'Overdue', youOwe: 'You owe', payQR: 'Scan to pay (KHQR)', noOrders: 'No orders yet', items: 'items',
       st: { pending: 'Waiting for confirmation', approved: 'Confirmed', packed: 'Packed', delivering: 'On the way', delivered: 'Delivered', paid: 'Paid', cancelled: 'Cancelled', returned: 'Returned' },
@@ -97,7 +97,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
       newShop: 'New shop · we will confirm your first order by phone', rejected: 'Your shop was not approved', rejectedSub: 'Please contact K-TRONiCS.', retry: 'Try again', welcome: n => `Hi ${n} 👋`, hi: 'Hi', maxQty: n => `Only ${n} in stock`, removed: 'Removed', addedCart: 'Added to cart', lang: 'ខ្មែរ' },
     km: { products: 'ទំនិញ', cart: 'កន្ត្រក', orders: 'ការបញ្ជាទិញរបស់ខ្ញុំ', search: 'ស្វែងរកទំនិញ', all: 'ទាំងអស់', add: 'បន្ថែម', inStock: 'មានក្នុងស្តុក', left: n => `នៅសល់តែ ${n}`, out: 'អស់ស្តុក',
       emptyCart: 'កន្ត្រករបស់អ្នកទទេ', browse: 'មើលទំនិញ', total: 'សរុប', note: 'កំណត់ចំណាំ (ស្រេចចិត្ត)', notePh: 'ឧ. ដឹកមុនម៉ោង ១០ ព្រឹក', pay: 'ការបង់ប្រាក់',
-      payNow: 'បង់ឥឡូវនេះ', payNowSub: 'បង់តាម KHQR / ABA បន្ទាប់ពីផ្ញើការបញ្ជាទិញ', chat: 'ជជែកជាមួយយើង', chatSub: 'និយាយជាមួយយើងក្នុង Telegram អំពីការបង់ប្រាក់', payTitle: a => `សូមបង់ ${a}`, payHow: 'ស្កេនជាមួយ ABA ឬកម្មវិធីធនាគារណាមួយ។ បន្ទាប់មកផ្ញើរូបថតបង្កាន់ដៃមកយើង។', sendShot: '📷 ផ្ញើរូបថតបង្កាន់ដៃការបង់ប្រាក់', chatTitle: 'តោះនិយាយអំពីការបង់ប្រាក់', chatHow: 'ចុចខាងក្រោមដើម្បីជជែកជាមួយយើងក្នុង Telegram អំពីការបញ្ជាទិញនេះ។', openChat: '💬 ជជែកជាមួយយើងក្នុង Telegram', send: 'ផ្ញើការបញ្ជាទិញ', sending: 'កំពុងផ្ញើ…', minOrder: m => `ការបញ្ជាទិញអប្បបរមា ${money(m)}`,
+      contactSeller: '💬 ជជែកជាមួយយើងក្នុង Telegram', askOrder: '💬 សួរអំពីការបញ្ជាទិញនេះ', payNow: 'បង់ឥឡូវនេះ', payNowSub: 'បង់តាម KHQR / ABA បន្ទាប់ពីផ្ញើការបញ្ជាទិញ។ អ្នកនៅតែអាចជជែកជាមួយយើងបាន។', chat: 'ជជែកជាមួយយើង', chatSub: 'និយាយជាមួយយើងក្នុង Telegram អំពីការបង់ប្រាក់', payTitle: a => `សូមបង់ ${a}`, payHow: 'ស្កេនជាមួយ ABA ឬកម្មវិធីធនាគារណាមួយ។ បន្ទាប់មកផ្ញើរូបថតបង្កាន់ដៃមកយើង។', sendShot: '📷 ផ្ញើរូបថតបង្កាន់ដៃការបង់ប្រាក់', chatTitle: 'តោះនិយាយអំពីការបង់ប្រាក់', chatHow: 'ចុចខាងក្រោមដើម្បីជជែកជាមួយយើងក្នុង Telegram អំពីការបញ្ជាទិញនេះ។', openChat: '💬 ជជែកជាមួយយើងក្នុង Telegram', send: 'ផ្ញើការបញ្ជាទិញ', sending: 'កំពុងផ្ញើ…', minOrder: m => `ការបញ្ជាទិញអប្បបរមា ${money(m)}`,
       sent: 'បានផ្ញើការបញ្ជាទិញ!', sentSub: r => r ? `${r} នឹងបញ្ជាក់ការបញ្ជាទិញរបស់អ្នកឆាប់ៗ។` : 'យើងនឹងបញ្ជាក់ការបញ្ជាទិញរបស់អ្នកឆាប់ៗ។', getUpdates: '🔔 ទទួលព័ត៌មានការបញ្ជាទិញក្នុង Telegram', updatesOn: '🔔 អ្នកនឹងទទួលព័ត៌មានក្នុង Telegram',
       again: 'បញ្ជាទិញម្តងទៀត', owe: 'ត្រូវបង់', overdue: 'ហួសកាលកំណត់', youOwe: 'អ្នកជំពាក់', payQR: 'ស្កេនដើម្បីបង់ (KHQR)', noOrders: 'មិនទាន់មានការបញ្ជាទិញ', items: 'មុខ',
       st: { pending: 'រង់ចាំការបញ្ជាក់', approved: 'បានបញ្ជាក់', packed: 'បានវេចខ្ចប់', delivering: 'កំពុងដឹកជញ្ជូន', delivered: 'បានដឹកដល់', paid: 'បានបង់', cancelled: 'បានលុបចោល', returned: 'បានប្រគល់ត្រឡប់' },
@@ -269,6 +269,8 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
   }
   // who "Chat to us" opens: the company Telegram account from Settings, else the sales rep's phone
   const chatLink = () => { const u = S && S.settings && S.settings.contact_tg; if (u) return /^\+?[0-9 ]{6,}$/.test(u) ? 'https://t.me/+' + u.replace(/[^0-9]/g, '') : 'https://t.me/' + u.replace(/^@/, '');
+    const r = S && S.shop && S.shop.rep, ph = r && r.phone ? r.phone.replace(/[^0-9+]/g, '') : '';
+    if (ph.length >= 8) return 'https://t.me/' + (ph.startsWith('+') ? ph : '+855' + ph.replace(/^0/, ''));
     return null; };
   function openChat() { const l = chatLink(); if (!l) return; try { if (TG && TG.openTelegramLink && !DEMO) return TG.openTelegramLink(l); } catch (e) {} window.open(l, '_blank'); }
   function doneView() {
@@ -278,9 +280,10 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
           <button class="btn block" id="chatnow">${esc(T.openChat)}</button></div>`
       : `<div class="card qr" style="width:100%;max-width:360px"><div class="lbl">💳 ${esc(T.payTitle(money(o.total)))}</div>
           ${khqr ? `<img src="${esc(khqr)}" alt="KHQR">` : ''}<p class="small muted" style="margin:8px 0 10px">${esc(T.payHow)}</p>
-          ${chat ? `<button class="btn block" id="chatnow">${esc(T.sendShot)}</button>` : ''}</div>`;
+          </div>`;
     return `<div class="center"><div class="bigicon ok">✓</div><h2>${esc(T.sent)}</h2><p><b>${esc(o.order_no || '')}</b> · ${money(o.total)}</p>
       <p class="muted">${esc(T.sentSub(S.shop.rep && S.shop.rep.name))}</p>${payBox}
+      ${chat && pay !== 'chat' ? `<button class="btn block" id="chatnow" style="max-width:360px">${esc(T.contactSeller)}</button>` : ''}
       ${S.me.can_message ? `<p class="small muted">${esc(T.updatesOn)}</p>` : `<button class="btn out" id="notify">${esc(T.getUpdates)}</button>`}
       <button class="btn out" data-tab="orders">📄 ${esc(T.orders)}</button></div>`;
   }
@@ -295,7 +298,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
         <div class="row small muted"><span>${d} · ${(o.items || []).length} ${esc(T.items)}</span><b class="ink">${money(o.total)}</b></div>
         ${owe > 0 ? `<div class="row small"><span class="red">${esc(T.owe)} ${money(owe)}</span>${o.due_date ? `<span class="${o.due_date < new Date().toISOString().slice(0, 10) ? 'red' : 'muted'}">${esc(T.due(o.due_date))}</span>` : ''}</div>` : ''}
         ${openOrder === o.id ? `<div class="items">${(o.items || []).map(i => `<div class="row small"><span>${esc(i.name)} × ${i.qty}</span><span>${money(i.qty * i.price)}</span></div>`).join('')}
-          <button class="btn out sm" data-again="${o.id}">↻ ${esc(T.again)}</button></div>` : ''}</div>`; }).join('') || `<div class="center"><div class="bigicon">📄</div><p class="muted">${esc(T.noOrders)}</p></div>`);
+          <div class="row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap"><button class="btn out sm" data-again="${o.id}">↻ ${esc(T.again)}</button>${chatLink() ? `<button class="btn out sm" data-ask="${o.id}">${esc(T.askOrder)}</button>` : ''}</div></div>` : ''}</div>`; }).join('') || `<div class="center"><div class="bigicon">📄</div><p class="muted">${esc(T.noOrders)}</p></div>`);
   }
   async function loadOrders() { try { orders = await rpc('shop_orders'); } catch (e) { orders = []; toast(e.message); } if (tab === 'orders') draw(); }
 
@@ -321,7 +324,8 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
     const B = document.getElementById('send'); if (B) B.onclick = send;
     const NT = document.getElementById('notify'); if (NT) NT.onclick = askUpdates;
     const CH = document.getElementById('chatnow'); if (CH) CH.onclick = openChat;
-    root.querySelectorAll('[data-o]').forEach(c => c.onclick = e => { if (e.target.closest('[data-again]')) return; openOrder = openOrder === +c.dataset.o ? null : +c.dataset.o; draw(); });
+    root.querySelectorAll('[data-ask]').forEach(b => b.onclick = e => { e.stopPropagation(); openChat(); });
+    root.querySelectorAll('[data-o]').forEach(c => c.onclick = e => { if (e.target.closest('[data-again],[data-ask]')) return; openOrder = openOrder === +c.dataset.o ? null : +c.dataset.o; draw(); });
     root.querySelectorAll('[data-again]').forEach(b => b.onclick = () => {
       const o = orders.find(x => x.id === +b.dataset.again); let added = 0;
       (o.items || []).forEach(i => { const p = products.find(x => x.name === i.name && x.qty > 0); if (p) { cart[p.id] = Math.min(p.qty, (cart[p.id] || 0) + i.qty); added++; } });
