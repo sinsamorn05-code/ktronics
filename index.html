@@ -1892,7 +1892,9 @@ window.makeDemoApi = function () {
     async shopUnlink(tg) { D.shopTg = (D.shopTg || []).filter(u => u.tg_user_id !== tg); save(); return wait(null); },
     async shopAdminStatus() { if (role() !== 'admin') fail('Only the admin can see this'); const mon = new Date(); mon.setDate(1); mon.setHours(0, 0, 0, 0);
       const tgo = D.orders.filter(o => o.source === 'telegram' && new Date(o.created_at) >= mon);
+      const bot = (D.tg || {}).bot || 'ktronics_alerts_bot', app = (D.settings || {}).shop_app_name;
       return wait({ bot_name: (D.tg || {}).bot || null, token_set: !!(D.tg || {}).token, shop_url: 'https://sinsamorn05-code.github.io/ktronics/shop.html',
+        open_link: app ? 'https://t.me/' + bot + '/' + app : null, new_shops: 0,
         linked_shops: new Set((D.shopTg || []).map(u => u.customer_id)).size, linked_users: (D.shopTg || []).length, orders_month: tgo.length,
         sales_month: tgo.filter(o => !['pending', 'cancelled', 'returned'].includes(o.status)).reduce((a, o) => a + o.total, 0),
         warehouses: D.warehouses.filter(w => !w.rep_id).map(w => ({ id: w.id, name: w.name })), warehouse: +(D.settings || {}).shop_warehouse || (D.warehouses.find(w => !w.rep_id) || {}).id }); },

@@ -58,6 +58,11 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
 .tabs button.on{color:var(--p)}.tabs .ic{font-size:21px;position:relative;line-height:1.1}
 .badge{position:absolute;top:-4px;right:-12px;background:var(--p);color:#fff;font-style:normal;font-size:10.5px;font-weight:800;border-radius:999px;padding:1px 6px}
 .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:20;max-width:90vw;text-align:center}
+.form{display:flex;flex-direction:column;gap:12px}
+.form label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700;color:var(--mu)}
+.form input,.form select{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px;font-weight:400;outline:none;-webkit-appearance:none;appearance:none}
+.btn.done{background:var(--grs);color:var(--gr)}
+.gpsbox{display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;background:var(--bg);border:1px solid var(--line)}.gpsbox b{font-size:14px;color:var(--ink)}.okc{color:var(--gr);font-weight:700}
 </style>
 </head>
 <body>
@@ -85,7 +90,11 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
       st: { pending: 'Waiting for confirmation', approved: 'Confirmed', packed: 'Packed', delivering: 'On the way', delivered: 'Delivered', paid: 'Paid', cancelled: 'Cancelled', returned: 'Returned' },
       due: d => 'Due ' + d, rep: 'Your sales rep', call: 'Call', closed: 'The shop is closed right now', closedSub: 'Please contact your sales rep to order.',
       notLinked: 'Welcome to the K-TRONiCS shop', notLinkedSub: "Your shop is not connected yet. Ask your K-TRONiCS sales rep for your shop's link, then open it here.",
-      openTg: 'Please open this shop from Telegram', retry: 'Try again', welcome: n => `Hi ${n} 👋`, hi: 'Hi', maxQty: n => `Only ${n} in stock`, removed: 'Removed', addedCart: 'Added to cart', lang: 'ខ្មែរ' },
+      openTg: 'Please open this shop from Telegram',
+      regTitle: 'Register your shop', regSub: 'Fill in your shop once, then you can order right away. We will call you to confirm your first order.',
+      shopName: 'Shop name', yourName: 'Your name', phone: 'Phone number', province: 'Province', choose: 'Choose…', area: 'Market / area (optional)', areaPh: 'e.g. Orussey market, stall 12',
+      gps: 'GPS location', gpsNo: 'Not saved — stand at the shop and tap the button', gpsOk: 'Saved ✓', gpsWait: 'Finding your location…', useLoc: 'Use my location', locFail: 'Could not get the location', register: 'Start ordering', registering: 'Saving…',
+      newShop: 'New shop · we will confirm your first order by phone', rejected: 'Your shop was not approved', rejectedSub: 'Please contact K-TRONiCS.', retry: 'Try again', welcome: n => `Hi ${n} 👋`, hi: 'Hi', maxQty: n => `Only ${n} in stock`, removed: 'Removed', addedCart: 'Added to cart', lang: 'ខ្មែរ' },
     km: { products: 'ទំនិញ', cart: 'កន្ត្រក', orders: 'ការបញ្ជាទិញរបស់ខ្ញុំ', search: 'ស្វែងរកទំនិញ', all: 'ទាំងអស់', add: 'បន្ថែម', inStock: 'មានក្នុងស្តុក', left: n => `នៅសល់តែ ${n}`, out: 'អស់ស្តុក',
       emptyCart: 'កន្ត្រករបស់អ្នកទទេ', browse: 'មើលទំនិញ', total: 'សរុប', note: 'កំណត់ចំណាំ (ស្រេចចិត្ត)', notePh: 'ឧ. ដឹកមុនម៉ោង ១០ ព្រឹក', pay: 'ការបង់ប្រាក់',
       payNow: 'បង់ឥឡូវនេះ', payNowSub: 'បង់តាម KHQR / ABA បន្ទាប់ពីផ្ញើការបញ្ជាទិញ', chat: 'ជជែកជាមួយយើង', chatSub: 'និយាយជាមួយយើងក្នុង Telegram អំពីការបង់ប្រាក់', payTitle: a => `សូមបង់ ${a}`, payHow: 'ស្កេនជាមួយ ABA ឬកម្មវិធីធនាគារណាមួយ។ បន្ទាប់មកផ្ញើរូបថតបង្កាន់ដៃមកយើង។', sendShot: '📷 ផ្ញើរូបថតបង្កាន់ដៃការបង់ប្រាក់', chatTitle: 'តោះនិយាយអំពីការបង់ប្រាក់', chatHow: 'ចុចខាងក្រោមដើម្បីជជែកជាមួយយើងក្នុង Telegram អំពីការបញ្ជាទិញនេះ។', openChat: '💬 ជជែកជាមួយយើងក្នុង Telegram', send: 'ផ្ញើការបញ្ជាទិញ', sending: 'កំពុងផ្ញើ…', minOrder: m => `ការបញ្ជាទិញអប្បបរមា ${money(m)}`,
@@ -94,7 +103,11 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
       st: { pending: 'រង់ចាំការបញ្ជាក់', approved: 'បានបញ្ជាក់', packed: 'បានវេចខ្ចប់', delivering: 'កំពុងដឹកជញ្ជូន', delivered: 'បានដឹកដល់', paid: 'បានបង់', cancelled: 'បានលុបចោល', returned: 'បានប្រគល់ត្រឡប់' },
       due: d => 'ផុតកំណត់ ' + d, rep: 'អ្នកលក់របស់អ្នក', call: 'ហៅ', closed: 'ហាងបិទនៅពេលនេះ', closedSub: 'សូមទាក់ទងអ្នកលក់របស់អ្នកដើម្បីបញ្ជាទិញ។',
       notLinked: 'សូមស្វាគមន៍មកកាន់ហាង K-TRONiCS', notLinkedSub: 'ហាងរបស់អ្នកមិនទាន់បានភ្ជាប់ទេ។ សូមសុំតំណហាងពីអ្នកលក់ K-TRONiCS របស់អ្នក រួចបើកវានៅទីនេះ។',
-      openTg: 'សូមបើកហាងនេះពី Telegram', retry: 'ព្យាយាមម្តងទៀត', welcome: n => `សួស្តី ${n} 👋`, hi: 'សួស្តី', maxQty: n => `មានតែ ${n} ក្នុងស្តុក`, removed: 'បានដកចេញ', addedCart: 'បានដាក់ក្នុងកន្ត្រក', lang: 'EN' }
+      openTg: 'សូមបើកហាងនេះពី Telegram',
+      regTitle: 'ចុះឈ្មោះហាងរបស់អ្នក', regSub: 'បំពេញព័ត៌មានហាងម្តងគត់ រួចអាចបញ្ជាទិញបានភ្លាម។ យើងនឹងទូរស័ព្ទបញ្ជាក់ការបញ្ជាទិញលើកដំបូង។',
+      shopName: 'ឈ្មោះហាង', yourName: 'ឈ្មោះរបស់អ្នក', phone: 'លេខទូរស័ព្ទ', province: 'ខេត្ត/រាជធានី', choose: 'ជ្រើសរើស…', area: 'ផ្សារ / តំបន់ (ស្រេចចិត្ត)', areaPh: 'ឧ. ផ្សារអូរឫស្សី តូបលេខ ១២',
+      gps: 'ទីតាំង GPS', gpsNo: 'មិនទាន់រក្សាទុក — ឈរនៅហាង ហើយចុចប៊ូតុង', gpsOk: 'បានរក្សាទុក ✓', gpsWait: 'កំពុងស្វែងរកទីតាំងរបស់អ្នក…', useLoc: 'ប្រើទីតាំងរបស់ខ្ញុំ', locFail: 'មិនអាចយកទីតាំងបានទេ', register: 'ចាប់ផ្តើមបញ្ជាទិញ', registering: 'កំពុងរក្សាទុក…',
+      newShop: 'ហាងថ្មី · យើងនឹងទូរស័ព្ទបញ្ជាក់ការបញ្ជាទិញលើកដំបូង', rejected: 'ហាងរបស់អ្នកមិនត្រូវបានអនុម័តទេ', rejectedSub: 'សូមទាក់ទង K-TRONiCS។', retry: 'ព្យាយាមម្តងទៀត', welcome: n => `សួស្តី ${n} 👋`, hi: 'សួស្តី', maxQty: n => `មានតែ ${n} ក្នុងស្តុក`, removed: 'បានដកចេញ', addedCart: 'បានដាក់ក្នុងកន្ត្រក', lang: 'EN' }
   };
   const user = TG && TG.initDataUnsafe && TG.initDataUnsafe.user;
   let lang = store.get('kts_lang', null) || (user && user.language_code === 'km' ? 'km' : (DEMO ? 'km' : 'en'));
@@ -137,7 +150,19 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
     try {
       S = await rpc('shop_start');
       if (S.closed) return msgScreen('🏪', t().closed, t().closedSub, contact());
-      if (!S.linked) return msgScreen('🔗', t().notLinked, S.invite_error || t().notLinkedSub, contact());
+      if (!S.linked) {
+        if (S.rejected) return msgScreen('⛔', t().rejected, t().rejectedSub, contact());
+        if (S.signup && !S.invite_error) return registerScreen();
+        return msgScreen('🔗', t().notLinked, S.invite_error || t().notLinkedSub, contact());
+      }
+      await afterLinked();
+    } catch (e) {
+      msgScreen('⚠️', e.message, '', `<button class="btn" id="retry">${esc(t().retry)}</button>`);
+      document.getElementById('retry').onclick = start;
+    }
+  }
+  async function afterLinked() {
+    {
       cart = store.get(cartKey(), {});
       products = await rpc('shop_catalog');
       // drop cart items that are gone or over stock
@@ -145,10 +170,50 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
       saveCart();
       if (S.linked_now) toast(t().welcome(S.me.first_name || ''));
       draw();
-    } catch (e) {
-      msgScreen('⚠️', e.message, '', `<button class="btn" id="retry">${esc(t().retry)}</button>`);
-      document.getElementById('retry').onclick = start;
     }
+  }
+
+  // ---------- new shop: register once ----------
+  const PROVS = [["Banteay Meanchey","បន្ទាយមានជ័យ"],["Battambang","បាត់ដំបង"],["Kampong Cham","កំពង់ចាម"],["Kampong Chhnang","កំពង់ឆ្នាំង"],["Kampong Speu","កំពង់ស្ពឺ"],["Kampong Thom","កំពង់ធំ"],["Kampot","កំពត"],["Kandal","កណ្តាល"],["Koh Kong","កោះកុង"],["Kratie","ក្រចេះ"],["Mondulkiri","មណ្ឌលគិរី"],["Phnom Penh","ភ្នំពេញ"],["Preah Vihear","ព្រះវិហារ"],["Prey Veng","ព្រៃវែង"],["Pursat","ពោធិ៍សាត់"],["Ratanakiri","រតនគិរី"],["Siem Reap","សៀមរាប"],["Preah Sihanouk","ព្រះសីហនុ"],["Stung Treng","ស្ទឹងត្រែង"],["Svay Rieng","ស្វាយរៀង"],["Takeo","តាកែវ"],["Oddar Meanchey","ឧត្តរមានជ័យ"],["Kep","កែប"],["Pailin","ប៉ៃលិន"],["Tbong Khmum","ត្បូងឃ្មុំ"]];
+  let REG = null;   // what was typed, kept when switching language
+  function registerScreen() {
+    const T = t(), me = user || {};
+    REG = REG || { rn: '', ro: [me.first_name, me.last_name].filter(Boolean).join(' '), rp: '', rv: '', ra: '', lat: null, lng: null };
+    let lat = REG.lat, lng = REG.lng;
+    screen(`<header class="top">${S.company.logo ? `<img class="logo" src="${esc(S.company.logo)}" alt="">` : ''}<div class="grow"><div class="shopname">${esc(S.company.name || 'K-TRONiCS')}</div><div class="small muted">${esc(T.hi)} ${esc(S.tg_name || me.first_name || '')}</div></div><button class="chip" id="lang">${T.lang}</button></header>
+      <main><div class="card"><h2 style="margin:0 0 4px;font-size:19px">🏪 ${esc(T.regTitle)}</h2><p class="small muted" style="margin:0;line-height:1.5">${esc(T.regSub)}</p></div>
+        <div class="card form">
+          <label>${esc(T.shopName)}<input id="rn" maxlength="80" autocomplete="organization"></label>
+          <label>${esc(T.yourName)}<input id="ro" maxlength="80" autocomplete="name"></label>
+          <label>${esc(T.phone)}<input id="rp" type="tel" inputmode="tel" maxlength="30" placeholder="012 345 678" autocomplete="tel"></label>
+          <label>${esc(T.province)}<select id="rv"><option value="">${esc(T.choose)}</option>${PROVS.map(([en, km]) => `<option value="${esc(en)}">${esc(lang === 'km' ? km + ' · ' + en : en)}</option>`).join('')}</select></label>
+          <label>${esc(T.area)}<input id="ra" maxlength="120" placeholder="${esc(T.areaPh)}"></label>
+          <div class="gpsbox"><div class="grow"><b>${esc(T.gps)}</b><div class="small ${lat != null ? 'okc' : 'muted'}" id="locx">${esc(lat != null ? T.gpsOk : T.gpsNo)}</div></div>
+            <button class="btn sm out" id="rloc" type="button">📍 ${esc(T.useLoc)}</button></div>
+        </div>
+        <button class="btn block" id="rgo">${esc(T.register)}</button></main>`);
+    if (TG) TG.MainButton.hide();
+    ['rn', 'ro', 'rp', 'rv', 'ra'].forEach(id => { const el = document.getElementById(id); el.value = REG[id]; el.oninput = el.onchange = () => { REG[id] = el.value; }; });
+    document.getElementById('lang').onclick = () => { lang = lang === 'km' ? 'en' : 'km'; store.set('kts_lang', lang); registerScreen(); };
+    document.getElementById('rloc').onclick = () => {
+      const x = document.getElementById('locx'); x.className = 'small muted'; x.textContent = t().gpsWait;
+      const ok = (a, o) => { lat = REG.lat = a; lng = REG.lng = o; x.className = 'small okc'; x.textContent = t().gpsOk; haptic(); };
+      const fail = () => { x.className = 'small muted'; x.textContent = lat != null ? t().gpsOk : t().gpsNo; toast(t().locFail); };
+      try {
+        const LM = TG && TG.LocationManager;
+        if (LM && LM.init && !DEMO) return LM.init(() => { if (!LM.isLocationAvailable) return browserLoc(); LM.getLocation(d => d ? ok(d.latitude, d.longitude) : browserLoc()); });
+      } catch (e) {}
+      browserLoc();
+      function browserLoc() { if (!navigator.geolocation) return fail(); navigator.geolocation.getCurrentPosition(p => ok(p.coords.latitude, p.coords.longitude), fail, { enableHighAccuracy: true, timeout: 15000 }); }
+    };
+    document.getElementById('rgo').onclick = async () => {
+      const b = document.getElementById('rgo'), v = id => document.getElementById(id).value.trim();
+      const p = { name: v('rn'), owner: v('ro'), phone: v('rp'), province: v('rv'), area: v('ra'), lat, lng };
+      if (!p.name) return toast(t().shopName + ' ?'); if (!p.owner) return toast(t().yourName + ' ?'); if (!p.phone) return toast(t().phone + ' ?'); if (!p.province) return toast(t().province + ' ?');
+      b.disabled = true; b.textContent = t().registering;
+      try { S = await rpc('shop_register', { p }); haptic('ok'); await afterLinked(); }
+      catch (e) { toast(e.message); b.disabled = false; b.textContent = t().register; }
+    };
   }
 
   // ---------- drawing ----------
@@ -159,6 +224,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px
         <div class="grow"><div class="shopname">${esc(S.shop.name)}</div><div class="small muted">${esc(T.hi)} ${esc(S.me.first_name || '')}</div></div>
         <button class="chip" id="lang">${T.lang}</button></header>
       ${+b.owed > 0 ? `<button class="owe" data-tab="orders"><span>${esc(T.youOwe)} <b>${money(b.owed)}</b></span>${+b.overdue > 0 ? `<span class="od">${esc(T.overdue)} ${money(b.overdue)}</span>` : ''}</button>` : ''}
+      ${S.shop.status === 'pending' && tab !== 'done' ? `<div class="welcome" style="background:var(--ors);color:var(--or);font-weight:700">🆕 ${esc(T.newShop)}</div>` : ''}
       ${tab === 'products' && S.settings.welcome ? `<div class="welcome">${esc(S.settings.welcome)}</div>` : ''}`;
     let body = '';
     if (tab === 'products') body = productsView();

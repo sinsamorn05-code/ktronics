@@ -1893,7 +1893,9 @@ window.makeDemoApi = function () {
     async shopUnlink(tg) { D.shopTg = (D.shopTg || []).filter(u => u.tg_user_id !== tg); save(); return wait(null); },
     async shopAdminStatus() { if (role() !== 'admin') fail('Only the admin can see this'); const mon = new Date(); mon.setDate(1); mon.setHours(0, 0, 0, 0);
       const tgo = D.orders.filter(o => o.source === 'telegram' && new Date(o.created_at) >= mon);
+      const bot = (D.tg || {}).bot || 'ktronics_alerts_bot', app = (D.settings || {}).shop_app_name;
       return wait({ bot_name: (D.tg || {}).bot || null, token_set: !!(D.tg || {}).token, shop_url: 'https://sinsamorn05-code.github.io/ktronics/shop.html',
+        open_link: app ? 'https://t.me/' + bot + '/' + app : null, new_shops: 0,
         linked_shops: new Set((D.shopTg || []).map(u => u.customer_id)).size, linked_users: (D.shopTg || []).length, orders_month: tgo.length,
         sales_month: tgo.filter(o => !['pending', 'cancelled', 'returned'].includes(o.status)).reduce((a, o) => a + o.total, 0),
         warehouses: D.warehouses.filter(w => !w.rep_id).map(w => ({ id: w.id, name: w.name })), warehouse: +(D.settings || {}).shop_warehouse || (D.warehouses.find(w => !w.rep_id) || {}).id }); },
@@ -5879,11 +5881,18 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
           <li>Web App URL: <span style="font-family:monospace;word-break:break-all">${esc(st.shop_url)}</span> ${copyBtn('cpu', st.shop_url)}</li>
           <li>Short name: <b>shop</b> (or any short name). Type the same short name here:</li></ol>
         <label class="f">Mini App short name<input class="inp" id="san" value="${esc(s.shop_app_name || '')}" placeholder="shop"></label>
+        ${st.open_link ? `<div class="f" style="gap:6px"><b>Your shop link: share it anywhere</b>
+          <div class="row" style="gap:12px;align-items:flex-start;flex-wrap:wrap"><div id="sqr" style="width:150px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px;flex:none"></div>
+          <div class="grow" style="min-width:200px;display:flex;flex-direction:column;gap:8px"><div class="small" style="font-family:monospace;word-break:break-all;background:var(--bg);border-radius:10px;padding:8px">${esc(st.open_link)}</div>
+            <div class="btns" style="justify-content:flex-start;margin:0">${copyBtn('cpl', st.open_link)}<a class="btn sm out" href="https://t.me/share/url?url=${encodeURIComponent(st.open_link)}&text=${encodeURIComponent('🛒 Order from K-TRONiCS in Telegram')}" target="_blank" rel="noopener">Share in Telegram</a></div>
+            <div class="small muted">Post it in your Telegram channel or on Facebook, or print the QR code for shops. Shops already in the app should use their invite link (on the shop's page) so they are not added twice.</div></div></div></div>` : ''}
+        ${st.new_shops ? `<div class="small" style="color:var(--or)">🆕 ${st.new_shops} new shop${st.new_shops === 1 ? '' : 's'} from the Telegram shop waiting for approval. See <a href="#/customers">Customers</a>.</div>` : ''}
         <div class="small muted">Optional: put a <b>🛒 Order</b> button in your bot's chat, so shops can open the shop any time.</div>
         <button class="btn out" id="menu" ${st.token_set ? '' : 'disabled'}>Add the 🛒 Order button to the bot</button></div>
 
       <div class="card"><b>2 · Shop settings</b>
         ${tick('sen', on, 'Shop is open', 'When closed, shops see "The shop is closed right now".')}
+        ${tick('ssu', s.shop_signup !== 'false', 'New shops can register by themselves', 'Anyone with the shop link fills in their shop (name, phone, province, market, location) and can order straight away. The shop waits for your approval with no sales rep; approving its first order approves the shop. When off, only shops with an invite link from a sales rep can order.')}
         <div class="btns"><label class="f">Minimum order ($, 0 = none)<input class="inp" id="smin" type="number" inputmode="decimal" value="${esc(s.shop_min_order || '0')}"></label>
           <label class="f">Sell from<select class="inp" id="swh">${(st.warehouses || []).map(w => `<option value="${w.id}" ${w.id === st.warehouse ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select></label></div>
         <div class="small muted" style="margin-top:-6px">Shops see the stock of this warehouse and cannot order more than it has. Stock is taken when you approve the order, like any order.</div>
@@ -5898,6 +5907,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
         <div class="small muted">Only products with a selling price are shown. Add product photos in Products &amp; stock (edit a product → Photo).</div>
         <button class="btn" id="ssave">Save shop settings</button></div>
       </div>`;
+    if ($('#sqr', el) && window.qrcode) { try { const q = window.qrcode(0, 'M'); q.addData(st.open_link); q.make(); $('#sqr', el).innerHTML = q.createSvgTag({ cellSize: 4, margin: 1, scalable: true }).replace('<svg ', '<svg style="width:100%;height:auto;display:block" '); } catch (e) {} }
     $$('[data-copy]', el).forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch (e) { toast('Could not copy'); } });
     $('#menu', el).onclick = async e => {
       const r = await busy(e.currentTarget, async () => answer(await api.shopSetMenu())).catch(() => null);
@@ -5907,7 +5917,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
       const app = $('#san', el).value.trim().replace(/^.*\//, '');
       if (app && !/^[A-Za-z0-9_]{3,30}$/.test(app)) return toast('The short name has only letters, numbers and _ (3–30)');
       const obj = { shop_app_name: app, shop_enabled: $('#sen', el).checked ? 'true' : 'false', shop_min_order: String(Math.max(0, +$('#smin', el).value || 0)),
-        shop_warehouse: $('#swh', el).value, shop_contact_tg: $('#sctg', el).value.trim().replace(/^(https?:\/\/)?(t\.me\/|@)/, '').replace(/[^A-Za-z0-9_+]/g, ''), shop_notify: $('#snt', el).checked ? 'true' : 'false',
+        shop_warehouse: $('#swh', el).value, shop_signup: $('#ssu', el).checked ? 'true' : 'false', shop_contact_tg: $('#sctg', el).value.trim().replace(/^(https?:\/\/)?(t\.me\/|@)/, '').replace(/[^A-Za-z0-9_+]/g, ''), shop_notify: $('#snt', el).checked ? 'true' : 'false',
         shop_categories: JSON.stringify($$('[data-scat]', el).filter(c => c.checked).map(c => c.dataset.scat)), shop_welcome: $('#swel', el).value.trim() };
       if (obj.shop_enabled === 'true' && !app) toast('Saved. Add the Mini App short name so invite links work');
       await busy(e.currentTarget, () => api.saveSettings(obj)); await K.loadSettings(); if (!(obj.shop_enabled === 'true' && !app)) toast('Shop settings saved');
