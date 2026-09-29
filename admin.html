@@ -533,12 +533,19 @@ window.makeSupabaseApi = function (cfg) {
       if (p.id) return q(sb.from('products').update(row).eq('id', p.id).select().single());
       return q(sb.from('products').insert(row).select().single());
     },
+    listProductCategories: async () => (await q(sb.from('product_categories').select('name').order('sort').order('name'))).map(r => r.name),
+    addProductCategory: name => q(sb.from('product_categories').insert({ name: String(name).trim() })),
+    renameProductCategory: (from, to) => q(sb.rpc('rename_product_category', { p_old: from, p_new: to })),
+    deleteProductCategory: (name, moveTo) => q(sb.rpc('delete_product_category', { p_name: name, p_move_to: moveTo || null })),
     adjustStock: (pid, wid, change, reason, note) => q(sb.rpc('adjust_stock', { p_product: pid, p_warehouse: wid, p_change: change, p_reason: reason, p_note: note || null })),
     transferStock: (pid, from, to, qty) => q(sb.rpc('transfer_stock', { p_product: pid, p_from: from, p_to: to, p_qty: qty })),
     productMoves: pid => q(sb.from('stock_moves').select('*, profiles(full_name), warehouses(name)').eq('product_id', pid).order('id', { ascending: false }).limit(50)),
 
     // customers
     listCustomers: () => q(sb.rpc('list_customers')),
+    setOpeningBalances: rows => q(sb.rpc('set_opening_balances', { p_rows: rows })),
+    stockCount: (wid, items, note) => q(sb.rpc('stock_count', { p_warehouse: wid, p_items: items, p_note: note || null })),
+    clearData: (from, to, what, preview) => q(sb.rpc('clear_data', { p_from: from || null, p_to: to, p_what: what, p_preview: !!preview })),
     setCustomerPlaces: rows => q(sb.rpc('set_customer_places', { p_rows: rows })),
     setCustomerTelegram: (id, tg) => q(sb.rpc('set_customer_telegram', { p_id: id, p_tg: tg || '' })),
     async saveCustomer(c) {
@@ -1137,6 +1144,7 @@ window.makeDemoApi = function () {
       if (!allow('stock.manage')) fail('You are not allowed to edit products');
       if (D.products.some(x => x.sku === p.sku && x.id !== p.id)) fail('That SKU is already used');
       const row = { sku: p.sku, name: p.name, category: p.category || 'General', price: +p.price || 0, cost: +p.cost || 0, min_stock: +p.min_stock || 0 };
+      if (D.pcats && row.category && !D.pcats.includes(row.category)) D.pcats.push(row.category);
       let out;
       if (p.id) { out = Object.assign(D.products.find(x => x.id === p.id), row); }
       else { out = Object.assign({ id: ++D.seq.product, active: true, created_at: now() }, row); D.products.push(out); }
@@ -1176,11 +1184,84 @@ window.makeDemoApi = function () {
         ...(od => ({ overdue_count: od.length, overdue_amount: +od.reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2) }))(D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < new Date().toISOString().slice(0, 10) && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0)))
       })).sort((a, b) => a.name.localeCompare(b.name)));
     },
+    async setOpeningBalances(rows) {
+      if (!isBoss()) fail('Only the admin or a manager can set opening balances');
+      let n = 0;
+      (rows || []).forEach(r => { const c = D.customers.find(x => x.id === r.customer_id); if (!c) return;
+        const amt = Math.round((+r.amount || 0) * 100) / 100; if (amt < 0) fail('The amount for ' + c.name + ' cannot be below 0');
+        let due = r.due_date; if (!due) { const d = new Date(); d.setDate(d.getDate() + (c.credit_days || 0)); due = d.toISOString().slice(0, 10); }
+        const o = D.orders.find(x => x.customer_id === c.id && x.is_opening);
+        if (o) {
+          if (amt === 0) { if (o.paid_amount > 0 || D.payments.some(p => p.order_id === o.id)) fail(c.name + ' already paid part of the opening balance, so it cannot be removed');
+            D.orders.splice(D.orders.indexOf(o), 1); D.events = D.events.filter(e => e.order_id !== o.id); }
+          else { if (amt < (o.paid_amount || 0)) fail(c.name + ' already paid $' + o.paid_amount + ' of it, so it cannot be less than that');
+            Object.assign(o, { total: amt, due_date: due, updated_at: now(), status: amt <= (o.paid_amount || 0) ? 'paid' : 'delivered' }); }
+          n++;
+        } else if (amt > 0) {
+          const id = ++D.seq.order;
+          D.orders.push({ id, order_no: 'OB-' + String(id).padStart(5, '0'), customer_id: c.id, warehouse_id: 1, status: 'delivered', payment_method: 'credit', due_date: due, total: amt, paid_amount: 0,
+            notes: 'Opening balance: money owed before the app', created_by: me.id, sales_rep_id: c.assigned_to, approved_by: null, created_at: now(), updated_at: now(), delivered_at: now(), is_opening: true });
+          D.events.push({ id: ++D.seq.event, order_id: id, status: 'delivered', note: 'Opening balance', created_by: me.id, created_at: now() });
+          n++;
+        }
+      });
+      save(); return wait(n);
+    },
+    async stockCount(wid, items, note) {
+      if (!allow('stock.manage')) fail('You are not allowed to change stock');
+      let n = 0;
+      (items || []).forEach(it => { const q = +it.qty; if (!(q >= 0)) fail('Counted quantity cannot be below 0'); const old = qty(it.product_id, wid); if (q === old) return;
+        setQty(it.product_id, wid, q); D.moves.push({ id: ++D.seq.move, product_id: it.product_id, warehouse_id: wid, qty_change: q - old, reason: 'adjust', note: note || 'Stock count', created_by: me.id, created_at: now() }); n++; });
+      save(); return wait(n);
+    },
+    async clearData(from, to, what, preview) {
+      if (!hasRole('admin')) fail('Only the admin can clear data');
+      if (!to) fail('Choose the dates'); if (from && from > to) fail('The start date is after the end date'); if (!what || !what.length) fail('Tick what to clear');
+      const day = t => { const d = new Date(t); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+      const inR = d => d && d <= to && (!from || d >= from), r = {};
+      if (what.includes('orders')) { const ids = D.orders.filter(o => inR(day(o.created_at))).map(o => o.id); r.orders = ids.length; r.order_payments = D.payments.filter(p => ids.includes(p.order_id)).length;
+        if (!preview) { D.orders = D.orders.filter(o => !ids.includes(o.id)); D.items = D.items.filter(i => !ids.includes(i.order_id)); D.events = D.events.filter(e => !ids.includes(e.order_id)); D.payments = D.payments.filter(p => !ids.includes(p.order_id));
+          const cv = D.convs.filter(c => ids.includes(c.order_id)).map(c => c.id); D.convs = D.convs.filter(c => !cv.includes(c.id)); D.messages = D.messages.filter(m => !cv.includes(m.conversation_id)); } }
+      if (what.includes('payments')) { const ps = D.payments.filter(p => inR(day(p.received_at))); r.payments = ps.length;
+        if (!preview) { D.payments = D.payments.filter(p => !ps.includes(p)); [...new Set(ps.map(p => p.order_id))].forEach(oid => { const o = D.orders.find(x => x.id === oid); if (!o) return;
+          o.paid_amount = +D.payments.filter(p => p.order_id === oid && p.status === 'confirmed').reduce((a, p) => a + p.amount_usd, 0).toFixed(2); if (o.status === 'paid' && o.paid_amount < o.total) o.status = 'delivered'; }); } }
+      if (what.includes('expenses')) { const l = D.expenses.filter(e => inR(e.spent_on)); r.expenses = l.length; if (!preview) D.expenses = D.expenses.filter(e => !l.includes(e)); }
+      if (what.includes('visits')) { const l = D.visits.filter(v => inR(day(v.check_in_at))); r.visits = l.length; if (!preview) D.visits = D.visits.filter(v => !l.includes(v)); }
+      if (what.includes('attendance')) { const a = (D.attendance || []).filter(x => inR(x.work_date)), lv = (D.leave || []).filter(x => inR(x.from_date)); r.attendance = a.length; r.leave = lv.length;
+        if (!preview) { D.attendance = (D.attendance || []).filter(x => !a.includes(x)); D.leave = (D.leave || []).filter(x => !lv.includes(x)); } }
+      if (what.includes('chat')) { const l = D.messages.filter(m => inR(day(m.created_at))); r.messages = l.length; if (!preview) D.messages = D.messages.filter(m => !l.includes(m)); }
+      if (what.includes('notifications')) { const l = (D.notifs || []).filter(x => inR(day(x.created_at))); r.notifications = l.length; if (!preview) D.notifs = (D.notifs || []).filter(x => !l.includes(x)); }
+      if (!preview) save();
+      return wait(r);
+    },
     async setCustomerPlaces(rows) {
       if (!allow('customers.manage')) fail('Only the admin or a manager can do this');
       let n = 0; (rows || []).forEach(r => { const c = D.customers.find(x => x.id === r.id); if (!c || !/^\d{4}$/.test(r.district || '') || (r.commune && r.commune.slice(0, 4) !== r.district)) return;
         c.district = r.district; c.commune = r.commune || null; if (c.village && (!c.commune || c.village.slice(0, 6) !== c.commune)) c.village = null; n++; });
       save(); return wait(n);
+    },
+    async listProductCategories() {
+      if (!D.pcats) { D.pcats = [...new Set(D.products.filter(p => p.active !== false).map(p => p.category).filter(Boolean))].sort(); save(); }
+      return wait(D.pcats.slice());
+    },
+    async addProductCategory(name) {
+      if (!allow('stock.manage')) fail('You are not allowed to change categories');
+      name = String(name || '').trim(); if (!name || name.length > 40) fail('Write a category name (up to 40 letters)');
+      await api.listProductCategories(); if (!D.pcats.some(c => c.toLowerCase() === name.toLowerCase())) D.pcats.push(name); save(); return wait(null);
+    },
+    async renameProductCategory(from, to) {
+      if (!allow('stock.manage')) fail('You are not allowed to change categories');
+      to = String(to || '').trim(); if (!to || to.length > 40) fail('Write a category name (up to 40 letters)');
+      await api.listProductCategories();
+      if (to.toLowerCase() !== from.toLowerCase() && D.pcats.some(c => c.toLowerCase() === to.toLowerCase())) fail('There is already a category called ' + to);
+      D.pcats = D.pcats.map(c => c === from ? to : c); let n = 0; D.products.forEach(p => { if (p.category === from) { p.category = to; n++; } }); save(); return wait(n);
+    },
+    async deleteProductCategory(name, moveTo) {
+      if (!allow('stock.manage')) fail('You are not allowed to change categories');
+      await api.listProductCategories();
+      if (D.products.some(p => p.category === name && p.active !== false) && !moveTo) fail('Choose where its products go');
+      let n = 0; if (moveTo) { if (!D.pcats.includes(moveTo)) D.pcats.push(moveTo); D.products.forEach(p => { if (p.category === name) { p.category = moveTo; n++; } }); }
+      D.pcats = D.pcats.filter(c => c !== name); save(); return wait(n);
     },
     async saveCustomer(c) {
       if (!role()) fail('Your account is not active');
@@ -1858,6 +1939,7 @@ window.makeDemoApi = function () {
     delivered: ['Delivered · unpaid', 'or'], paid: ['Paid', 'gr'], cancelled: ['Cancelled', 'rd'], returned: ['Returned', 'rd']
   };
   const isVoid = s => s === 'cancelled' || s === 'returned';   // not a sale (cancelled, or returned by the shop)
+  const isSale = o => o.status !== 'pending' && !isVoid(o.status) && !o.is_opening;   // opening balances (money owed before the app) are not sales
   const CUST_STATUS = { pending: ['Waiting approval', 'or'], approved: ['Approved', 'gr'], rejected: ['Rejected', 'rd'] };
   const custPill = s => s && s !== 'approved' ? `<span class="pill ${CUST_STATUS[s][1]}">${CUST_STATUS[s][0]}</span>` : '';
   const statusPill = s => `<span class="pill ${STATUS[s] ? STATUS[s][1] : 'gy'}">${esc(STATUS[s] ? STATUS[s][0] : s)}</span>`;
@@ -2092,7 +2174,7 @@ window.makeDemoApi = function () {
     location.hash = '#/home'; render();
   }
 
-  window.KT = { isVoid, ding, soundOn, setSound, allow, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
+  window.KT = { isVoid, isSale, ding, soundOn, setSound, allow, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
     distanceM, icon, data, forget, staffName, can, toast, sheet, confirmSheet, busy, loading, emptyBox, page, header, tabbar, updateBadge,
     refreshUnread, route, go, render, ensure, afterLogin, logout, liveHandlers, screens: {}, loginHooks: [] };
 
@@ -2108,7 +2190,7 @@ window.makeDemoApi = function () {
 // Add or fix any line: 'English text': 'ខ្មែរ',
 window.KT_KM = {
   // shop location
-  'District': 'ស្រុក / ខណ្ឌ', 'Commune': 'ឃុំ / សង្កាត់', 'Choose district': 'ជ្រើសរើសស្រុក / ខណ្ឌ', 'Choose commune': 'ជ្រើសរើសឃុំ / សង្កាត់', 'Choose province first': 'ជ្រើសរើសខេត្តជាមុនសិន', 'Choose district first': 'ជ្រើសរើសស្រុក / ខណ្ឌជាមុនសិន', 'No area / market yet': 'មិនទាន់មានតំបន់ / ផ្សារ', 'Village': 'ភូមិ', 'Expense types': 'ប្រភេទចំណាយ', 'Add a type': 'បន្ថែមប្រភេទ', 'Expense types saved': 'បានរក្សាទុកប្រភេទចំណាយ', 'Returned': 'បានប្រគល់ត្រឡប់', 'Return order': 'ទទួលទំនិញត្រឡប់', 'Order returned': 'ទំនិញត្រឡប់មកវិញ', 'Order deleted': 'បានលុបការបញ្ជាទិញ', 'Missing': 'ខ្វះព័ត៌មាន', 'Missing details': 'ខ្វះព័ត៌មាន', 'Due / overdue': 'ដល់ថ្ងៃ / ហួសថ្ងៃ', 'Due today': 'ដល់ថ្ងៃបង់ថ្ងៃនេះ', 'Sales by area': 'ការលក់តាមតំបន់', 'Fill location from GPS': 'បំពេញទីតាំងពី GPS', 'KHQR saved': 'បានរក្សាទុក KHQR', 'Pending': 'រង់ចាំ', 'Credit': 'ជំពាក់', 'Due date': 'ថ្ងៃផុតកំណត់', 'Payment pending': 'រង់ចាំការទូទាត់', 'Choose the due date for credit': 'សូមជ្រើសរើសថ្ងៃផុតកំណត់សម្រាប់ជំពាក់', 'Payment updated': 'បានកែការទូទាត់', 'change': 'ប្តូរ', 'Choose village': 'ជ្រើសរើសភូមិ', 'Choose commune first': 'ជ្រើសរើសឃុំ / សង្កាត់ជាមុនសិន', 'Telegram': 'តេឡេក្រាម', 'Notes (optional)': 'កំណត់ចំណាំ (មិនចាំបាច់)',
+  'District': 'ស្រុក / ខណ្ឌ', 'Commune': 'ឃុំ / សង្កាត់', 'Choose district': 'ជ្រើសរើសស្រុក / ខណ្ឌ', 'Choose commune': 'ជ្រើសរើសឃុំ / សង្កាត់', 'Choose province first': 'ជ្រើសរើសខេត្តជាមុនសិន', 'Choose district first': 'ជ្រើសរើសស្រុក / ខណ្ឌជាមុនសិន', 'No area / market yet': 'មិនទាន់មានតំបន់ / ផ្សារ', 'Village': 'ភូមិ', 'No target set for this month yet': 'មិនទាន់មានគោលដៅសម្រាប់ខែនេះ', 'Opening balances': 'សមតុល្យដើមគ្រា', 'Opening balance': 'សមតុល្យដើមគ្រា', 'Stock count': 'រាប់ស្តុក', 'Save stock count': 'រក្សាទុកការរាប់ស្តុក', 'Save opening balances': 'រក្សាទុកសមតុល្យដើមគ្រា', 'Clear data': 'លុបទិន្នន័យ', 'Categories': 'ប្រភេទ', 'Product categories': 'ប្រភេទទំនិញ', 'All categories': 'ប្រភេទទាំងអស់', 'Choose category': 'ជ្រើសរើសប្រភេទ', 'Add category': 'បន្ថែមប្រភេទ', 'Choose a category': 'សូមជ្រើសរើសប្រភេទ', 'Expense types': 'ប្រភេទចំណាយ', 'Add a type': 'បន្ថែមប្រភេទ', 'Expense types saved': 'បានរក្សាទុកប្រភេទចំណាយ', 'Returned': 'បានប្រគល់ត្រឡប់', 'Return order': 'ទទួលទំនិញត្រឡប់', 'Order returned': 'ទំនិញត្រឡប់មកវិញ', 'Order deleted': 'បានលុបការបញ្ជាទិញ', 'Missing': 'ខ្វះព័ត៌មាន', 'Missing details': 'ខ្វះព័ត៌មាន', 'Due / overdue': 'ដល់ថ្ងៃ / ហួសថ្ងៃ', 'Due today': 'ដល់ថ្ងៃបង់ថ្ងៃនេះ', 'Sales by area': 'ការលក់តាមតំបន់', 'Fill location from GPS': 'បំពេញទីតាំងពី GPS', 'KHQR saved': 'បានរក្សាទុក KHQR', 'Pending': 'រង់ចាំ', 'Credit': 'ជំពាក់', 'Due date': 'ថ្ងៃផុតកំណត់', 'Payment pending': 'រង់ចាំការទូទាត់', 'Choose the due date for credit': 'សូមជ្រើសរើសថ្ងៃផុតកំណត់សម្រាប់ជំពាក់', 'Payment updated': 'បានកែការទូទាត់', 'change': 'ប្តូរ', 'Choose village': 'ជ្រើសរើសភូមិ', 'Choose commune first': 'ជ្រើសរើសឃុំ / សង្កាត់ជាមុនសិន', 'Telegram': 'តេឡេក្រាម', 'Notes (optional)': 'កំណត់ចំណាំ (មិនចាំបាច់)',
   // navigation & common
   'Home': 'ទំព័រដើម', 'Chat': 'ជជែក', 'Orders': 'ការបញ្ជាទិញ', 'Stock': 'ស្តុក', 'More': 'ផ្សេងៗ', 'Dashboard': 'ផ្ទាំងគ្រប់គ្រង',
   'Back': 'ថយក្រោយ', 'Save': 'រក្សាទុក', 'Cancel': 'បោះបង់', 'Delete': 'លុប', 'Edit': 'កែ', 'Close': 'បិទ', 'Change': 'ប្តូរ', 'Search': 'ស្វែងរក',
@@ -2704,6 +2786,122 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     };
     drawMore();
   };
+  // ---------- Product categories ----------
+  K.productCats = force => K.ensure('pcats', K.api.listProductCategories, force);
+  // Category drop-down for the product form (+ "New category…")
+  K.catField = (cur, cats) => { cur = cur || ''; const list = cats.slice(); if (cur && !list.includes(cur)) list.unshift(cur);
+    return `<label class="f">Category<select class="inp" id="cat"><option value="">Choose category</option>${list.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}${K.allow('stock.manage') ? '<option value="__new">+ New category…</option>' : ''}</select></label>`; };
+  K.bindCatField = el => { const sel = K.$('#cat', el); let prev = sel.value;
+    sel.onchange = () => { if (sel.value !== '__new') { prev = sel.value; return; } sel.value = prev;
+      K.catNameSheet('New category', '', async name => { await K.api.addProductCategory(name); K.forget('pcats');
+        if (![...sel.options].some(o => o.value === name)) sel.insertAdjacentHTML('beforeend', `<option>${esc(name)}</option>`);
+        sel.value = name; prev = name; const nw = sel.querySelector('option[value="__new"]'); if (nw) sel.appendChild(nw); }); }; };
+  K.catNameSheet = (title, val, onOk) => {
+    const s = K.sheet(title, `<label class="f">Category name<input class="inp" id="cn" value="${esc(val)}" maxlength="40" placeholder="e.g. Chargers, Cables, Phone cases"></label><button class="btn block" id="cok">Save</button>`);
+    setTimeout(() => K.$('#cn', s.el).focus(), 50);
+    K.$('#cok', s.el).onclick = async e => { const v = K.$('#cn', s.el).value.trim(); if (!v) return K.toast('Write the category name');
+      try { await K.busy(e.currentTarget, () => onOk(v)); s.close(); } catch (err) {} };
+  };
+  // Manage categories: add, rename (products move too), delete (move its products to another category)
+  K.productCatsSheet = async (products, onDone) => {
+    let changed = false;
+    const s = K.sheet('Product categories', '<div id="pcl" style="display:flex;flex-direction:column;gap:10px"></div>');
+    s.el.addEventListener('click', e => { if ((e.target === s.el || e.target.closest('[data-close]')) && changed) onDone && onDone(); });
+    const count = c => products.filter(p => p.category === c).length;
+    const draw = async () => {
+      const cats = await K.productCats(true);
+      K.$('#pcl', s.el).innerHTML = `<div class="small muted">Staff choose one of these when they add a product. Renaming a category moves its products too.</div>
+        <div class="card flush">${cats.map((c, i) => `<div class="list-item"><div class="ic-av sq" style="width:36px;height:36px">${K.icon('box', 18)}</div><div class="grow"><div class="tt">${esc(c)}</div><div class="st">${count(c)} product${count(c) === 1 ? '' : 's'}</div></div>
+          <button class="btn sm out" data-rn="${i}">Rename</button><button class="btn sm out" data-dl="${i}" style="color:var(--rd)">Delete</button></div>`).join('') || '<div class="empty">No categories yet</div>'}</div>
+        <button class="btn block" id="pcadd">${K.icon('plus', 18)}Add category</button>`;
+      K.$('#pcadd', s.el).onclick = () => K.catNameSheet('New category', '', async name => { if (cats.some(c => c.toLowerCase() === name.toLowerCase())) throw new Error('There is already a category called ' + name);
+        await K.api.addProductCategory(name); changed = true; K.forget('pcats'); K.toast('Category added'); draw(); });
+      K.$$('[data-rn]', s.el).forEach(b => b.onclick = () => { const c = cats[+b.dataset.rn];
+        K.catNameSheet('Rename category', c, async name => { if (name === c) return; await K.api.renameProductCategory(c, name); changed = true; K.forget('pcats', 'products');
+          products.forEach(p => { if (p.category === c) p.category = name; }); K.toast('Renamed · ' + count(name) + ' products moved'); draw(); }); });
+      K.$$('[data-dl]', s.el).forEach(b => b.onclick = async () => { const c = cats[+b.dataset.dl], n = count(c), others = cats.filter(x => x !== c);
+        if (!n) { if (!(await K.confirmSheet('Delete ' + c + '?', 'No product uses it.', 'Delete', true))) return; await K.api.deleteProductCategory(c); changed = true; K.forget('pcats'); K.toast('Category deleted'); return draw(); }
+        if (!others.length) return K.toast('Add another category first, so its ' + n + ' products have somewhere to go');
+        const m = K.sheet('Delete ' + c, `<div class="small">${n} product${n === 1 ? '' : 's'} use this category. Move ${n === 1 ? 'it' : 'them'} to:</div>
+          <select class="inp" id="mv">${others.map(x => `<option>${esc(x)}</option>`).join('')}</select><button class="btn red block" id="mgo">Move and delete</button>`);
+        K.$('#mgo', m.el).onclick = async e => { const to = K.$('#mv', m.el).value; await K.busy(e.currentTarget, () => K.api.deleteProductCategory(c, to)); m.close(); changed = true; K.forget('pcats', 'products');
+          products.forEach(p => { if (p.category === c) p.category = to; }); K.toast(c + ' deleted · products moved to ' + to); draw(); };
+      });
+    };
+    draw();
+  };
+  // ---------- Opening balances: money shops owed before the app (admin / manager) ----------
+  K.openingSheet = (customers, orders, onDone) => {
+    const cur = {}; orders.filter(o => o.is_opening).forEach(o => { cur[o.customer_id] = o; });
+    const val = {}; let term = '', changed = false;
+    const shops = customers.filter(c => c.status === 'approved' || cur[c.id]).sort((a, b) => a.name.localeCompare(b.name));
+    const s = K.sheet('Opening balances', `<div class="small muted">Money each shop already owed <b>before</b> you started using the app. It shows in "Who owes money", credit limits and payment reminders, and staff collect it like any order. It is <b>not</b> counted as a sale. Leave a shop empty if it owes nothing.</div>
+      <label class="f">Due date for these amounts (optional)<input class="inp" type="date" id="obdue"></label>
+      <div class="small muted" style="margin-top:-6px">Empty = today + each shop's credit days.</div>
+      <div class="search">${K.icon('search', 18)}<input id="obq" placeholder="Search shop" aria-label="Search shop"></div>
+      <div class="card flush" id="obl" style="max-height:46vh;overflow:auto"></div>
+      <div class="row small"><span class="grow" id="obsum"></span></div>
+      <button class="btn block" id="obgo">${K.icon('check', 18)}Save opening balances</button>`);
+    s.el.addEventListener('click', e => { if ((e.target === s.el || e.target.closest('[data-close]')) && changed) onDone && onDone(); });
+    const now = id => val[id] !== undefined ? val[id] : cur[id] ? String(+cur[id].total) : '';
+    const sum = () => { const tot = shops.reduce((a, c) => a + (+now(c.id) || 0), 0), n = shops.filter(c => +now(c.id) > 0).length, ch = Object.keys(val).filter(id => (+val[id] || 0) !== (cur[id] ? +cur[id].total : 0)).length;
+      K.$('#obsum', s.el).innerHTML = `${n} shops · total <b>${money(tot)}</b>${ch ? ` · <b style="color:var(--or)">${ch} changed, not saved yet</b>` : ''}`; };
+    const draw = () => { const t = term.toLowerCase();
+      K.moreList(K.$('#obl', s.el), shops.filter(c => !t || c.name.toLowerCase().includes(t) || String(c.area || '').toLowerCase().includes(t)), c => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(c.name)}</div>
+        <div class="st">${esc(c.province || '')}${c.rep_name ? ' · ' + esc(c.rep_name) : ''}${cur[c.id] && +cur[c.id].paid_amount ? ' · <b style="color:var(--gr)">paid ' + money(cur[c.id].paid_amount) + '</b>' : ''}</div></div>
+        <div style="display:flex;align-items:center;gap:4px"><span class="muted">$</span><input class="inp" data-ob="${c.id}" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(now(c.id))}" placeholder="0" style="width:110px;text-align:right"></div></div>`,
+        () => K.$$('[data-ob]', s.el).forEach(i => i.oninput = () => { val[i.dataset.ob] = i.value; sum(); }), 60, '<div class="empty">No shops found</div>');
+      sum(); };
+    K.$('#obq', s.el).oninput = e => { term = e.target.value; draw(); };
+    K.$('#obgo', s.el).onclick = async e => {
+      const due = K.$('#obdue', s.el).value || null;
+      const rows = Object.keys(val).filter(id => (+val[id] || 0) !== (cur[id] ? +cur[id].total : 0) || (due && cur[id])).map(id => ({ customer_id: +id, amount: +val[id] || 0, due_date: due }));
+      if (!rows.length) return K.toast('Nothing changed');
+      if (!(await K.confirmSheet('Save ' + rows.length + ' opening balance' + (rows.length > 1 ? 's' : '') + '?', 'These shops will show this money as still owed.', 'Save'))) return;
+      const n = await K.busy(e.currentTarget, () => K.api.setOpeningBalances(rows));
+      rows.forEach(r => { delete val[r.customer_id]; }); changed = true; K.forget('orders', 'customers');
+      K.toast('Saved ' + n + ' opening balance' + (n === 1 ? '' : 's')); s.close(); onDone && onDone();
+    };
+    draw();
+  };
+
+  // ---------- Stock count: type the counted quantity of many products, save all at once ----------
+  K.stockCountSheet = (products, warehouses, onDone) => {
+    let wid = (warehouses.find(w => !w.rep_id) || warehouses[0]).id, term = '', catF = '';
+    const counts = {};   // wid:pid -> counted
+    const cats = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
+    const s = K.sheet('Stock count', `<div class="small muted">Count the goods, type what you count next to each product, then save. Only products you type a number for are changed. Each change is saved as a "Count fix" in the product's history.</div>
+      <label class="f">Warehouse<select class="inp" id="scw">${warehouses.map(w => `<option value="${w.id}" ${w.id === wid ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>
+      <div class="btns"><div class="search grow">${K.icon('search', 18)}<input id="scq" placeholder="Search product or SKU" aria-label="Search product"></div>
+        <select class="inp" id="scc" aria-label="Category" style="width:auto"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+      <div class="card flush" id="scl" style="max-height:46vh;overflow:auto"></div>
+      <div class="small" id="scsum"></div>
+      <button class="btn block" id="scgo">${K.icon('check', 18)}Save stock count</button>`);
+    const qtyNow = p => (p.stock || {})[wid] || 0;
+    const key = p => wid + ':' + p.id;
+    const diffs = () => products.filter(p => counts[key(p)] !== undefined && counts[key(p)] !== '' && +counts[key(p)] !== qtyNow(p));
+    const sum = () => { const d = diffs(), plus = d.reduce((a, p) => a + Math.max(0, counts[key(p)] - qtyNow(p)), 0), minus = d.reduce((a, p) => a + Math.max(0, qtyNow(p) - counts[key(p)]), 0);
+      K.$('#scsum', s.el).innerHTML = d.length ? `<b>${d.length} product${d.length > 1 ? 's' : ''} will change</b> · <span style="color:var(--gr)">+${plus} pcs</span> · <span style="color:var(--rd)">−${minus} pcs</span>` : '<span class="muted">Nothing counted yet</span>'; };
+    const draw = () => { const t = term.toLowerCase();
+      const list = products.filter(p => (!t || p.name.toLowerCase().includes(t) || String(p.sku || '').toLowerCase().includes(t)) && (!catF || p.category === catF));
+      K.moreList(K.$('#scl', s.el), list, p => { const c = counts[key(p)], d = c !== undefined && c !== '' ? +c - qtyNow(p) : 0;
+        return `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(p.name)}</div><div class="st">${esc(p.sku || '')} · now <b style="color:var(--ink)">${qtyNow(p)}</b>${d ? ` · <b style="color:${d > 0 ? 'var(--gr)' : 'var(--rd)'}">${d > 0 ? '+' : ''}${d}</b>` : ''}</div></div>
+          <input class="inp" data-sc="${p.id}" type="number" min="0" step="1" inputmode="numeric" value="${c ?? ''}" placeholder="${qtyNow(p)}" style="width:90px;text-align:right"></div>`; },
+        () => K.$$('[data-sc]', s.el).forEach(i => i.oninput = () => { counts[wid + ':' + i.dataset.sc] = i.value; sum(); }), 80, '<div class="empty">No products found</div>');
+      sum(); };
+    K.$('#scw', s.el).onchange = e => { wid = +e.target.value; draw(); };
+    K.$('#scq', s.el).oninput = e => { term = e.target.value; draw(); };
+    K.$('#scc', s.el).onchange = e => { catF = e.target.value; draw(); };
+    K.$('#scgo', s.el).onclick = async e => {
+      const d = diffs(); if (!d.length) return K.toast('Type the counted quantity first');
+      if (d.some(p => +counts[key(p)] < 0 || !Number.isInteger(+counts[key(p)]))) return K.toast('Quantities must be whole numbers, 0 or more');
+      const w = warehouses.find(x => x.id === wid);
+      if (!(await K.confirmSheet('Save stock count?', d.length + ' products in ' + K.whLabel(w) + ' will be set to the counted quantity.', 'Save'))) return;
+      const n = await K.busy(e.currentTarget, () => K.api.stockCount(wid, d.map(p => ({ product_id: p.id, qty: +counts[key(p)] }))));
+      s.close(); K.forget('products'); K.toast('Stock count saved · ' + n + ' products changed'); onDone && onDone();
+    };
+    draw();
+  };
   K.canFixVisit = v => K.allow('visits.manage') || (v.staff_id === K.S.me.id && K.sameDay(v.check_in_at, new Date()));
   K.visitSheet = function (v, onDone) {
     if (!K.canFixVisit(v)) return K.toast('You can only change your own visits from today');
@@ -2864,7 +3062,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
   K.overdueWarn = c => c && +c.overdue_count ? `<div class="small" style="background:var(--rds);color:var(--rd);border-radius:10px;padding:8px 10px;font-weight:700;margin-top:8px">${icon('clock', 16)} Overdue: ${c.overdue_count} credit order${c.overdue_count > 1 ? 's' : ''} · ${money(c.overdue_amount)} past the due date. Collect first before giving more credit.</div>` : '';
   // ---- Return the whole order (admin / manager): goods back into stock, money paid is given back ----
   K.isBoss = () => !!K.S.me && K.S.me.active && ['admin', 'manager'].includes(K.S.me.role);
-  K.canReturn = o => K.isBoss() && ['delivered', 'paid'].includes(o.status);
+  K.canReturn = o => K.isBoss() && !o.is_opening && ['delivered', 'paid'].includes(o.status);
   K.canDeleteAny = o => K.isBoss() && o.status !== 'pending';
   K.returnSheet = (o, onDone) => {
     const paid = +o.paid_amount || 0, pend = (o.payments || []).filter(p => p.status === 'pending').length;
@@ -2889,6 +3087,8 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     : o.order_no + ' will be removed completely, with its payments' + (+o.paid_amount ? ' (' + money(o.paid_amount) + ')' : '') + ' and history.' + (o.status === 'returned' ? ' The goods are already back in stock.' : ' The goods go back into stock.') + ' This cannot be undone.';
   K.refundLine = o => o.status === 'returned' ? `<div class="card" style="border-color:#F1C4BF;background:var(--rds);gap:4px"><b style="color:var(--rd)">↩ Returned by the shop${o.returned_at ? ' · ' + K.when(o.returned_at) : ''}</b>
       <div class="small">All goods went back into stock.${+o.refunded_amount ? ` ${money(o.refunded_amount)} was given back${o.refund_method ? ' by ' + (K.PAY_METHODS[o.refund_method] || o.refund_method) : ''}.` : ' Nothing had been paid.'}</div></div>` : '';
+  K.openingLine = o => o.is_opening ? `<div class="card" style="border-color:#C9DBF5;background:var(--bls);gap:4px"><b style="color:var(--bl)">Opening balance</b>
+      <div class="small">Money this shop owed before the app started. It is not a sale; collect payments on it like any order.</div></div>` : '';
   K.owedOf = o => Math.max(0, +(+o.total - +(o.paid_amount || 0)).toFixed(2));
   K.daysSince = d => d ? Math.max(0, Math.floor((Date.now() - new Date(d)) / 86400000)) : 0;
   K.canCollect = () => K.allow('payments.collect') || K.allow('payments.confirm');
@@ -3323,7 +3523,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
   }
   K.printInvoiceA5 = printA5;
 
-  K.canInvoice = o => ['approved', 'packed', 'delivering', 'delivered', 'paid'].includes(o.status);
+  K.canInvoice = o => !o.is_opening && ['approved', 'packed', 'delivering', 'delivered', 'paid'].includes(o.status);
   K.invoiceNo = invNo;
   K.drawInvoice = drawInvoice;
   K.invoiceReady = ready;
@@ -3627,7 +3827,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       const base = orders.filter(o => (t ? true : inPer(o)) && (!staffF || (o.sales_rep_id || o.created_by) === staffF) && (!t || o.order_no.toLowerCase().includes(t) || o.customers.name.toLowerCase().includes(t)));
       const list = base.filter(o => f === 'all' ? !K.isVoid(o.status) : o.status === f);
       const total = list.reduce((s, o) => s + +o.total, 0);
-      const sold = list.filter(o => o.status !== 'pending' && !K.isVoid(o.status)).reduce((s, o) => s + +o.total, 0), waiting = list.filter(o => o.status === 'pending').reduce((s, o) => s + +o.total, 0);
+      const sold = list.filter(o => K.isSale(o)).reduce((s, o) => s + +o.total, 0), waiting = list.filter(o => o.status === 'pending').reduce((s, o) => s + +o.total, 0);
       $('#chips').innerHTML = FILTERS.map(([k, l]) => { const n = k === 'all' ? base.filter(o => !K.isVoid(o.status)).length : base.filter(o => o.status === k).length; return `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${l} <span style="opacity:.7">${n}</span></button>`; }).join('');
       $$('[data-f]').forEach(b => b.onclick = () => { f = b.dataset.f; sel.clear(); draw(); });
       $('#per').innerHTML = P.html(st.p, st.from, st.to) + `<div class="small muted">${t ? 'Searching all dates' : esc(P.label(st))}</div>
@@ -3705,7 +3905,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
         <div class="row"><span class="grow">${owed > 0 ? 'Still owed' : 'Fully paid'}</span><b style="color:${owed > 0 ? 'var(--rd)' : 'var(--gr)'}">${money(owed)}</b></div>
         ${pays.length ? `<div id="plist" style="margin:0 -16px">${pays.map(p => K.paymentRow(p, { allowUndo: true })).join('')}</div>` : ''}
         ${K.canCollect() && ['approved', 'delivered'].includes(o.status) && owed - pend > 0.009 ? `<button class="btn green" id="col">${icon('cash', 18)}Add payment</button>` : ''}</div>` : ''}
-      ${K.refundLine(o)}
+      ${K.openingLine(o)}${K.refundLine(o)}
       <div class="card" style="gap:8px">${o.items.map(i => `<div class="row"><div class="grow"><div style="font-weight:600;font-size:14px">${esc(i.products.name)}</div><div class="small muted">${i.qty} × ${money(i.price)}${K.priceNote(i)}</div></div><b>${money(i.qty * i.price)}</b></div>`).join('')}</div>
       ${o.notes ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:10px">${esc(o.notes)}</div>` : ''}
       <div class="card" style="gap:6px">${o.events.map(e => `<div class="row small"><span class="grow"><b>${esc(K.STATUS[e.status] ? K.STATUS[e.status][0] : e.status)}</b> · ${esc(e.profiles ? e.profiles.full_name : '')}</span><span class="muted">${when(e.created_at)}${K.sameDay(e.created_at, new Date()) ? '' : ' ' + hhmm(e.created_at)}</span></div>`).join('')}</div>
@@ -3731,9 +3931,10 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     const tabs = [conf && ['check', 'To check'], ['due', 'Due / overdue'], ['debt', 'Who owes money'], ['all', 'All payments']].filter(Boolean);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : tabs[0][0], repF = '', search = '';
     const pst = K.period.fresh('month');
-    const main = shell('payments', 'Payments & debt', '', 'Shops pay in parts · money is counted after a manager confirms it');
+    const main = shell('payments', 'Payments & debt', K.isBoss() ? `<button class="btn sm out" id="obal">${icon('cash', 18)}<span class="hide-sm">Opening</span> balances</button>` : '', 'Shops pay in parts · money is counted after a manager confirms it');
     const [pays, orders, staff, customers] = await Promise.all([ensureBig('payments', api.listPayments, true), loadOrders(true), data.staff(), data.customers(true)]);
     if (!current()) return;
+    if ($('#obal')) $('#obal').onclick = () => K.openingSheet(customers, orders, () => K.render());
     const custById = {}; customers.forEach(c => { custById[c.id] = c; });
     const unpaid = orders.filter(o => o.status === 'delivered' && K.owedOf(o) > 0);
     const okPays = pays.filter(p => p.status !== 'rejected' && !(p.orders && p.orders.status === 'returned'));   // money of returned orders was given back
@@ -3805,15 +4006,17 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
   // ---------------- Products & stock ----------------
   route(/^\/products$/, async (_, q, current) => {
     await refreshCounts();
-    const main = shell('products', 'Products & stock', K.allow('stock.manage') ? `<button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Rep stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : '');
+    const main = shell('products', 'Products & stock', K.allow('stock.manage') ? `<button class="btn sm out" id="scount">${icon('check', 18)}<span class="hide-sm">Stock</span> count</button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Rep stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : '');
     if ($('#add')) $('#add').onclick = () => productSheet({});
     if ($('#rep')) $('#rep').onclick = () => K.loadRepSheet(() => K.render());
-    const [products, warehouses] = await Promise.all([data.products(true), data.warehouses(true)]);
+    const [products, warehouses, cats] = await Promise.all([data.products(true), data.warehouses(true), K.productCats(true)]);
     if (!current()) return;
-    let search = '', onlyLow = q.low === '1';
+    if ($('#pcats')) $('#pcats').onclick = () => K.productCatsSheet(products, () => K.render());
+    if ($('#scount')) $('#scount').onclick = () => K.stockCountSheet(products, warehouses, () => K.render());
+    let search = '', onlyLow = q.low === '1', catF = q.c || '';
     const value = products.reduce((s, p) => s + p.total_qty * p.cost, 0);
     const draw = () => { const t = search.toLowerCase();
-      const list = products.filter(p => (!t || [p.name, p.sku, p.category].some(x => x.toLowerCase().includes(t))) && (!onlyLow || p.total_qty <= p.min_stock));
+      const list = products.filter(p => (!t || [p.name, p.sku, p.category].some(x => x.toLowerCase().includes(t))) && (!onlyLow || p.total_qty <= p.min_stock) && (!catF || p.category === catF));
       $('#plist').innerHTML = list.length ? list.map(p => { const cls = p.total_qty <= 0 ? 'rd' : p.total_qty <= p.min_stock ? 'or' : 'gr';
         return `<button class="list-item" data-p="${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · price ${money(p.price)} · cost ${money(p.cost)}</div>
           <div class="st">${warehouses.filter(w => !w.rep_id || p.stock[w.id]).map(w => `${esc(K.whLabel(w))}: <b style="color:var(--ink)">${p.stock[w.id] || 0}</b>`).join(' · ')}</div></div>
@@ -3824,17 +4027,20 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       ${!warehouses.some(w => w.rep_id) && K.allow('stock.manage') ? `<div class="card small muted"><div style="line-height:1.5"><b style="color:var(--ink)">Stock with sales reps.</b> Every active <b>Sales</b> account gets its own stock automatically (the goods they carry). Add a Sales staff member in HR &amp; attendance → Staff, then use <b>Give / take back</b> here to load goods onto their motorbike. Reps see and sell only their own stock.</div></div>` : ''}
       ${warehouses.some(w => w.rep_id) ? `<div class="card"><div class="row"><b class="grow">Stock with sales reps (on motorbikes)</b>${K.allow('stock.manage') ? `<button class="btn sm out" id="rep2">${icon('swap', 16)}Give / take back</button>` : ''}</div><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Products</th><th style="text-align:right">Pieces</th><th style="text-align:right">Value (sell price)</th></tr></thead><tbody>
         ${warehouses.filter(w => w.rep_id).map(w => { const ps = products.filter(p => p.stock[w.id] > 0); return `<tr><td style="font-weight:700">${esc(w.name.split(' · ')[1] || w.name)}</td><td style="text-align:right">${ps.length}</td><td style="text-align:right">${ps.reduce((a, p) => a + p.stock[w.id], 0)}</td><td style="text-align:right">${money(ps.reduce((a, p) => a + p.stock[w.id] * p.price, 0))}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
-      <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div><div class="card flush" id="plist"></div></div>`;
+      <div class="filters"><div class="search grow">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
+        <select class="inp" id="pcf" aria-label="Category" style="width:auto;min-width:160px"><option value="">All categories</option>${[...new Set(cats.concat(products.map(p => p.category)).filter(Boolean))].map(c => `<option ${c === catF ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div><div class="card flush" id="plist"></div></div>`;
+    $('#pcf').onchange = e => { catF = e.target.value; draw(); };
     if ($('#rep2')) $('#rep2').onclick = () => K.loadRepSheet(() => K.render());
     $('#lowb').onclick = () => { onlyLow = !onlyLow; $('#lowb').style.background = onlyLow ? 'var(--ors)' : ''; draw(); };
     $('#ps').oninput = e => { search = e.target.value; draw(); };
     draw();
   });
 
-  function productSheet(p, warehouses) {
+  async function productSheet(p, warehouses) {
+    const cats = await K.productCats();
     const s = sheet(p.id ? p.name : 'New product', `
       <label class="f">Product name<input class="inp" id="nm" value="${esc(p.name || '')}"></label>
-      <div class="btns"><label class="f">SKU / code<input class="inp" id="sku" value="${esc(p.sku || '')}"></label><label class="f">Category<input class="inp" id="cat" value="${esc(p.category || '')}"></label></div>
+      <div class="btns"><label class="f">SKU / code<input class="inp" id="sku" value="${esc(p.sku || '')}"></label>${K.catField(p.category, cats)}</div>
       <div class="btns"><label class="f">Selling price ($)<input class="inp" id="pr" type="number" step="0.01" inputmode="decimal" value="${p.price ?? ''}"></label><label class="f">Cost ($)<input class="inp" id="co" type="number" step="0.01" inputmode="decimal" value="${p.cost ?? ''}"></label></div>
       <div class="small muted" style="margin-top:-6px">The selling price is filled in on new orders. Staff can still change the price on each order.</div>
       <label class="f">Low stock warning at<input class="inp" id="mn" type="number" inputmode="numeric" value="${p.min_stock ?? 10}"></label>
@@ -3844,10 +4050,12 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
         <label class="f">Quantity<input class="inp" id="qn" type="number" inputmode="numeric" min="1"></label>
         <label class="f">Note<input class="inp" id="nt" placeholder="e.g. supplier delivery"></label>
         <div class="btns"><button class="btn green" id="in">${icon('plus', 18)}Stock in</button><button class="btn red" id="out">${icon('minus', 18)}Stock out</button></div></div>` : ''}`);
+    K.bindCatField(s.el);
     $('#sv', s.el).onclick = async e => {
       const row = { id: p.id, name: $('#nm', s.el).value.trim(), sku: $('#sku', s.el).value.trim(), category: $('#cat', s.el).value.trim(), price: $('#pr', s.el).value, cost: $('#co', s.el).value, min_stock: $('#mn', s.el).value };
       if (!row.name || !row.sku) return toast('Name and SKU are needed');
-      await busy(e.currentTarget, () => api.saveProduct(row)); s.close(); toast('Product saved'); forget('products'); K.render();
+      if (!row.category || row.category === '__new') return toast('Choose a category');
+      await busy(e.currentTarget, () => api.saveProduct(row)); s.close(); toast('Product saved'); forget('products', 'pcats'); K.render();
     };
     if ($('#pdel', s.el)) $('#pdel', s.el).onclick = e => K.deleteProduct(p, e.currentTarget, () => { s.close(); K.render(); });
     const move = sign => async e => {
@@ -3861,9 +4069,10 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
   // ---------------- Customers ----------------
   route(/^\/customers$/, async (_, q, current) => {
     await refreshCounts();
-    const main = shell('customers', 'Customers', `<button class="btn sm out" id="xls">${icon('list', 18)}<span class="hide-sm">Export</span> Excel</button>` + (K.allow('customers.create') ? `<button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add shop</span></button>` : ''));
+    const main = shell('customers', 'Customers', (K.isBoss() ? `<button class="btn sm out" id="obal">${icon('cash', 18)}<span class="hide-sm">Opening</span> balances</button>` : '') + `<button class="btn sm out" id="xls">${icon('list', 18)}<span class="hide-sm">Export</span> Excel</button>` + (K.allow('customers.create') ? `<button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add shop</span></button>` : ''));
     const [customers, staff] = await Promise.all([data.customers(true), data.staff()]);
     if ($('#add')) $('#add').onclick = () => customerSheet({}, staff);
+    if ($('#obal')) $('#obal').onclick = async () => K.openingSheet(customers, await loadOrders(true), () => K.render());
     if (!current()) return;
     let search = '', sort = 'owed', prov = '', rep = q.rep || '', stF = q.s || '', kf = q.k || '';   // kf = box filter: owed / norep / novisit
     const notVisited = c => !c.last_visit_at || new Date(c.last_visit_at) < since(14);
@@ -4040,7 +4249,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       $('#cust').innerHTML = P.html(st.p, st.from, st.to) + `<div class="small muted">${esc(P.label(st))}</div>`;
       P.bind($('#cust'), st, draw);
       const [a, b] = range();
-      const sold = orders.filter(o => o.status !== 'pending' && !K.isVoid(o.status) && (!a || new Date(o.created_at) >= a) && (!b || new Date(o.created_at) < b));
+      const sold = orders.filter(o => K.isSale(o) && (!a || new Date(o.created_at) >= a) && (!b || new Date(o.created_at) < b));
       const ids = new Set(sold.map(o => o.id));
       const total = sold.reduce((s, o) => s + +o.total, 0), paid = sold.reduce((s, o) => s + (o.status === 'paid' ? +o.total : +(o.paid_amount || 0)), 0);
       const group = (key, name) => { const m = {}; sold.forEach(o => { const k = key(o); m[k] = m[k] || { name: name(o), n: 0, total: 0 }; m[k].n++; m[k].total += +o.total; }); return Object.values(m).sort((x, y) => y.total - x.total); };
@@ -4539,7 +4748,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       let h = '';
       if (tab === 'staff') {
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-        const stats = u => { const mine = orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && new Date(o.created_at) >= monthStart && o.status !== 'pending' && !K.isVoid(o.status));
+        const stats = u => { const mine = orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && new Date(o.created_at) >= monthStart && K.isSale(o));
           return { sales: mine.reduce((s, o) => s + +o.total, 0), orders: mine.length, visits: visits.filter(v => v.staff_id === u.id && new Date(v.check_in_at) >= monthStart).length }; };
         const pending = staff.filter(u => !u.active), active = staff.filter(u => u.active);
         const row = u => { const x = stats(u), hh = hrOf(u.id);
@@ -4835,7 +5044,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     const main = A.shell('settings', 'Settings', '', 'Only the admin can change these');
     const [st, rate] = await Promise.all([api.getSettings(), api.getKhrRate()]);
     if (!current()) return;
-    const tabs = [['company', 'Company & invoice'], ['money', 'Riel rate'], ['device', 'Language & notifications']];
+    const tabs = [['company', 'Company & invoice'], ['money', 'Riel rate'], ['device', 'Language & notifications'], ['data', 'Backup & clear data']];
     if (q.t === 'commission' || q.t === 'work') return go('#/hr?t=' + q.t);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : 'company', logo = st.company_logo || '', khqr = st.company_khqr || '';
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
@@ -4865,6 +5074,8 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       } else if (tab === 'money') {
         h = `<div class="card" style="max-width:560px"><b>Riel rate</b><div class="small muted">Used for riel expenses and payments.</div><label class="f">1 USD =<input class="inp" id="khr" type="number" value="${rate}"></label><button class="btn out" id="skhr">Save rate</button>
           <div class="small muted">Commission and work hours are now in HR &amp; attendance.</div></div>`;
+      } else if (tab === 'data') {
+        $('#body').innerHTML = '<div id="bkp" style="margin-bottom:14px"></div><div id="clr"></div>'; K.backupCard($('#bkp')); K.clearDataCard($('#clr')); return;
       } else {
         h = `<div class="agrid"><div class="card"><b>Language on this device</b><div class="small muted">Each person can choose English or Khmer on their own phone (More → Language).</div>${K.langButtons()}</div>
           <div class="card"><b>Phone notifications</b><div class="small muted">Staff get a notification for new orders to approve, approved orders, payments to check, new shops, leave requests, goods from suppliers and chat messages. Each person turns it on once on their phone (More → Notifications).</div>
@@ -4896,6 +5107,122 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     draw();
   });
+
+  // ---------- Clear data (admin): remove test or old records for chosen dates ----------
+  K.clearDataCard = function (el) {
+    const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const today = new Date(), add = n => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d); };
+    const range = p => { const y = today.getFullYear(), m = today.getMonth();
+      return { today: [ymd(today), ymd(today)], yesterday: [add(-1), add(-1)], week: [add(-6), ymd(today)], month: [ymd(new Date(y, m, 1)), ymd(today)],
+        lastmonth: [ymd(new Date(y, m - 1, 1)), ymd(new Date(y, m, 0))] }[p]; };
+    const KINDS = [['orders', 'Orders', 'with their items, payments and order chat · stock is not changed'], ['payments', 'Payments', 'orders go back to "unpaid" for the money removed'],
+      ['expenses', 'Expenses', ''], ['visits', 'Shop visits', ''], ['attendance', 'Attendance & leave', ''], ['chat', 'Chat messages', 'all chats and channels'], ['notifications', 'Notifications', 'the bell list']];
+    const NAMES = { orders: 'orders', order_payments: 'payments of those orders', payments: 'payments', expenses: 'expenses', visits: 'shop visits', attendance: 'attendance days', leave: 'leave requests', messages: 'chat messages', notifications: 'notifications' };
+    let per = 'yesterday', from = add(-1), to = add(-1); const what = new Set();
+    const draw = () => {
+      el.innerHTML = `<div class="agrid"><div class="card" style="gap:12px"><b>Clear data</b>
+        <div class="small muted">Removes records for the dates you choose, for example test data before going live. Shops, products, staff, stock and settings are never removed. <b style="color:var(--rd)">This cannot be undone.</b></div>
+        <div class="small muted" style="font-weight:700">1. Which dates?</div>
+        <div class="chips" style="padding:0">${[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Custom'], ['before', 'Everything before…']]
+          .map(([k, l]) => `<button class="chip ${k === per ? 'on' : ''}" data-per="${k}">${l}</button>`).join('')}</div>
+        ${per === 'custom' ? `<div class="btns"><label class="f">From<input class="inp" type="date" id="cfrom" value="${from || ''}"></label><label class="f">To<input class="inp" type="date" id="cto" value="${to}"></label></div>` : ''}
+        ${per === 'before' ? `<label class="f">Everything before this day (the day itself is kept)<input class="inp" type="date" id="cbefore" value="${(() => { const d = new Date(to + 'T00:00:00'); d.setDate(d.getDate() + 1); return ymd(d); })()}"></label>` : ''}
+        <div class="small"><b>${from ? esc(K.fmtDate(from)) + (from !== to ? ' → ' + esc(K.fmtDate(to)) : '') : 'From the beginning → ' + esc(K.fmtDate(to))}</b></div>
+        <div class="small muted" style="font-weight:700">2. What to clear?</div>
+        ${KINDS.map(([k, l, d]) => `<label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" data-w="${k}" ${what.has(k) ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p);margin-top:2px"><div><b>${l}</b>${d ? `<div class="small muted">${esc(d)}</div>` : ''}</div></label>`).join('')}
+        <button class="btn out block" id="cprev">${K.icon('search', 18)}3. Check how much will be removed</button><div id="cres"></div></div></div>`;
+      K.$$('[data-per]', el).forEach(b => b.onclick = () => { per = b.dataset.per; if (range(per)) [from, to] = range(per); else if (per === 'before') { from = null; to = add(-1); } draw(); });
+      if (K.$('#cfrom', el)) { K.$('#cfrom', el).onchange = e => { from = e.target.value; draw(); }; K.$('#cto', el).onchange = e => { to = e.target.value; draw(); }; }
+      if (K.$('#cbefore', el)) K.$('#cbefore', el).onchange = e => { const d = new Date(e.target.value + 'T00:00:00'); d.setDate(d.getDate() - 1); to = ymd(d); from = null; draw(); };
+      K.$$('[data-w]', el).forEach(c => c.onchange = () => { c.checked ? what.add(c.dataset.w) : what.delete(c.dataset.w); K.$('#cres', el).innerHTML = ''; });
+      K.$('#cprev', el).onclick = async e => {
+        if (!what.size) return K.toast('Tick what to clear'); if (!to || (per === 'custom' && !from)) return K.toast('Choose the dates');
+        const r = await K.busy(e.currentTarget, () => K.api.clearData(from, to, [...what], true));
+        const lines = Object.entries(r).filter(([, n]) => n > 0).map(([k, n]) => `<li><b>${n}</b> ${esc(NAMES[k] || k)}</li>`).join('');
+        K.$('#cres', el).innerHTML = lines ? `<div class="card" style="border-color:#F1C4BF;background:var(--rds);gap:8px"><b style="color:var(--rd)">This will remove:</b><ul style="margin:0;padding-left:18px">${lines}</ul>
+          <label class="f">Type DELETE to confirm<input class="inp" id="cconf" autocomplete="off" autocapitalize="characters" placeholder="DELETE"></label>
+          <button class="btn red block" id="cgo" disabled>Remove now</button></div>` : `<div class="card">${K.emptyBox('check', 'Nothing to remove for these dates')}</div>`;
+        if (!K.$('#cgo', el)) return;
+        K.$('#cconf', el).oninput = ev => { K.$('#cgo', el).disabled = ev.target.value.trim().toUpperCase() !== 'DELETE'; };
+        K.$('#cgo', el).onclick = async ev => {
+          const done = await K.busy(ev.currentTarget, () => K.api.clearData(from, to, [...what], false));
+          K.S.cache = {}; K.toast('Removed: ' + Object.entries(done).filter(([, n]) => n > 0).map(([k, n]) => n + ' ' + (NAMES[k] || k)).join(', '));
+          what.clear(); draw();
+        };
+      };
+    };
+    draw();
+  };
+
+  // ---------- Excel file (.xlsx) writer: no library needed ----------
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function zip(files) {             // files: [[name, Uint8Array]] -> Blob (stored, no compression)
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    const u16 = n => [n & 255, (n >>> 8) & 255], u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+    files.forEach(([name, data]) => { const nm = enc.encode(name), crc = crc32(data);
+      const head = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nm.length), ...u16(0)]);
+      parts.push(head, nm, data);
+      central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nm.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), nm);
+      off += head.length + nm.length + data.length; });
+    const cl = central.reduce((a, x) => a + x.length, 0);
+    const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cl), ...u32(off), ...u16(0)]);
+    return new Blob([...parts, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  K.xlsxBlob = function (sheets) {  // sheets: [{ name, rows: [[...header], [...], ...] }]
+    const enc = new TextEncoder(), x = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+    const col = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+    const names = []; sheets.forEach(sh => { let n = String(sh.name).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31); while (names.includes(n)) n = n.slice(0, 28) + ' ' + names.length; names.push(n); });
+    const files = [
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+      ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${x(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ['xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>']
+    ];
+    sheets.forEach((sh, si) => {
+      const rows = sh.rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => { const ref = col(ci) + (ri + 1), st = ri === 0 ? ' s="1"' : '';
+        if (v === null || v === undefined || v === '') return '';
+        return typeof v === 'number' && isFinite(v) ? `<c r="${ref}"${st}><v>${v}</v></c>` : `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${x(v)}</t></is></c>`; }).join('')}</row>`).join('');
+      const w = []; sh.rows.slice(0, 500).forEach(r => r.forEach((v, ci) => { w[ci] = Math.max(w[ci] || 8, Math.min(45, String(v ?? '').length + 2)); }));
+      const cols = w.length ? `<cols>${w.map((x, ci) => `<col min="${ci + 1}" max="${ci + 1}" width="${x}" customWidth="1"/>`).join('')}</cols>` : '';
+      files.push([`xl/worksheets/sheet${si + 1}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols}<sheetData>${rows}</sheetData></worksheet>`]);
+    });
+    return zip(files.map(([n, t]) => [n, enc.encode(t)]));
+  };
+
+  // ---------- Download backup: every important list in one Excel file ----------
+  K.backupCard = function (el) {
+    el.innerHTML = `<div class="card" style="gap:10px"><b>Download backup</b>
+      <div class="small muted">Saves your shops, products and stock, orders, order items, payments, expenses and staff into one Excel file. Keep it on your computer or Google Drive. Do it once a week (and before clearing data). Photos are not included.</div>
+      <button class="btn block" id="bkgo">${K.icon('list', 18)}Download backup (Excel)</button><div class="small muted" id="bkinfo"></div></div>`;
+    K.$('#bkgo', el).onclick = async e => {
+      const d = v => v ? String(v).slice(0, 10) : '', t = v => v ? new Date(v).toLocaleString('en-GB') : '', n = v => v === null || v === undefined || v === '' ? '' : +v;
+      const [cust, prods, whs, orders, items, pays, exps, staff] = await K.busy(e.currentTarget, () => Promise.all([K.api.listCustomers(), K.api.listProducts(), K.api.listWarehouses(),
+        K.api.listOrders(20000), K.api.listOrderItems(), K.api.listPayments(), K.api.listExpenses(), K.api.listStaff()]));
+      const G = window.KT_GEO, gn = (f, code) => { const x = code && G[f](code); return x ? x.en : ''; };
+      const sheets = [
+        { name: 'Shops', rows: [['ID', 'Shop', 'Owner', 'Phone', 'Telegram', 'Province', 'District', 'Commune', 'Village', 'Area / market', 'Sales rep', 'Status', 'Credit days', 'Credit limit', 'Owed', 'Orders', 'Last visit', 'GPS', 'Google Maps', 'Notes']]
+          .concat(cust.map(c => [c.id, c.name, c.owner_name, c.phone, c.telegram, c.province, gn('district', c.district), gn('commune', c.commune), gn('village', c.village), c.area, c.rep_name || c.import_rep, c.status, n(c.credit_days), n(c.credit_limit), n(c.owed), n(c.order_count), d(c.last_visit_at), c.lat != null ? c.lat + ',' + c.lng : '', c.map_url, c.notes])) },
+        { name: 'Products & stock', rows: [['ID', 'SKU', 'Product', 'Category', 'Price', 'Cost', 'Low stock at', 'Total qty'].concat(whs.map(w => K.whLabel(w)))]
+          .concat(prods.map(p => [p.id, p.sku, p.name, p.category, n(p.price), n(p.cost), n(p.min_stock), n(p.total_qty)].concat(whs.map(w => n((p.stock || {})[w.id] || 0))))) },
+        { name: 'Orders', rows: [['Order', 'Date', 'Shop', 'Sales rep', 'Status', 'Payment', 'Due date', 'Total', 'Paid', 'Still owed', 'Opening balance', 'Notes']]
+          .concat(orders.map(o => [o.order_no, t(o.created_at), o.customers ? o.customers.name : '', K.repName(o), o.status, o.payment_method, d(o.due_date), n(o.total), n(o.paid_amount), n(Math.max(0, +o.total - +(o.paid_amount || 0))), o.is_opening ? 'yes' : '', o.notes])) },
+        { name: 'Order items', rows: [['Order', 'SKU', 'Product', 'Qty', 'Price', 'Amount', 'Cost']]
+          .concat(items.map(i => { const o = orders.find(x => x.id === i.order_id); return [o ? o.order_no : i.order_id, i.products ? i.products.sku : '', i.products ? i.products.name : '', n(i.qty), n(i.price), n(+i.qty * +i.price), n(i.cost)]; })) },
+        { name: 'Payments', rows: [['Date', 'Order', 'Shop', 'Amount', 'Currency', 'USD', 'Method', 'Status', 'Received by', 'Note']]
+          .concat(pays.map(p => [t(p.received_at), p.orders ? p.orders.order_no : '', p.customers ? p.customers.name : '', n(p.amount), p.currency, n(p.amount_usd), p.method, p.status, p.receiver ? p.receiver.full_name : '', p.note])) },
+        { name: 'Expenses', rows: [['Date', 'Staff', 'Type', 'Amount', 'Currency', 'USD', 'Status', 'Note']]
+          .concat(exps.map(x => [d(x.spent_on), x.staff ? x.staff.full_name : '', K.expName ? K.expName(x.category) : x.category, n(x.amount), x.currency, n(x.amount_usd), x.status, x.note])) },
+        { name: 'Staff', rows: [['Name', 'Username', 'Role', 'Phone', 'Active', 'Joined']]
+          .concat(staff.map(u => [u.full_name, u.username, (K.ROLE_LABEL || {})[u.role] || u.role, u.phone, u.active ? 'yes' : 'no', d(u.created_at)])) }
+      ];
+      const blob = K.xlsxBlob(sheets), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'ktronics-backup-' + K.today() + '.xlsx'; document.body.appendChild(a); a.click(); a.remove();
+      K.$('#bkinfo', el).textContent = `Saved: ${cust.length} shops, ${prods.length} products, ${orders.length} orders, ${pays.length} payments, ${exps.length} expenses, ${staff.length} staff.`;
+      K.toast('Backup downloaded');
+    };
+  };
 })();
 
 // Login, waiting-for-approval, Home, More, Staff and Dashboard screens.
@@ -4984,6 +5311,21 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
     S.unread = convs.reduce((s, c) => s + (c.unread || 0), 0); K.updateBadge();
     let html = '';
     try { html += await K.attendanceCard(); } catch (e) {}
+    // my sales target this month (sales reps; managers see all targets on the Dashboard)
+    if (K.allow('orders.create') && !K.allow('dashboard.view')) {
+      try {
+        const d = await api.myDashboard();
+        if (!current()) return;
+        const now = new Date(), left = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
+        const t = +d.target || 0, sold = +d.sales_month || 0, pct = t ? Math.round(sold / t * 100) : 0;
+        const perDay = t > sold && left > 0 ? (t - sold) / (left + 1) : 0;
+        html += `<a class="card" id="tgcard" href="#/mydash" style="text-decoration:none;color:inherit;gap:8px;margin-top:${html ? 12 : 0}px;${pct >= 100 ? 'border-color:#BFE3CC;background:var(--grs)' : ''}">
+          <div class="row"><div class="grow"><div class="small muted">My sales · ${esc(K.monthName(K.monthKey()))}</div><div class="big">${money(sold)}</div></div>
+          ${t ? `<div style="text-align:right"><div class="small muted">Target</div><b>${money(t)}</b></div>` : ''}</div>
+          ${t ? K.targetBar(sold, t) + `<div class="small muted">${pct >= 100 ? '🎉 Well done! Every sale now adds to your bonus.' : `${left} day${left === 1 ? '' : 's'} left · about ${money(perDay)} a day to reach it`}</div>`
+              : '<div class="small muted">No target set for this month yet</div>'}</a>`;
+      } catch (e) {}
+    }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
     const newShops = custs.filter(c => c.status === 'pending').length;
     if (newShops) html += `<a class="card" href="#/customers?s=pending" style="text-decoration:none;color:inherit;border-color:#F3D2A8;background:var(--ors);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('store')}</div><div class="grow"><div class="tt">${newShops} new shop${newShops > 1 ? 's' : ''} to approve</div><div class="st">Added by sales staff</div></div>${icon('right', 20)}</div></a>`;
@@ -5007,7 +5349,7 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
 
   function orderRow(o) {
     return `<a class="list-item" href="#/orders/${o.id}"><div class="ic-av sq">${icon('order', 20)}</div><div class="grow"><div class="tt">${esc(o.order_no)} · ${esc(o.customers ? o.customers.name : '')}</div>
-      <div class="st">${esc(K.whoLine(o))} · ${when(o.created_at)}</div></div><div style="text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end"><b>${money(o.total)}</b>${K.overdue && K.overdue(o) ? '<span class="pill rd">Overdue</span>' : ''}${o.status === 'delivered' && +o.paid_amount > 0 ? `<span class="pill or">Part paid · ${money(o.total - o.paid_amount)} left</span>` : statusPill(o.status)}</div></a>`;
+      <div class="st">${esc(K.whoLine(o))} · ${when(o.created_at)}</div></div><div style="text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end"><b>${money(o.total)}</b>${K.overdue && K.overdue(o) ? '<span class="pill rd">Overdue</span>' : ''}${o.is_opening ? '<span class="pill bl">Opening balance</span>' : ''}${o.status === 'delivered' && +o.paid_amount > 0 ? `<span class="pill or">Part paid · ${money(o.total - o.paid_amount)} left</span>` : statusPill(o.status)}</div></a>`;
   }
   K.orderRow = orderRow;
 
