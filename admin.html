@@ -341,6 +341,37 @@ html.th-dark .pricebox.chg { background: #33230F; }
 html.th-white .hero span[style*="color:#fff"], html.th-white .hero .pill { color: var(--ink) !important; }
 
 .inp.bad{border-color:var(--rd)!important;box-shadow:0 0 0 3px var(--rds)!important}
+
+/* offline mode: bar at the top when there is no internet or things wait to be sent */
+.offbar{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:6px;max-width:calc(100vw - 24px);
+  padding:8px 14px;border-radius:999px;border:0;background:#1f2937;color:#fff;font:inherit;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;white-space:nowrap}
+.offbar.hidden{display:none}.offbar.off{background:#374151}.offbar.bad{background:var(--rd,#c62828)}
+.offbar svg{flex:none}.offbar u{text-decoration:underline}
+.offbar .spin.sm{width:14px;height:14px;border-width:2px;border-color:rgba(255,255,255,.35);border-top-color:#fff}
+
+/* picture guide */
+.guide{display:flex;flex-direction:column;gap:14px}
+.gpic{align-self:center;width:min(260px,72vw);border-radius:18px;overflow:hidden;border:6px solid #16161a;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+.gpic img{display:block;width:100%}
+.gsteps{margin:0;padding-left:24px;display:flex;flex-direction:column;gap:8px;line-height:1.55;font-size:15px}
+.gsteps li::marker{font-weight:800;color:var(--p)}
+
+/* staff banners (Home) */
+#hbn:empty{display:none}#hbn{margin-bottom:12px}
+.bn{position:relative;border-radius:18px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.bn-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}.bn-track::-webkit-scrollbar{display:none}
+.bn-slide{flex:0 0 100%;scroll-snap-align:start;aspect-ratio:12/5;position:relative;overflow:hidden;cursor:pointer;color:#fff}
+.bn-img img{display:block;width:100%;height:100%;object-fit:cover}
+.bn-shade{position:absolute;left:0;right:0;bottom:0;padding:26px 16px 14px;background:linear-gradient(transparent,rgba(0,0,0,.62))}
+.bn-text{display:flex;align-items:flex-end;padding:16px 18px}
+.bn-blob{position:absolute;right:-30px;top:-40px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.13)}.bn-blob.two{right:60px;top:auto;bottom:-70px;width:120px;height:120px;background:rgba(255,255,255,.08)}
+.bn-ic{position:absolute;right:16px;top:14px;width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center}
+.bn-words{position:relative;display:flex;flex-direction:column;gap:3px;max-width:86%;padding-right:6px}
+.bn-words b{font-size:19px;line-height:1.2;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.15)}
+.bn-words span{font-size:13px;line-height:1.4;opacity:.92}
+.bn-words em{position:absolute;right:-26px;bottom:0;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-style:normal}
+.bn-dots{position:absolute;left:0;right:0;bottom:7px;display:flex;justify-content:center;gap:5px;pointer-events:none}
+.bn-dots i{width:6px;height:6px;border-radius:3px;background:rgba(255,255,255,.55);transition:width .2s}.bn-dots i.on{width:16px;background:#fff}
 </style>
 </head>
 <body>
@@ -732,6 +763,13 @@ window.makeSupabaseApi = function (cfg) {
     shopInvite: id => q(sb.rpc('shop_invite', { p_customer: id })),
     shopUnlink: tg => q(sb.rpc('shop_unlink', { p_tg_user: tg })),
     listPromotions: () => q(sb.rpc('list_promotions')),
+    // staff banners (Home of the staff app)
+    myBanners: () => q(sb.rpc('my_banners')),
+    bannerSeen: ids => q(sb.rpc('banner_seen', { p_ids: ids })),
+    bannerTap: id => q(sb.rpc('banner_tap', { p_id: id })),
+    bannerList: () => q(sb.rpc('banner_list')),
+    bannerSave: (id, p) => q(sb.rpc('banner_save', { p_id: id || null, p })),
+    bannerDo: (id, action) => q(sb.rpc('banner_do', { p_id: id, p_action: action })),
     promoSave: (id, p) => q(sb.rpc('promo_save', { p_id: id || null, p })),
     promoPageGet: () => q(sb.rpc('promo_page_get')),
     promoPageSave: p => q(sb.rpc('promo_page_save', { p })),
@@ -749,6 +787,7 @@ window.makeSupabaseApi = function (cfg) {
     shopChangeDecide: (id, ok, note) => q(sb.rpc('shop_change_decide', { p_id: id, p_approve: !!ok, p_note: note || null })),
     shopAdminStatus: () => q(sb.rpc('shop_admin_status')),
     shopSetMenu: () => q(sb.rpc('shop_set_menu')),
+    tgPauses: () => q(sb.rpc('tg_pauses')),
     tgSetToken: token => q(sb.rpc('tg_set_token', { p_token: token || '' })),
     tgSaveRule: (id, rule) => q(sb.rpc('tg_save_rule', { p_id: id || null, p: rule })),
     tgPreview: rule => q(sb.rpc('tg_preview', { p: rule })),
@@ -791,6 +830,16 @@ window.makeSupabaseApi = function (cfg) {
     async getKhrRate() { const r = await q(sb.from('app_settings').select('value').eq('key', 'khr_per_usd').maybeSingle()); return r ? +r.value : 4100; },
     setKhrRate: rate => q(sb.rpc('set_khr_rate', { p_rate: rate })),
 
+    // offline mode: one call per saved item; the same ref sent twice gives the same answer (never a double)
+    offlineSend: (ref, kind, p, at) => q(sb.rpc('offline_send', { p_ref: ref, p_kind: kind, p, p_at: at || null })),
+    async uploadPhotoRef(file, folder, ref) {        // fixed file name per item, so a second try never makes a second photo
+      const blob = await compressImage(file, 1280, false);
+      const uid = (me && me.id) || ((await sb.auth.getSession()).data.session || { user: {} }).user.id;   // app opened with no signal: me comes later
+      const path = folder + '/' + uid + '/' + ref + '.jpg';
+      const { error } = await sb.storage.from('files').upload(path, blob, { contentType: 'image/jpeg' });
+      if (error && !/exist|duplicate|409/i.test(error.message || '')) throw new Error(error.message);
+      return sb.storage.from('files').getPublicUrl(path).data.publicUrl;
+    },
     // any file (voice, video): kept as it is, no compression
     async uploadFile(blob, folder, ext, type) {
       const path = folder + '/' + me.id + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
@@ -1996,6 +2045,35 @@ window.makeDemoApi = function () {
     async promoDelete(id) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); const today = new Date().toISOString().slice(0, 10);
       const m = (D.promos || []).find(x => x.id === id); if (!m) return wait(null); if (m.active && !(m.ends_on && m.ends_on < today)) fail('End the promotion first, then delete it');
       D.promos = D.promos.filter(x => x.id !== id); save(); return wait(null); },
+    // staff banners (demo)
+    _banners() { if (!D.banners) { D.banners = [
+        { id: 2, title: 'New price list from 1 October', body: 'Chargers and cables get new prices. Ask your manager.', color: 'blue', link_kind: 'none', audience: 'all', people: [], starts_on: '2026-09-01', ends_on: null, sort: 0, active: true },
+        { id: 1, title: 'Push the 65W charger this week', body: '+$1 bonus for every piece you sell', color: 'red', link_kind: 'page', link_value: '#/orders/new', audience: 'sales', people: [], starts_on: '2026-09-01', ends_on: null, sort: 1, active: true }];
+        D.bannerSeq = 2; D.bannerViews = []; } return D.banners; },
+    _bannerFor(b, u) { return b.audience === 'all' || (b.audience === 'sales' && u.role === 'sales') || (b.audience === 'warehouse' && u.role === 'warehouse') || (b.audience === 'managers' && ['admin', 'manager'].includes(u.role)) || (b.audience === 'people' && (b.people || []).includes(u.id)); },
+    async myBanners() { if (!me) return []; const t = new Date().toISOString().slice(0, 10);
+      return wait(clone(api._banners().filter(b => b.active && b.starts_on <= t && (!b.ends_on || b.ends_on >= t) && api._bannerFor(b, me)).sort((a, b) => a.sort - b.sort || b.id - a.id))); },
+    async bannerSeen(ids) { api._banners(); (ids || []).forEach(id => { if (!D.bannerViews.some(v => v.b === id && v.u === me.id)) D.bannerViews.push({ b: id, u: me.id, seen: now(), tapped: null }); }); save(); return wait(null); },
+    async bannerTap(id) { api._banners(); let v = D.bannerViews.find(x => x.b === id && x.u === me.id); if (!v) { v = { b: id, u: me.id, seen: now(), tapped: null }; D.bannerViews.push(v); } v.tapped = v.tapped || now(); save(); return wait(null); },
+    async bannerList() { if (!isBoss()) fail('Only the admin or a manager can change banners'); const t = new Date().toISOString().slice(0, 10), staff = D.users.filter(u => u.active !== false && u.role !== 'guest');
+      return wait(clone(api._banners().slice().sort((a, b) => (!a.active) - (!b.active) || a.sort - b.sort || b.id - a.id).map(b => Object.assign({}, b, {
+        state: !b.active || (b.ends_on && b.ends_on < t) ? 'ended' : b.starts_on > t ? 'upcoming' : 'running', reach: staff.filter(u => api._bannerFor(b, u)).length,
+        seen: D.bannerViews.filter(v => v.b === b.id).length, tapped: D.bannerViews.filter(v => v.b === b.id && v.tapped).length,
+        viewers: D.bannerViews.filter(v => v.b === b.id).map(v => ({ name: (D.users.find(u => u.id === v.u) || {}).full_name, seen: v.seen, tapped: v.tapped })) })))); },
+    async bannerSave(id, p) { if (!isBoss()) fail('Only the admin or a manager can change banners'); api._banners();
+      if (!p.image_url && !(p.title || '').trim()) fail('Write a title or add a picture');
+      if (p.link_kind === 'url' && !/^https?:\/\//.test(p.link_value || '')) fail('The website link must start with https://');
+      if (p.audience === 'people' && !(p.people || []).length) fail('Choose at least one person');
+      if (p.ends_on && p.starts_on && p.ends_on < p.starts_on) fail('The end date is before the start date');
+      const row = Object.assign({ color: 'red', link_kind: 'none', audience: 'all', people: [] }, p, { starts_on: p.starts_on || new Date().toISOString().slice(0, 10), ends_on: p.ends_on || null, active: true });
+      if (id) Object.assign(D.banners.find(b => b.id === id), row); else D.banners.push(Object.assign({ id: ++D.bannerSeq, sort: Math.min(0, ...D.banners.map(b => b.sort)) - 1 }, row));
+      save(); return wait(id || D.bannerSeq); },
+    async bannerDo(id, action) { if (!isBoss()) fail('Only the admin or a manager can change banners'); const L = api._banners(), b = L.find(x => x.id === id); if (!b) return wait(null);
+      if (action === 'end') { b.active = false; b.ends_on = new Date().toISOString().slice(0, 10); }
+      else if (action === 'delete') D.banners = L.filter(x => x.id !== id);
+      else { const act = L.filter(x => x.active).sort((a, c) => a.sort - c.sort || c.id - a.id); act.forEach((x, i) => { x.sort = i; }); const i = act.indexOf(b), j = action === 'up' ? i - 1 : i + 1;
+        if (act[j]) { const t = act[j].sort; act[j].sort = b.sort; b.sort = t; } }
+      save(); return wait(null); },
     async promoPageGet() { if (!isBoss()) fail('Only the admin or a manager can change promotions'); return wait(clone(D.promoPage || {})); },
     async promoPageSave(p) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); D.promoPage = Object.assign({}, p); save(); return wait(null); },
     async promoEnd(id) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); const m = (D.promos || []).find(x => x.id === id); if (m) { m.active = false; save(); } return wait(null); },
@@ -2065,7 +2143,10 @@ window.makeDemoApi = function () {
       return wait(r.rule_type === 'summary' ? K_TG.summary(r) : K_TG.compose(r.events[0], r.fields)); },
     async tgRuleOn(id, on) { const r = ((D.tg || {}).rules || []).find(x => x.id === id); if (r) { r.enabled = !!on; save(); } return wait(null); },
     async tgDeleteRule(id) { const T = D.tg || {}; T.rules = (T.rules || []).filter(x => x.id !== id); save(); return wait(null); },
-    async tgTest(id) { const T = D.tg || {}; if (!T.token) fail('Save the bot token first'); if (!(T.rules || []).some(x => x.id === id)) fail('Choose a group first'); T.last = { ok: true }; return wait(2); },
+    async tgTest(id) { const T = D.tg || {}; if (!T.token) fail('Save the bot token first'); const r = (T.rules || []).find(x => x.id === id); if (!r) fail('Choose a group first');
+      if (r.lastManual && Date.now() - r.lastManual < 120000) fail('You just sent this. Please wait ' + Math.ceil((120000 - (Date.now() - r.lastManual)) / 1000) + ' seconds, so Telegram does not block the bot.');
+      r.lastManual = Date.now(); T.last = { ok: true }; save(); return wait(2); },
+    async tgPauses() { return wait([]); },
     async tgFindChats() { const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
       T.last = { ok: true, chats: [{ id: '-1001873400101', title: 'K-TRONiCS Orders & Payments', type: 'supergroup' }, { id: '-1001873400102', title: 'K-TRONiCS Shop Visits', type: 'supergroup' },
         { id: '-1001873400104', title: 'K-TRONiCS Stock', type: 'supergroup' }, { id: '5550001', title: 'Mr. Lee', type: 'private' }] }; return wait(3); },
@@ -2231,6 +2312,23 @@ window.makeDemoApi = function () {
       const p = D.purchases.find(x => x.id === pid); p.paid_amount = +D.spays.filter(x => x.purchase_id === pid).reduce((s, x) => s + x.amount, 0).toFixed(2); save(); return wait(null);
     },
 
+    async uploadPhotoRef(file) { return api.uploadPhoto(file); },
+    // offline mode (demo): the same ref twice gives the same answer; the real time is kept
+    async offlineSend(ref, kind, p, at) {
+      D.offRefs = D.offRefs || {};
+      if (D.offRefs[ref]) return wait(Object.assign({ again: true }, D.offRefs[ref]));
+      const lo = Date.now() - 3 * 864e5, when = new Date(Math.min(Date.now(), Math.max(lo, at ? +new Date(at) : Date.now()))).toISOString();
+      let r;
+      if (kind === 'order') { const id = await api.createOrder(p); const o = D.orders.find(x => x.id === id); if (o) o.created_at = when; r = { id, order_no: o && o.order_no }; }
+      else if (kind === 'visit') { const v = await api.checkIn(Object.assign({}, p, { photo: null })); const row = D.visits.find(x => x.id === v.id); row.check_in_at = when; row.photo_url = p.photo_url || null; r = { id: v.id }; }
+      else if (kind === 'checkout') { const v = D.visits.find(x => x.id === +p.visit_id && x.staff_id === me.id); if (v && !v.check_out_at) { await api.checkOut(v.id, p.notes); v.check_out_at = when; } r = { id: v ? v.id : null }; }
+      else if (kind === 'payment') { const id = await api.addPayment(Object.assign({}, p, { photo: null })); const row = D.payments.find(x => x.id === id); if (row) { row.received_at = when; row.photo_url = p.photo_url || null; } r = { id }; }
+      else if (kind === 'expense') { const e = await api.saveExpense(Object.assign({}, p, { photo: null, receipt_url: p.receipt_url || null, spent_on: p.spent_on || when.slice(0, 10) })); r = { id: e.id }; }
+      else if (kind === 'clock_in') { const id = await api.clockIn(p.lat, p.lng, null, p.note); const a = D.attendance.find(x => x.id === id); if (a) { a.check_in_at = when; a.photo_url = p.photo_url || null; } r = { id }; }
+      else if (kind === 'clock_out') { await api.clockOut(p.lat, p.lng, p.note); r = { id: null }; }
+      else fail('Unknown kind');
+      D.offRefs[ref] = r; save(); return wait(r);
+    },
     async uploadPhoto(file, folder, png) {
       // demo: keep a small copy of the photo inside the phone
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
@@ -2249,7 +2347,8 @@ window.makeDemoApi = function () {
 (function () {
   const cfg = window.KT_CONFIG || {};
   const live = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.FORCE_DEMO);
-  const api = live ? window.makeSupabaseApi(cfg) : window.makeDemoApi();
+  const api0 = live ? window.makeSupabaseApi(cfg) : window.makeDemoApi();
+  const api = window.ktOffline ? window.ktOffline(api0) : api0;          // staff app: works with no signal too (offline.js)
   const root = document.getElementById('root');
 
   // ---------- small helpers ----------
@@ -2298,6 +2397,9 @@ window.makeDemoApi = function () {
 
   // ---------- icons (simple line icons) ----------
   const P = {
+    wifi: 'M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.6a10 10 0 0 1 5-2.7M19 12.6a10 10 0 0 0-3.2-2.2M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 10.6 5M12 20h.01',
+    bag: 'M5 8h14l-1 12.5H6zM9 8V6.5a3 3 0 0 1 6 0V8',
+    book: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5M8 8h8M8 11.5h6',
     home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z', chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
     order: 'M5 4h14v17H5zM9 3h6v3H9zM9 11h6M9 15h4', box: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8', more: 'M4 6h16M4 12h16M4 18h16',
     user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0', users: 'M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6',
@@ -2516,6 +2618,7 @@ window.makeDemoApi = function () {
     render();
   }
   async function logout() {
+    if (api.offline && api.offline.queue().length && !(await confirmSheet('Log out?', 'Some things are still waiting to be sent from this phone. They are sent when you log in again on this phone.', 'Log out', true))) return;
     if (S.unsub) S.unsub(); S.unsub = null;
     await api.logout(); S.me = null; S.cache = {}; S.unread = 0;
     location.hash = '#/home'; render();
@@ -2536,6 +2639,19 @@ window.makeDemoApi = function () {
 // Khmer words for the app. English text on screen is swapped for these when Khmer is chosen.
 // Add or fix any line: 'English text': 'ខ្មែរ',
 window.KT_KM = {
+  'Only the admin or a manager can change banners': 'មានតែអ្នកកាន់កាប់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកែផ្ទាំងផ្សព្វផ្សាយបាន',
+  'Log out?': 'ចាកចេញ?', 'Some things are still waiting to be sent from this phone. They are sent when you log in again on this phone.': 'មានរបស់ខ្លះនៅរង់ចាំផ្ញើពីទូរស័ព្ទនេះ។ វានឹងត្រូវផ្ញើ ពេលអ្នកចូលម្តងទៀតនៅលើទូរស័ព្ទនេះ។',
+  'How to use the app': 'របៀបប្រើកម្មវិធី', 'Short guides with pictures': 'ការណែនាំខ្លីៗ ជាមួយរូបភាព', 'New to the app?': 'ទើបប្រើកម្មវិធីថ្មី?', 'Read the short guide with pictures': 'អានការណែនាំខ្លីៗ ជាមួយរូបភាព',
+  'Get my daily report in Telegram': 'ទទួលរបាយការណ៍ប្រចាំថ្ងៃក្នុង Telegram',
+  'Daily report and low-stock alerts in Telegram': 'របាយការណ៍ប្រចាំថ្ងៃ និងការជូនដំណឹងស្តុកជិតអស់ក្នុង Telegram', 'Low stock': 'ស្តុកជិតអស់', 'Out of stock': 'អស់ស្តុក',
+  'No internet': 'គ្មានអ៊ីនធឺណិត', 'saved on the phone': 'បានរក្សាទុកក្នុងទូរស័ព្ទ', 'could not be sent': 'មិនអាចផ្ញើបាន', 'See': 'មើល', 'Sending…': 'កំពុងផ្ញើ…', 'waiting to send': 'រង់ចាំផ្ញើ',
+  'Saved on the phone': 'បានរក្សាទុកក្នុងទូរស័ព្ទ', 'Saved on the phone. It is sent by itself when the internet is back.': 'បានរក្សាទុកក្នុងទូរស័ព្ទ។ វានឹងផ្ញើដោយខ្លួនឯង ពេលមានអ៊ីនធឺណិតវិញ។',
+  'Send now': 'ផ្ញើឥឡូវ', 'Waiting for internet…': 'កំពុងរង់ចាំអ៊ីនធឺណិត…', 'Everything is sent ✓': 'បានផ្ញើទាំងអស់ ✓', 'Try again': 'ព្យាយាមម្តងទៀត', 'Waiting': 'រង់ចាំ',
+  'Delete this?': 'លុបវាចេញ?', 'It was not sent. It will be removed from this phone.': 'វាមិនទាន់បានផ្ញើទេ។ វានឹងត្រូវលុបចេញពីទូរស័ព្ទនេះ។',
+  'Check in': 'ចូលហាង', 'Check out': 'ចេញពីហាង', 'Start work': 'ចាប់ផ្តើមការងារ', 'Finish work': 'បញ្ចប់ការងារ', 'Payment': 'ការទូទាត់', 'Expense': 'ចំណាយ', 'Order': 'ការបញ្ជាទិញ',
+  'This order is still waiting to be sent. Add the payment after it is sent.': 'ការបញ្ជាទិញនេះនៅរង់ចាំផ្ញើ។ សូមបន្ថែមការទូទាត់ក្រោយពេលវាបានផ្ញើ។',
+  'There is no internet now. These are saved on this phone and are sent by themselves when the internet comes back. Keep the app installed and do not log out until they are sent.': 'ឥឡូវគ្មានអ៊ីនធឺណិតទេ។ ទាំងនេះត្រូវបានរក្សាទុកក្នុងទូរស័ព្ទនេះ ហើយនឹងផ្ញើដោយខ្លួនឯង ពេលមានអ៊ីនធឺណិតវិញ។ កុំលុបកម្មវិធី ឬចាកចេញ រហូតដល់វាបានផ្ញើរួច។',
+  'These are saved on this phone and are sent by themselves when the internet comes back. Keep the app installed and do not log out until they are sent.': 'ទាំងនេះត្រូវបានរក្សាទុកក្នុងទូរស័ព្ទនេះ ហើយនឹងផ្ញើដោយខ្លួនឯង ពេលមានអ៊ីនធឺណិតវិញ។ កុំលុបកម្មវិធី ឬចាកចេញ រហូតដល់វាបានផ្ញើរួច។',
   // shop location
   'District': 'ស្រុក / ខណ្ឌ', 'Commune': 'ឃុំ / សង្កាត់', 'Choose district': 'ជ្រើសរើសស្រុក / ខណ្ឌ', 'Choose commune': 'ជ្រើសរើសឃុំ / សង្កាត់', 'Choose province first': 'ជ្រើសរើសខេត្តជាមុនសិន', 'Choose district first': 'ជ្រើសរើសស្រុក / ខណ្ឌជាមុនសិន', 'No area / market yet': 'មិនទាន់មានតំបន់ / ផ្សារ', 'Village': 'ភូមិ', 'No target set for this month yet': 'មិនទាន់មានគោលដៅសម្រាប់ខែនេះ', 'Opening balances': 'សមតុល្យដើមគ្រា', 'Opening balance': 'សមតុល្យដើមគ្រា', 'Stock count': 'រាប់ស្តុក', 'Save stock count': 'រក្សាទុកការរាប់ស្តុក', 'Save opening balances': 'រក្សាទុកសមតុល្យដើមគ្រា', 'Clear data': 'លុបទិន្នន័យ', 'Categories': 'ប្រភេទ', 'Product categories': 'ប្រភេទទំនិញ', 'All categories': 'ប្រភេទទាំងអស់', 'Choose category': 'ជ្រើសរើសប្រភេទ', 'Add category': 'បន្ថែមប្រភេទ', 'Choose a category': 'សូមជ្រើសរើសប្រភេទ', 'Expense types': 'ប្រភេទចំណាយ', 'Add a type': 'បន្ថែមប្រភេទ', 'Expense types saved': 'បានរក្សាទុកប្រភេទចំណាយ', 'Returned': 'បានប្រគល់ត្រឡប់', 'Return order': 'ទទួលទំនិញត្រឡប់', 'Order returned': 'ទំនិញត្រឡប់មកវិញ', 'Order deleted': 'បានលុបការបញ្ជាទិញ', 'Missing': 'ខ្វះព័ត៌មាន', 'Missing details': 'ខ្វះព័ត៌មាន', 'Due / overdue': 'ដល់ថ្ងៃ / ហួសថ្ងៃ', 'Due today': 'ដល់ថ្ងៃបង់ថ្ងៃនេះ', 'Sales by area': 'ការលក់តាមតំបន់', 'Fill location from GPS': 'បំពេញទីតាំងពី GPS', 'KHQR saved': 'បានរក្សាទុក KHQR', 'Pending': 'រង់ចាំ', 'Credit': 'ជំពាក់', 'Due date': 'ថ្ងៃផុតកំណត់', 'Payment pending': 'រង់ចាំការទូទាត់', 'Choose the due date for credit': 'សូមជ្រើសរើសថ្ងៃផុតកំណត់សម្រាប់ជំពាក់', 'Payment updated': 'បានកែការទូទាត់', 'change': 'ប្តូរ', 'Choose village': 'ជ្រើសរើសភូមិ', 'Choose commune first': 'ជ្រើសរើសឃុំ / សង្កាត់ជាមុនសិន', 'Telegram': 'តេឡេក្រាម', 'Notes (optional)': 'កំណត់ចំណាំ (មិនចាំបាច់)',
   // navigation & common
@@ -2890,7 +3006,8 @@ Object.assign(window.KT_KM, { 'Telegram (optional)': 'តេឡេក្រា�
       if (!(amount > 0)) return K.toast('Enter the amount');
       const row = { id: e.id, spent_on: K.$('#dt', s.el).value || today(), category: cat, amount, currency: cur, note: K.$('#nt', s.el).value.trim(), photo, receipt_url: e.receipt_url };
       if (boss) { row.staff_id = forStaff; if (!e.id) row.status = newStatus; }
-      await K.busy(ev.currentTarget, () => K.api.saveExpense(row));
+      const saved = await K.busy(ev.currentTarget, () => K.api.saveExpense(row));
+      if (saved && saved.queued) { s.close(); K.savedOffline(); onSaved && onSaved(); return; }
       s.close(); K.toast(boss && forStaff !== me.id ? 'Saved for ' + who(forStaff) : 'Expense saved'); onSaved && onSaved();
     };
     if (K.$('#del', s.el)) K.$('#del', s.el).onclick = async ev => { const _btn = ev.currentTarget;
@@ -3651,7 +3768,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.dueDefault = c => { const d = new Date(); d.setDate(d.getDate() + ((c && +c.credit_days) || 7)); return ymd(d); };
   K.fmtDate = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   K.overdue = o => o.payment_method === 'credit' && o.due_date && o.due_date < K.today() && !['paid', 'cancelled', 'returned'].includes(o.status) && K.owedOf(o) > 0.009;
-  K.payLabel = o => o.payment_method === 'credit' ? 'Credit' + (o.due_date ? ' · due ' + K.fmtDate(o.due_date) : '')
+  // Paid / Partly paid first (money received), else how the shop will pay
+  K.payLabel = o => { const tot = +o.total || 0, pd = +o.paid_amount || 0;
+    if (tot > 0 && pd >= tot - 0.005) return 'Paid';
+    if (pd > 0) return 'Partly paid · ' + K.money(tot - pd) + ' left';
+    return K.payType(o); };
+  K.payType = o => o.payment_method === 'credit' ? 'Credit' + (o.due_date ? ' · due ' + K.fmtDate(o.due_date) : '')
     : o.payment_method === 'pending' ? 'Payment pending' : ({ cash: 'Cash', bank: 'ABA / Bank' }[o.payment_method] || o.payment_method || '');
   K.canSetDue = o => !['paid', 'cancelled', 'returned'].includes(o.status) && (K.allow('orders.approve') || (o.created_by === K.S.me.id && o.status === 'pending'));
   // st = { pay, due }; returns HTML; K.bindPayPick wires it; K.payForShop sets the default when a shop is picked
@@ -3777,8 +3899,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     K.$('#sv', s.el).onclick = async ev => {
       const amount = +K.$('#am', s.el).value;
       if (!(amount > 0)) return K.toast('Enter the amount');
-      await K.busy(ev.currentTarget, () => K.api.addPayment({ order_id: o.id, amount, currency: cur, method, note: K.$('#nt', s.el).value.trim(), photo }));
-      s.close(); K.forget('orders', 'customers'); K.toast(auto ? 'Payment saved' : 'Payment saved · waiting for check'); onSaved && onSaved();
+      const pid = await K.busy(ev.currentTarget, () => K.api.addPayment({ order_id: o.id, amount, currency: cur, method, note: K.$('#nt', s.el).value.trim(), photo }));
+      s.close(); K.forget('orders', 'customers'); if (K.api.offline && K.api.offline.isQueued(pid)) K.savedOffline(); else K.toast(auto ? 'Payment saved' : 'Payment saved · waiting for check'); onSaved && onSaved();
     };
   };
 
@@ -3904,8 +4026,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Every text is its own piece: it has a position (page is 1240 wide), size, bold, colour and can be hidden.
   // y is the TOP of the text. Pieces marked bottom:true stay at the bottom of the page when a long invoice grows.
   const PAGE_H = 1754;
-  const payName = (o, c) => o.payment_method === 'credit' ? 'Credit' + (o.due_date ? ' · due ' + K.fmtDate(o.due_date) : c.credit_days ? ' · ' + c.credit_days + ' days' : '')
-    : ({ pending: 'Pending', cash: 'Cash', bank: 'ABA / Bank' }[o.payment_method] || o.payment_method || '');
+  // the Payment line says where the money stands: Paid / Partly paid / not paid yet (and cash, credit or bank)
+  const payName = (o, c) => { const tot = +o.total || 0, pd = +o.paid_amount || 0;
+    if (tot > 0 && pd >= tot - 0.005) return 'Paid';
+    if (pd > 0) return 'Partly paid · ' + money(tot - pd) + ' left';
+    return payType(o, c); };
+  const payType = (o, c) => o.payment_method === 'credit' ? 'Credit' + (o.due_date ? ' · due ' + K.fmtDate(o.due_date) : c.credit_days ? ' · ' + c.credit_days + ' days' : '')
+    : ({ pending: 'Not paid yet', cash: 'Cash', bank: 'ABA / Bank' }[o.payment_method] || o.payment_method || '');
   // what each piece shows. edit: 'text' = you type the words; 'co.x' = company words; data = filled from the order
   const ELS = {
     slogan:        { name: 'Slogan', edit: 'co.tagline', get: (o, c, CO) => CO.tagline },
@@ -3924,7 +4051,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     province_l:    { name: '"Province" label', edit: 'text' },
     province_v:    { name: 'Province', data: "The shop's province", get: (o, c) => c.province || '-' },
     payment_l:     { name: '"Payment" label', edit: 'text' },
-    payment_v:     { name: 'Payment type', data: 'Cash / credit / bank of the order', get: (o, c) => payName(o, c) },
+    payment_v:     { name: 'Payment', data: 'Paid / partly paid, or cash / credit / bank of the order', get: (o, c) => payName(o, c) },
     rep_l:         { name: '"Sales rep" label', edit: 'text' },
     rep_v:         { name: 'Sales rep name', data: 'The sales rep of the order', get: o => K.repName(o) },
     paynote:       { name: 'Payment details', edit: 'co.payNote', get: (o, c, CO) => CO.payNote },
@@ -4061,8 +4188,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     tot.forEach(([a, b], i) => { t(a, tx + 20, y + i * 46, 24, 400, C.mu); t(b, tr, y + i * 46, 25, 600, C.ink, 'right'); });
     y += tot.length * 46 + 10;
     ctx.fillStyle = bal > 0 ? '#FDECEA' : '#E3F4EA'; ctx.fillRect(tx, y - 6, 410, 76);
-    t(bal > 0 ? LB.due : LB.total, tx + 20, y + 44, 26, 700, bal > 0 ? C.rd : C.gr);
-    t(money(bal > 0 ? bal : o.total), tr - 20, y + 46, 36, 800, bal > 0 ? C.rd : C.gr, 'right');
+    t(paid > 0 || bal > 0 ? LB.due : LB.total, tx + 20, y + 44, 26, 700, bal > 0 ? C.rd : C.gr);   // after a payment the box shows what is still to pay ($0.00 when paid)
+    t(money(paid > 0 || bal > 0 ? bal : o.total), tr - 20, y + 46, 36, 800, bal > 0 ? C.rd : C.gr, 'right');
     box('totals', tx, ty0, 410, y + 76 - ty0);
     if (L.stamp.show && (o.status === 'paid' || (bal <= 0 && +o.total > 0))) {
       const sx = tx > 600 ? 330 : Math.min(W - 250, tr + 240);
@@ -4346,10 +4473,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const { api, S, esc, money, $, $$, avatar, icon, data, toast, sheet, busy, route, go, when, hhmm, statusPill, emptyBox, forget, ROLE_LABEL, STATUS } = K;
   document.getElementById('root').classList.add('admin-root');
 
-  const NAV = [['dashboard', 'chart', 'Dashboard'], ['orders', 'order', 'Orders'], ['payments', 'cash', 'Payments & debt'], ['products', 'box', 'Products & stock'], ['purchases', 'truck', 'Suppliers & purchases'], ['customers', 'store', 'Customers'], ['preorders', 'box', '🛍 Pre-orders (Taobao)'],
-    ['visits', 'pin', 'Shop visits'], ['expenses', 'receipt', 'Expenses'], ['reports', 'list', 'Reports'], ['announce', 'mega', 'Announcements'],
-    ['hr', 'users', 'HR & attendance'], ['chats', 'chat', 'Chats Control'], ['permissions', 'shield', 'Roles & permissions'], ['settings', 'pen', 'Settings']];
-  const NAV_OK = { preorders: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
+  const NAV = [['dashboard', 'chart', 'Dashboard'], ['orders', 'order', 'Orders'], ['payments', 'cash', 'Payments & debt'], ['products', 'box', 'Products & stock'],
+    ['customers', 'store', 'Customers'], ['visits', 'pin', 'Shop visits'], ['purchases', 'truck', 'Suppliers & purchases'], ['hr', 'users', 'HR & attendance'],
+    ['expenses', 'receipt', 'Expenses'], ['banners', 'image', 'Staff banners'], ['announce', 'mega', 'Announcements'], ['preorders', 'bag', 'Pre-orders (Taobao)'],
+    ['chats', 'chat', 'Chats Control'], ['reports', 'list', 'Reports'], ['permissions', 'shield', 'Roles & permissions'], ['settings', 'pen', 'Settings']];
+  const NAV_OK = { preorders: () => K.isBoss(), banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
     expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), visits: () => K.allow('visits.view_all'), payments: () => K.canCollect(), purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view'), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') };
   const NEXT_PERM = { approved: 'orders.approve', delivered: 'orders.deliver', paid: 'orders.paid' };
   const nextFor = o => { const n = NEXT[o.status]; return n && K.allow(NEXT_PERM[n[0]]) ? n : null; };
@@ -5435,8 +5563,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="sec">History</div><div id="hist" style="display:flex;flex-direction:column;gap:10px"></div></div>`;
     if ($('#pbox')) { $('#pbox').onclick = () => $('#pf').click(); $('#pf').onchange = e => { photo = e.target.files[0]; if (photo) $('#pbox').innerHTML = `<img src="${URL.createObjectURL(photo)}" alt="Selfie">`; }; }
     if ($('#cin')) $('#cin').onclick = async e => { if (!photo) return toast('Take a selfie first');
-      await busy(e.currentTarget, async () => { const p = await pos(); await api.clockIn(p && p.lat, p && p.lng, photo); }); toast('Have a good day at work!'); K.render(); };
-    if ($('#cout')) $('#cout').onclick = async e => { await busy(e.currentTarget, async () => { const p = await pos(); await api.clockOut(p && p.lat, p && p.lng, $('#cnote').value.trim()); }); toast('Work finished. Thank you!'); K.render(); };
+      const r = await busy(e.currentTarget, async () => { const p = await pos(); return api.clockIn(p && p.lat, p && p.lng, photo); }); if (api.offline && api.offline.isQueued(r)) K.savedOffline(); else toast('Have a good day at work!'); K.render(); };
+    if ($('#cout')) $('#cout').onclick = async e => { const r = await busy(e.currentTarget, async () => { const p = await pos(); return api.clockOut(p && p.lat, p && p.lng, $('#cnote').value.trim()); }); if (r && r.queued) { K.savedOffline(); return K.render(); } toast('Work finished. Thank you!'); K.render(); };
     draw();
   });
 
@@ -6141,7 +6269,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   };
 
   K.telegramCard = async function (el) {
-    let st = await api.tgStatus();
+    let st = await api.tgStatus(), pauses = api.tgPauses ? await api.tgPauses().catch(() => []) : [];
     const rules = () => st.rules || [];
     const draw = () => {
       const ready = st.token_set;
@@ -6157,6 +6285,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <label class="f">Bot token<input class="inp" id="tgtok" type="password" autocomplete="off" placeholder="1234567890:AAH..."></label>
             <button class="btn" id="tgsave">Save token</button>`}
         </div>
+        ${(pauses || []).map(p => `<div class="card" style="background:var(--ors);border-color:#F3D2A8;gap:4px"><b>⏸ Telegram paused messages to ${esc(p.title)} until ${esc(new Date(p.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</b>
+          <div class="small" style="line-height:1.6">Too many messages were sent to this group in a short time (Telegram allows about 20 a minute). Please don't press <b>Send test</b> or <b>Send now</b> until then: each press makes the wait longer. Scheduled reports are sent by themselves when the pause ends.</div></div>`).join('')}
         <div class="card"><div class="row" style="flex-wrap:wrap;gap:8px"><b class="grow">2 · Your alerts</b><button class="btn sm" id="tgadd" ${ready ? '' : 'disabled'}>+ New alert</button></div>
           <div class="small muted">Build your own alerts from the app's data: pick exactly which events send a message and which details it shows, or send a summary at a time you choose.</div>
           ${rules().map(r => { const on = r.enabled !== false;
@@ -6174,7 +6304,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small muted">Alerts still appear in the app's Alerts channels as before. Telegram gets its own messages from the alerts above.</div></div>`;
       bind();
     };
-    const reload = async () => { st = await api.tgStatus(); draw(); };
+    const reload = async () => { st = await api.tgStatus(); pauses = api.tgPauses ? await api.tgPauses().catch(() => []) : []; draw(); };
     function bind() {
       if ($('#tgsave', el)) $('#tgsave', el).onclick = async e => {
         const tk = $('#tgtok', el).value.trim(); if (!tk) return toast('Paste the token from BotFather');
@@ -6456,12 +6586,22 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
     const hour = new Date().getHours();
     const main = page({ head: false, tab: 'home', body: `<div class="hero"><div class="row"><div class="grow"><small>${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}</small><h1>${esc(S.me.full_name)}</h1></div>
       <span class="pill" style="background:rgba(255,255,255,.18);color:#fff">${esc(ROLE_LABEL[S.me.role])}</span><span style="color:#fff">${K.bellHtml()}</span></div></div>
-      <div class="pad lift" id="home"><div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div><div id="home-rest">${K.loading}</div></div>` });
+      <div class="pad lift" id="home"><div id="hbn"></div><div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div><div id="home-rest">${K.loading}</div></div>` });
+    // banners from the admin (at the top of Home)
+    if (K.bannerStrip && api.myBanners) api.myBanners().then(list => {
+      if (!current()) return;
+      K.bannerStrip($('#hbn'), list, b => { api.bannerTap(b.id).catch(() => {}); const h = K.bannerHref(b); if (!h) return; if (/^https?:/.test(h)) window.open(h, '_blank'); else go(h); });
+      const fresh = (list || []).map(b => b.id).filter(id => !(S.bnSeen || (S.bnSeen = {}))[id]);
+      if (fresh.length) { fresh.forEach(id => { S.bnSeen[id] = 1; }); api.bannerSeen(fresh).catch(() => {}); }
+    }).catch(() => {});
     const [orders, convs, visit, custs, pays, pos] = await Promise.all([data.orders(true), data.convs(true), K.allow('visits.create') ? api.activeVisit() : null, K.allow('customers.approve') ? data.customers(true) : [],
       K.allow('payments.confirm') ? api.listPayments() : [], K.allow('purchases.receive') || K.allow('purchases.manage') ? api.listPurchases() : []]);
     if (!current()) return;
     S.unread = convs.reduce((s, c) => s + (c.unread || 0), 0); K.updateBadge();
     let html = '';
+    // first days: a card to the picture guide (goes away after it is opened)
+    let seenGuide = false; try { seenGuide = !!localStorage.getItem('kt_guide_seen'); } catch (e) {}
+    if (!seenGuide && K.guideTopics) html += `<a class="card" href="#/guide" style="text-decoration:none;color:inherit;margin-bottom:12px;background:var(--bls);border:0"><div class="row" style="gap:12px"><div class="ic-av sq" style="background:#fff;color:var(--bl)">${icon('book', 22)}</div><div class="grow"><b>New to the app?</b><div class="small muted">Read the short guide with pictures</div></div>${icon('right', 18)}</div></a>`;
     try { html += await K.attendanceCard(); } catch (e) {}
     // my sales target this month (sales reps; managers see all targets on the Dashboard)
     if (K.allow('orders.create') && !K.allow('dashboard.view')) {
@@ -6541,8 +6681,9 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
         ${item('#/visits', 'pin', 'Shop visits', K.allow('visits.view_all') ? 'All staff visits' : 'Check in and your visit history', 'var(--bls)', 'var(--bl)')}
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
+        ${K.guideTopics ? item('#/guide', 'book', 'How to use the app', 'Short guides with pictures', 'var(--bls)', 'var(--bl)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
-        <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">Get my daily report in Telegram</div></div></button>
+        <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">${S.me.role === 'sales' ? 'Get my daily report in Telegram' : 'Daily report and low-stock alerts in Telegram'}</div></div></button>
         ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view')
           ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + item('#/hr', 'users', 'HR & attendance', 'Staff, today, attendance, leave, pay', 'var(--ors)', 'var(--or)')
           : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
@@ -6596,6 +6737,134 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
       <a class="card" href="#/staff" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('users', 20)}</div><div class="grow"><div class="tt">${d.staff_active} active staff</div><div class="st">${d.staff_pending ? d.staff_pending + ' waiting for approval' : 'No one waiting'}</div></div>${icon('right', 18)}</div></a></div>`;
     $('#tg').onclick = () => K.targetsSheet(() => K.render());
   });
+})();
+
+// Staff banners: drawn the same way in the staff app (Home) and in the admin web (preview).
+(function () {
+  const K = window.KT;
+  const { esc, icon } = K;
+  K.BANNER_COLORS = { red: ['#D7141A', '#FF5A36'], blue: ['#1D4ED8', '#3B82F6'], green: ['#127A3E', '#22A35A'], orange: ['#C2410C', '#F59E0B'], purple: ['#6D28D9', '#A855F7'], dark: ['#131316', '#3A3A44'] };
+  K.BANNER_PAGES = [['#/orders/new', 'New order'], ['#/visit/new', 'Shop visit'], ['#/mydash', 'My dashboard'], ['#/orders', 'Orders'], ['#/customers', 'Customers'], ['#/stock', 'Stock'],
+    ['#/payments', 'Money from shops'], ['#/expenses', 'My expenses'], ['#/attendance', 'Attendance & leave'], ['#/guide', 'How to use the app']];
+  K.BANNER_WHO = [['all', 'All staff'], ['sales', 'Sales reps'], ['warehouse', 'Warehouse'], ['managers', 'Managers & admin'], ['people', 'Chosen people']];
+  // one slide
+  K.bannerSlide = (b, extra) => {
+    const c = K.BANNER_COLORS[b.color] || K.BANNER_COLORS.red, go = b.link_kind && b.link_kind !== 'none';
+    const words = (b.title || b.body) ? `<div class="bn-words">${b.title ? `<b>${esc(b.title)}</b>` : ''}${b.body ? `<span>${esc(b.body)}</span>` : ''}${go ? `<em>${icon('right', 14)}</em>` : ''}</div>` : '';
+    return b.image_url
+      ? `<div class="bn-slide bn-img" data-bn="${b.id}" ${extra || ''}><img src="${esc(b.image_url)}" alt="${esc(b.title || '')}" loading="lazy">${words ? `<div class="bn-shade">${words}</div>` : ''}</div>`
+      : `<div class="bn-slide bn-text" data-bn="${b.id}" ${extra || ''} style="background:linear-gradient(135deg, ${c[0]}, ${c[1]})"><i class="bn-blob"></i><i class="bn-blob two"></i><span class="bn-ic">${icon('mega', 22)}</span>${words}</div>`;
+  };
+  // where a banner goes when tapped
+  K.bannerHref = b => b.link_kind === 'page' ? b.link_value : b.link_kind === 'product' ? '#/stock/' + b.link_value : b.link_kind === 'chat' ? '#/chat/' + b.link_value : b.link_kind === 'url' ? b.link_value : null;
+  // the strip at the top of Home: slides by itself every 5 seconds
+  K.bannerStrip = function (el, list, onTap) {
+    if (!el) return;
+    if (!list || !list.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="bn"><div class="bn-track">${list.map(b => K.bannerSlide(b)).join('')}</div>${list.length > 1 ? `<div class="bn-dots">${list.map((b, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}</div>`;
+    const tr = el.querySelector('.bn-track'), dots = [...el.querySelectorAll('.bn-dots i')];
+    const at = () => Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth));
+    tr.addEventListener('scroll', () => { const i = at(); dots.forEach((d, k) => d.classList.toggle('on', k === i)); }, { passive: true });
+    let touched = 0; tr.addEventListener('touchstart', () => { touched = Date.now(); }, { passive: true });
+    if (list.length > 1) {
+      const iv = setInterval(() => { if (!document.body.contains(tr)) return clearInterval(iv); if (Date.now() - touched < 6000 || document.hidden) return;
+        const n = (at() + 1) % list.length; tr.scrollTo({ left: n * tr.clientWidth, behavior: 'smooth' }); }, 5000);
+    }
+    el.querySelectorAll('[data-bn]').forEach(s => s.onclick = () => { const b = list.find(x => String(x.id) === s.dataset.bn); if (b && onTap) onTap(b); });
+  };
+})();
+
+// Admin web: 📣 Staff banners — pictures / messages at the top of the staff app's Home.
+(function () {
+  const K = window.KT;
+  const { api, esc, $, $$, route, go, toast, busy, when, icon } = K;
+  const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+  const WHO = Object.fromEntries(K.BANNER_WHO);
+  const pill = st => st === 'running' ? '<span class="pill gr">Showing now</span>' : st === 'upcoming' ? '<span class="pill bl">Starts later</span>' : '<span class="pill gy">Ended</span>';
+
+  route(/^\/banners$/, async (_, q, current) => {
+    const A = K.adm;
+    if (!K.isBoss()) return go('#/dashboard');
+    const main = A.shell('banners', '📣 Staff banners', `<button class="btn sm" id="bnnew">${icon('plus', 18)}<span class="hide-sm">New banner</span></button>`,
+      'Pictures and messages at the top of the staff app\'s Home');
+    const draw = async () => {
+      const list = await api.bannerList(); if (!current()) return;
+      const run = list.filter(b => b.state !== 'ended');
+      main.innerHTML = `<div class="small muted" style="line-height:1.6;margin-bottom:12px">Banners show at the top of <b>Home</b> in the staff app, for all staff unless you choose. Several banners slide by themselves. The first one here shows first.</div>
+        ${run.length ? `<div class="card" style="gap:10px;max-width:460px"><b class="small muted">Preview · what staff see now</b><div id="bnprev"></div></div>` : ''}
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;margin-top:14px">
+        ${list.map(b => { const i = run.indexOf(b), link = K.bannerHref(b);
+          return `<div class="card" style="gap:10px;${b.state === 'ended' ? 'opacity:.65' : ''}">
+            <div class="bn" style="box-shadow:none">${K.bannerSlide(b)}</div>
+            <div class="row">${pill(b.state)}<span class="small muted grow">${esc(WHO[b.audience] || b.audience)}${b.audience === 'people' ? ' (' + (b.people || []).length + ')' : ''} · ${esc(fmtD(b.starts_on))} → ${b.ends_on ? esc(fmtD(b.ends_on)) : 'no end date'}</span></div>
+            ${link ? `<div class="small muted">Opens: ${esc(b.link_kind === 'page' ? (K.BANNER_PAGES.find(p => p[0] === b.link_value) || [0, b.link_value])[1] : b.link_kind === 'url' ? b.link_value : b.link_kind === 'product' ? 'a product' : 'a chat channel')}</div>` : ''}
+            <button class="row small" data-bnv="${b.id}" style="border:0;background:var(--bg);border-radius:10px;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;text-align:left">👁 Seen by <b>${b.seen}</b> of ${b.reach} · 👆 tapped <b>${b.tapped}</b><span class="grow"></span>${icon('right', 16)}</button>
+            <div class="btns" style="margin:0">${b.state !== 'ended' ? `<button class="btn sm out" data-bne="${b.id}">Edit</button>${run.length > 1 ? `<button class="btn sm out" data-bnu="${b.id}" ${i === 0 ? 'disabled' : ''} title="Show earlier">↑</button><button class="btn sm out" data-bnd="${b.id}" ${i === run.length - 1 ? 'disabled' : ''} title="Show later">↓</button>` : ''}<button class="btn sm out red" data-bnx="${b.id}">End now</button>`
+              : `<button class="btn sm out" data-bne="${b.id}" data-again="1">Show again</button><button class="btn sm out red" data-bnr="${b.id}">🗑 Delete</button>`}</div></div>`; }).join('') || `<div class="empty">No banners yet. Tap <b>New banner</b>.</div>`}</div>`;
+      if ($('#bnprev', main)) K.bannerStrip($('#bnprev', main), run, () => {});
+      $$('[data-bne]', main).forEach(b => b.onclick = () => { const x = list.find(y => y.id === +b.dataset.bne); form(b.dataset.again ? Object.assign({}, x, { id: null, starts_on: null, ends_on: null }) : x, draw); });
+      $$('[data-bnu]', main).forEach(b => b.onclick = async () => { await busy(b, () => api.bannerDo(+b.dataset.bnu, 'up')); draw(); });
+      $$('[data-bnd]', main).forEach(b => b.onclick = async () => { await busy(b, () => api.bannerDo(+b.dataset.bnd, 'down')); draw(); });
+      $$('[data-bnx]', main).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('End this banner now?', 'Staff will not see it any more.', 'End now', true))) return; await busy(b, () => api.bannerDo(+b.dataset.bnx, 'end')); toast('Banner ended'); draw(); });
+      $$('[data-bnr]', main).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Delete this banner?', 'It is removed with its seen / tapped numbers.', 'Delete', true))) return; await busy(b, () => api.bannerDo(+b.dataset.bnr, 'delete')); toast('Banner deleted'); draw(); });
+      $$('[data-bnv]', main).forEach(b => b.onclick = () => { const x = list.find(y => y.id === +b.dataset.bnv);
+        K.sheet('Seen by', `<div class="small muted">${x.seen} of ${x.reach} staff saw it · ${x.tapped} tapped it</div><div class="card flush">${(x.viewers || []).map(v => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(v.name || '')}</div><div class="st">Seen ${esc(when(v.seen))}</div></div>${v.tapped ? '<span class="pill gr">Tapped</span>' : ''}</div>`).join('') || '<div class="empty">Nobody yet</div>'}</div>`); });
+    };
+    $('#bnnew').onclick = () => form({}, draw);
+    await draw();
+  });
+
+  async function form(b0, onDone) {
+    const b = Object.assign({ color: 'red', link_kind: 'none', audience: 'all', people: [] }, b0 || {});
+    b.kind = b.image_url ? 'picture' : 'text';
+    const today = new Date().toISOString().slice(0, 10);
+    let staff = [], products = [], chats = [];
+    try { [staff, products, chats] = await Promise.all([K.data.staff(), K.data.products(), api.listConversations()]); } catch (e) {}
+    staff = staff.filter(u => u.active && u.role !== 'guest'); chats = (chats || []).filter(c => c.kind === 'channel' || c.kind === 'group');
+    const s = K.sheet(b.id ? 'Edit banner' : 'New banner', `<div id="bnp" class="bn" style="box-shadow:none"></div>
+      <div class="seg" id="bnk">${[['text', 'Words & colour'], ['picture', 'My own picture']].map(([k, l]) => `<button data-k="${k}" class="${b.kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div id="bnpic" style="display:none;flex-direction:column;gap:8px"><button class="btn out block" id="bnup">${icon('image', 18)} Choose a picture</button><input type="file" id="bnf" accept="image/*" class="hidden">
+        <div class="small muted">Best size: 1200 × 500 pixels (wide). The title and text below are optional and show on the picture.</div></div>
+      <label class="f">Title<input class="inp" id="bnt" maxlength="80" value="${esc(b.title || '')}" placeholder="e.g. New price list from 1 October"></label>
+      <label class="f">Text (optional)<input class="inp" id="bnb" maxlength="200" value="${esc(b.body || '')}" placeholder="e.g. Chargers and cables get new prices"></label>
+      <div class="f" id="bncol"><span>Colour</span><div style="display:flex;gap:8px;flex-wrap:wrap">${Object.entries(K.BANNER_COLORS).map(([k, c]) => `<button type="button" data-col="${k}" aria-label="${k}" style="width:40px;height:40px;border-radius:12px;border:3px solid ${b.color === k ? 'var(--ink, #111)' : 'transparent'};background:linear-gradient(135deg,${c[0]},${c[1]});cursor:pointer"></button>`).join('')}</div></div>
+      <div class="btns"><label class="f">When staff tap it<select class="inp" id="bnl">${[['none', 'Nothing'], ['page', 'Open a page of the app'], ['product', 'Open a product'], ['chat', 'Open a chat channel'], ['url', 'Open a website']].map(([k, l]) => `<option value="${k}" ${b.link_kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="f" id="bnlv"></label></div>
+      <div class="btns"><label class="f">Who sees it<select class="inp" id="bnw">${K.BANNER_WHO.map(([k, l]) => `<option value="${k}" ${b.audience === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <div id="bnppl" style="display:none;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">${staff.map(u => `<label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" data-pp="${u.id}" ${(b.people || []).includes(u.id) ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--p)">${esc(u.full_name)}</label>`).join('')}</div>
+      <div class="btns"><label class="f">Starts<input class="inp" id="bns" type="date" value="${esc(b.starts_on || today)}"></label><label class="f">Ends (optional)<input class="inp" id="bne" type="date" value="${esc(b.ends_on || '')}"></label></div>
+      <button class="btn block" id="bnok">${b.id ? 'Save banner' : 'Show this banner'}</button>`);
+    const el = s.el, v = id => ($('#' + id, el) || {}).value || '';
+    const linkBox = () => {
+      const k = v('bnl'), box = $('#bnlv', el);
+      box.innerHTML = k === 'page' ? `Page<select class="inp" id="bnlx">${K.BANNER_PAGES.map(([h, l]) => `<option value="${h}" ${b.link_value === h ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+        : k === 'product' ? `Product<select class="inp" id="bnlx">${products.map(p => `<option value="${p.id}" ${String(b.link_value) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`
+        : k === 'chat' ? `Chat channel<select class="inp" id="bnlx">${chats.map(c => `<option value="${c.id}" ${String(b.link_value) === String(c.id) ? 'selected' : ''}>${esc(c.title || c.name || 'Chat')}</option>`).join('')}</select>`
+        : k === 'url' ? `Website<input class="inp" id="bnlx" value="${esc(b.link_kind === 'url' ? b.link_value || '' : '')}" placeholder="https://…">` : '';
+      box.style.display = k === 'none' ? 'none' : '';
+      const x = $('#bnlx', el); if (x) x.oninput = x.onchange = prev;
+    };
+    const read = () => ({ title: v('bnt').trim(), body: v('bnb').trim(), image_url: b.kind === 'picture' ? b.image_url || null : null, color: b.color, link_kind: v('bnl'), link_value: v('bnl') === 'none' ? null : v('bnlx'),
+      audience: v('bnw'), people: $$('[data-pp]', el).filter(c => c.checked).map(c => c.dataset.pp), starts_on: v('bns'), ends_on: v('bne') || null });
+    const prev = () => { const p = Object.assign({ id: 0 }, read()); $('#bnp', el).innerHTML = (p.title || p.image_url) ? K.bannerSlide(p) : '<div class="empty" style="padding:24px">Write a title to see the banner</div>'; };
+    const kindUi = () => { $('#bnpic', el).style.display = b.kind === 'picture' ? 'flex' : 'none'; $('#bncol', el).style.display = b.kind === 'text' ? '' : 'none'; $$('#bnk button', el).forEach(x => x.classList.toggle('on', x.dataset.k === b.kind)); prev(); };
+    const whoUi = () => { $('#bnppl', el).style.display = v('bnw') === 'people' ? 'grid' : 'none'; };
+    $$('#bnk button', el).forEach(x => x.onclick = () => { b.kind = x.dataset.k; kindUi(); });
+    $$('[data-col]', el).forEach(x => x.onclick = () => { b.color = x.dataset.col; $$('[data-col]', el).forEach(y => { y.style.borderColor = y === x ? 'var(--ink, #111)' : 'transparent'; }); prev(); });
+    $('#bnup', el).onclick = () => $('#bnf', el).click();
+    $('#bnf', el).onchange = async e => { const f = e.target.files[0]; if (!f) return; b.image_url = await busy($('#bnup', el), () => api.uploadPhoto(f, 'banners')); prev(); };
+    ['bnt', 'bnb'].forEach(id => { $('#' + id, el).oninput = prev; });
+    $('#bnl', el).onchange = () => { linkBox(); prev(); };
+    $('#bnw', el).onchange = whoUi;
+    linkBox(); kindUi(); whoUi();
+    $('#bnok', el).onclick = async e => {
+      const p = read();
+      if (b.kind === 'picture' && !p.image_url) return toast('Choose a picture first');
+      if (b.kind === 'text' && !p.title) return toast('Write a title');
+      await busy(e.currentTarget, () => api.bannerSave(b.id || null, p)); s.close(); toast(b.id ? 'Banner saved' : 'Banner is showing to staff'); onDone && onDone();
+    };
+  }
+  K.bannerForm = form;
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
