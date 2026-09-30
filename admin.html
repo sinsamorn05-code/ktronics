@@ -720,10 +720,33 @@ window.makeSupabaseApi = function (cfg) {
     reportMoney: (from, to) => q(sb.rpc('report_money', { p_from: from, p_to: to })),
     // Telegram alerts (admin). The bot token can be saved but never read back.
     tgStatus: () => q(sb.rpc('tg_status')),
+    tgSendRepsNow: id => q(sb.rpc('tg_send_reps_now', { p_rule: id })),
+    // a staff member connects their own Telegram (daily report from the bot)
+    staffTgStatus: () => q(sb.rpc('staff_tg_status')),
+    staffTgLink: () => q(sb.rpc('staff_tg_link')),
+    staffTgCheck: () => q(sb.rpc('staff_tg_check')),
+    staffTgResult: id => q(sb.rpc('staff_tg_result', { p_id: id })),
+    staffTgUnlink: () => q(sb.rpc('staff_tg_unlink')),
     // Telegram shop (shops order in Telegram)
     shopLinks: id => q(sb.rpc('shop_links', { p_customer: id })),
     shopInvite: id => q(sb.rpc('shop_invite', { p_customer: id })),
     shopUnlink: tg => q(sb.rpc('shop_unlink', { p_tg_user: tg })),
+    listPromotions: () => q(sb.rpc('list_promotions')),
+    promoSave: (id, p) => q(sb.rpc('promo_save', { p_id: id || null, p })),
+    promoPageGet: () => q(sb.rpc('promo_page_get')),
+    promoPageSave: p => q(sb.rpc('promo_page_save', { p })),
+    promoEnd: id => q(sb.rpc('promo_end', { p_id: id })),
+    promoDelete: id => q(sb.rpc('promo_delete', { p_id: id })),
+    preorderList: () => q(sb.rpc('preorder_list')),
+    preorderUpdate: (id, p) => q(sb.rpc('preorder_update', { p_id: id, p })),
+    preorderCounts: () => q(sb.rpc('preorder_counts')),
+    shopRewardsAdmin: () => q(sb.rpc('shop_rewards_admin')),
+    shopRewardPayout: (cid, note) => q(sb.rpc('shop_reward_payout', { p_cid: cid, p_note: note || null })),
+    shopRewardsCheck: () => q(sb.rpc('shop_rewards_check')),
+    shopAnnounceInfo: () => q(sb.rpc('shop_announce_info')),
+    shopAnnounce: (text, photo, button) => q(sb.rpc('shop_announce', { p_text: text, p_photo: photo || null, p_button: button !== false })),
+    shopChangeList: id => q(sb.rpc('shop_change_list', { p_customer: id == null ? null : id })),
+    shopChangeDecide: (id, ok, note) => q(sb.rpc('shop_change_decide', { p_id: id, p_approve: !!ok, p_note: note || null })),
     shopAdminStatus: () => q(sb.rpc('shop_admin_status')),
     shopSetMenu: () => q(sb.rpc('shop_set_menu')),
     tgSetToken: token => q(sb.rpc('tg_set_token', { p_token: token || '' })),
@@ -800,7 +823,7 @@ window.makeDemoApi = function () {
       stock_low: ['📦', 'Low stock'], goods_received: ['🚛', 'Goods received'], expense_new: ['🧾', 'New expense'], expense_approved: ['✅', 'Expense approved'], expense_rejected: ['❌', 'Expense rejected'],
       leave_new: ['🏖', 'Leave request'], leave_approved: ['✅', 'Leave approved'], leave_rejected: ['❌', 'Leave rejected'], staff_checkin: ['🕗', 'Started work'], staff_late: ['⏰', 'Late for work'], staff_checkout: ['🏠', 'Finished work'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'low_stock', 'attendance', 'expenses'],
+    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -809,7 +832,7 @@ window.makeDemoApi = function () {
       if (tp === 'summary') { if (!items.length) fail('Tick at least one thing for the summary'); if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(p.send_time || '')) fail('Choose the time to send it'); if (!days.length) fail('Choose at least one day'); }
       if (!chat) fail('Choose a Telegram group'); if (!/^-?[0-9]{3,20}$/.test(chat)) fail('The group ID should be a number like -1001234567890');
       return { name, rule_type: tp, events: tp === 'event' ? events : [], fields, items: tp === 'summary' ? items : [], send_time: tp === 'summary' ? p.send_time : null, days: tp === 'summary' ? days : null,
-        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false }; },
+        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false, send_reps: tp === 'summary' && !!p.send_reps }; },
     compose(ev, fields) {
       const S = { order_no: 'SO-00125', shop: 'Lucky Phone Shop', owner: 'Mr. Dara', phone: '012 345 678', shop_tg: '@luckyphone_pp', area: 'Orussey, Chamkar Mon, Phnom Penh', map: 'https://maps.google.com/?q=11.5564,104.9282',
         rep: 'Chhin Kimlong', staff: 'Chhin Kimlong', amount: '$245.00', items: '65W GaN charger ×10, USB-C cable ×20, Power bank 10000mAh ×5', payment: 'Credit · due 06 Oct', detail: '', note: 'Deliver before 10am', time: '29 Sep 14:05' };
@@ -830,13 +853,48 @@ window.makeDemoApi = function () {
       return (fields.includes('photo') && hasPhoto ? '📷 [photo]\n' : '') + out.join('\n'); },
     summary(r) {
       const P = { today: 'Tue 29 Sep 2026', yesterday: 'Mon 28 Sep 2026', week: '23 Sep – 29 Sep 2026', last_week: '22 Sep – 28 Sep 2026', month: '01 Sep – 29 Sep 2026' };
-      const B = { sales: ['💰 Sales: $1,245.50 · 14 orders'], sales_by_rep: ['👤 Sales by rep:', '• Chhin Kimlong: $820.00 (9)', '• Sokha Chan: $425.50 (5)'],
+      const B = { sales: ['🛒 Orders: 14 · $1,245.50 (average $88.96)', '• Existing shops: 11 · $1,060.00', '• New shops (first order): 3 · $185.50', '• ⏳ Waiting approval: 2 · $96.00', '• ❌ Cancelled / returned: 1 · $22.00'], sales_by_rep: ['👤 Sales by rep:', '• Chhin Kimlong: $820.00 (9)', '• Sokha Chan: $425.50 (5)'],
         top_products: ['🏆 Top products:', '• 65W GaN charger ×40 · $480.00', '• USB-C cable ×85 · $212.50', '• Power bank 10000mAh ×12 · $114.00'],
-        visits_by_rep: ['📍 Shop visits:', '• Chhin Kimlong: 11 visits', '• Sokha Chan: 8 visits (7 shops)'], new_shops: ['🏪 New shops: 2', '• Mobile Zone Kandal — Sokha Chan', '• Star Phone — Chhin Kimlong'],
-        collected: ['💵 Money collected: $980.00 · 9 payments', '• Cash: $720.00', '• Aba: $260.00', '⏳ Waiting to check: $57.00 (1)'],
+        visits_by_rep: ['📍 Shop visits: 19 (17 shops · 4 visited for the first time)', '🏪 New shops created by reps: 2', '• Chhin Kimlong: 11 visits', '• Sokha Chan: 8 visits (7 shops)'], new_shops: ['🏪 New shops: 2', '• Mobile Zone Kandal — Sokha Chan', '• Star Phone — Chhin Kimlong'],
+        collected: ['💵 Money collected (checked): $980.00 · 9 payments', '• Cash: $720.00', '• Aba: $260.00', '⏳ Waiting to check: $57.00 (1)'],
         owed: ['🧾 Shops owe now: $618.70 · 6 shops', '⚠️ Overdue credit: $15.00 · 1 order', '• Lucky Phone Shop: $15.00 (due 25 Sep)'], low_stock: ['📦 Low stock:', '• AirPods case clear: 0 left (warn at 20)'],
-        attendance: ['🕗 Attendance 29 Sep:', '• Came to work: 6', '• Late: Sokha Chan 08:22', '• Not in: Vanna', '• On leave: Dara'], expenses: ['🧾 Staff expenses: $42.50 · 5', '⏳ Waiting for approval: $12.00 (2)'] };
-      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i]); }); return out.join('\n'); }
+        by_rep: ['👥 Sales reps (🛒 sales · 📍 visits · 🏪 new shops · 💵 collected):', '• Chhin Kimlong: 🛒 $820.00 (9) · 📍 11 · 🏪 1 · 💵 $540.00', '• Sokha Chan: 🛒 $425.50 (5) · 📍 8 · 🏪 1 · 💵 $497.00', '📨 Each rep\'s full report comes in the next messages ⬇️'],
+        coverage: ['🗺 Shops: 884 · 🚫 never visited 612', '• ⏰ Not visited for 30+ days: 57', '• Chhin Kimlong: 240 of their shops never visited', '• Sokha Chan: 198 of their shops never visited', '• Minh Rambo: 174 of their shops never visited'],
+        attendance: ['🕗 Attendance 29 Sep:', '• Came to work: 6', '• Late: Sokha Chan 08:22', '• Not in: Vanna', '• On leave: Dara'], expenses: ['🧾 Staff expenses: $42.50 · 5', '• This month (01–29 Sep): $812.00 · 96', '   ◦ Chhin Kimlong: $118.50', '   ◦ Dara: $104.00', '   ◦ Sokha Chan: $96.00', '⏳ Waiting for approval: $12.00 (2)'] };
+      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i]); });
+      if (r.items.includes('by_rep')) out.push('', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Chhin Kimlong', P[r.period] || P.today), '', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Sokha Chan', P[r.period] || P.today));
+      return out.join('\n'); },
+    repReport(nm, day) {
+      const k = nm === 'Chhin Kimlong';
+      return ['📊 Daily report · ' + nm, day, '', '🛒 ORDERS',
+        k ? '• Orders: 9 · $820.00 (average $91.11)' : '• Orders: 5 · $425.50 (average $85.10)',
+        k ? '   ◦ Existing shops: 7 · $700.00' : '   ◦ Existing shops: 4 · $360.00', k ? '   ◦ New shops (first order): 2 · $120.00' : '   ◦ New shops (first order): 1 · $65.50',
+        k ? '   ◦ Cash $480.00 · Credit $260.00 · Bank $80.00' : '   ◦ Credit $300.00 · Cash $125.50', k ? '• ❌ Cancelled / returned: 1 · $22.00' : '• ⏳ Waiting approval: 1 · $48.00',
+        k ? '• 📦 Items sold: 96 pcs · top: USB-C cable 1m ×40, 20W fast charger ×25, Tempered glass iPhone 15 ×15' : '• 📦 Items sold: 51 pcs · top: 65W GaN charger ×12, Power bank 10000mAh ×8, USB-C cable 1m ×20',
+        '• Order list:', k ? '   - SO-00118 · Lucky Phone Shop · $245.00 · Credit · ✔️ approved' : '   - SO-00121 · Mobile Zone Kandal · $65.50 · Cash · ✔️ approved · 🆕',
+        k ? '   - SO-00120 · Star Phone · $80.00 · Cash · ✔️ approved · 🆕' : '   - SO-00124 · Sok Heng Mobile · $180.00 · Credit · 🚚 delivered',
+        k ? '   - SO-00123 · Dara Mobile · $120.00 · Bank · ✅ paid' : '   - SO-00127 · Phnom Penh Phone · $48.00 · Cash · ⏳ waiting',
+        '   … and ' + (k ? 6 : 2) + ' more in the app', k ? '• 🎯 This month: $6,480.00 of $8,000.00 target (81%) · need $1,520.00 more, 1 day left' : '• 🎯 This month: $3,960.00 of $6,000.00 target (66%) · need $2,040.00 more, 1 day left',
+        '', '📍 SHOP VISITS', k ? '• Visits: 11 (10 shops) · first 08:40 · last 16:55' : '• Visits: 8 (7 shops) · first 09:10 · last 16:20',
+        k ? '   ◦ Existing shops visited: 8' : '   ◦ Existing shops visited: 5', k ? '   ◦ New shops visited (first visit ever): 2' : '   ◦ New shops visited (first visit ever): 2',
+        k ? '   ◦ Shops that ordered on the visit day: 6 of 10 (60%)' : '   ◦ Shops that ordered on the visit day: 3 of 7 (43%)', k ? '   ◦ Average time in a shop: 14 min' : '   ◦ Average time in a shop: 19 min',
+        ...(k ? [] : ['   ◦ ⚠️ Checked in far from the shop (over 200 m): 1']),
+        '• 🏪 New shops created: 1' + (k ? '' : ' (1 waiting approval)'), k ? '   - Star Phone (Phnom Penh)' : '   - Mobile Zone Kandal (Kandal) ⏳',
+        k ? '• My shops visited this month: 96 of 300 (32%)' : '• My shops visited this month: 71 of 262 (27%)',
+        '', '💵 PAYMENTS', k ? '• Collected: $540.00 · 6 payments' : '• Collected: $497.00 · 5 payments',
+        k ? '   ◦ ✅ Checked: $540.00 · ⏳ Waiting check: $0.00' : '   ◦ ✅ Checked: $440.00 · ⏳ Waiting check: $57.00', k ? '   ◦ CASH $400.00 · ABA $140.00' : '   ◦ CASH $320.00 · KHQR $177.00',
+        k ? '   - Lucky Phone Shop · $100.00 · CASH · ✅' : '   - Sok Heng Mobile · $57.00 · KHQR · ⏳', k ? '   - Dara Mobile · $120.00 · ABA · ✅' : '   - Phnom Penh Phone · $120.00 · CASH · ✅',
+        k ? '• 🧾 My shops owe now: $310.00 · 4 shops' : '• 🧾 My shops owe now: $308.70 · 3 shops', ...(k ? ['• ⚠️ Overdue: $15.00 · 1 order', '   - Lucky Phone Shop: $15.00 (due 25 Sep, 4 days late)'] : ['• 📅 Due in the next 7 days: $180.00 · 1 order', '   - Sok Heng Mobile: $180.00 (due 03 Oct)']),
+        '', '🕗 ATTENDANCE', k ? '• 29 Sep: started 07:52 (on time)' : '• 29 Sep: started 08:22 (⚠️ 22 min late)', k ? '   ◦ Finished 17:40 · worked 9 h 48 min' : '   ◦ Finished 17:35 · worked 9 h 13 min',
+        k ? '• This month (01–29 Sep): worked 25 of 25 days · late 1 · leave 0 · absent 0' : '• This month (01–29 Sep): worked 23 of 25 days · late 4 · leave 1 · absent 1',
+        '', '🧾 EXPENSES', k ? '• 29 Sep: $5.00 · 1' : '• 29 Sep: $12.00 · 2 (⏳ waiting approval $12.00)', k ? '   ◦ Gasoline $5.00' : '   ◦ Gasoline $7.00 · Food $5.00',
+        k ? '• This month (01–29 Sep): $118.50 · 27' : '• This month (01–29 Sep): $96.00 · 21', k ? '   ◦ Gasoline $86.00 · Food $22.50 · Express $10.00' : '   ◦ Gasoline $71.00 · Food $25.00',
+        k ? '   ◦ ✅ Approved $113.50 (paid back $80.00) · ⏳ waiting $5.00' : '   ◦ ✅ Approved $84.00 (paid back $60.00) · ⏳ waiting $12.00',
+        k ? '   ◦ = 1.8% of this month\'s sales ($6,480.00)' : '   ◦ = 2.4% of this month\'s sales ($3,960.00)',
+        '', k ? '🗺 MY SHOPS (300)' : '🗺 MY SHOPS (262)', k ? '• 🚫 Never visited: 240 shops' : '• 🚫 Never visited: 198 shops',
+        ...(k ? ['   - Heng Heng Phone — Chamkar Mon, Phnom Penh', '   - Lucky 2 Mobile — Chamkar Mon, Phnom Penh', '   - Sreymom Shop — Daun Penh, Phnom Penh', '   - Vibol Mobile — Tuol Kouk, Phnom Penh']
+              : ['   - Rith Phone — Ta Khmau, Kandal', '   - Chan Mobile — Kien Svay, Kandal', '   - Mony Phone — Sen Sok, Phnom Penh']),
+        '   … and ' + (k ? 236 : 195) + ' more (see Customers in the app)', k ? '• ⏰ Not visited for 30+ days: 12' : '• ⏰ Not visited for 30+ days: 9', k ? '• 💤 No order for 30+ days: 34 · never ordered: 150' : '• 💤 No order for 30+ days: 27 · never ordered: 131'].join('\n'); }
   };
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const fail = (m) => { throw new Error(m); };
@@ -907,6 +965,11 @@ window.makeDemoApi = function () {
     const wh = conv('group', 'Warehouse');
     ['u-lee', 'u-sophea', 'u-vanna', 'u-dara'].forEach(u => member(wh, u, ago(300)));
     msg(wh, 'u-vanna', 'Stock count finished for Main warehouse.', 260);
+    // each sales rep's own daily report (sent by the evening summary)
+    [['u-kimlong', 'Chhin Kimlong'], ['u-sokha', 'Sokha Chan']].forEach(([u, nm]) => {
+      const rc = conv('channel', '📊 My daily report', { slug: 'report_' + u, created_by: u, alert_types: ['report'] }); member(rc, u, ago(2000));
+      msg(rc, null, K_TG.repReport(nm, 'Mon 28 Sep 2026').replace('1 day left', '2 days left'), 1080, 'system', { report: 1 });
+    });
     const dm = conv('direct', null, { created_by: 'u-sophea' });
     member(dm, 'u-sophea'); member(dm, 'u-kimlong', ago(100));
     msg(dm, 'u-sophea', 'Please visit Phone Zone this week, they asked about chargers.', 95);
@@ -1882,6 +1945,12 @@ window.makeDemoApi = function () {
         owed_suppliers: profit ? sum((D.purchases || []).filter(p => p.status !== 'cancelled'), p => p.total - (p.paid_amount || 0)) : null, profit_allowed: profit });
     },
     // Telegram alerts: the demo pretends to be Telegram
+    async tgSendRepsNow() { return wait(D.users.filter(u => u.active && u.role === 'sales').length); },
+    async staffTgStatus() { D.stg = D.stg || {}; return wait({ connected: !!D.stg[me.id], username: D.stg[me.id] || null, bot: 'ktronics_alerts_bot', ready: true }); },
+    async staffTgLink() { D.stg = D.stg || {}; return wait({ link: 'https://t.me/ktronics_alerts_bot?start=st_demo', bot: 'ktronics_alerts_bot' }); },
+    async staffTgCheck() { return wait(7); },
+    async staffTgResult() { D.stg = D.stg || {}; D.stg[me.id] = (me.username || 'me') + '_tg'; save(); return wait({ ok: true, username: D.stg[me.id] }); },
+    async staffTgUnlink() { D.stg = D.stg || {}; delete D.stg[me.id]; save(); return wait(null); },
     // Telegram shop (demo)
     async shopLinks(id) { const st = D.settings || {}; const c = D.customers.find(x => x.id === id); if (!c) fail('Shop not found');
       return wait({ enabled: st.shop_enabled === 'true' && !!st.shop_app_name, users: (D.shopTg || []).filter(u => u.customer_id === id).map(u => Object.assign({}, u)),
@@ -1890,6 +1959,87 @@ window.makeDemoApi = function () {
       if (st.shop_enabled !== 'true') fail('The Telegram shop is switched off (Settings → Telegram shop)'); if (!st.shop_app_name) fail('The Telegram shop is not set up yet (Settings → Telegram shop)');
       const code = Array.from({ length: 18 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
       return wait({ code, link: 'https://t.me/ktronics_alerts_bot/' + st.shop_app_name + '?startapp=j_' + code, shop: c.name, bot: 'ktronics_alerts_bot' }); },
+    async listPromotions() {
+      if (!isBoss()) return wait([]);
+      const today = new Date().toISOString().slice(0, 10), inD = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+      if (!D.promos || !D.promos.some(m => m.period_months && m.disc_pct === 5)) { D.promos = [
+        { id: 1, kind: 'free_same', product_id: 4, buy_qty: 10, free_qty: 1, starts_on: inD(-3), ends_on: inD(14), note: 'October promotion', active: true },
+        { id: 2, kind: 'flash', product_id: 7, sale_price: 8.5, starts_on: inD(-1), ends_on: inD(5), note: null, active: true },
+        { id: 3, kind: 'gift', product_id: 3, buy_qty: 10, gift_product_id: 1, gift_qty: 5, starts_on: inD(-2), ends_on: null, note: null, active: true },
+        { id: 4, kind: 'order_discount', min_total: 200, disc_pct: 3, starts_on: inD(-5), ends_on: null, active: true },
+        { id: 5, kind: 'free_delivery', min_total: 50, area: 'in Phnom Penh', starts_on: inD(-5), ends_on: null, active: true },
+        { id: 6, kind: 'first_order', disc_pct: 5, gift_product_id: 1, gift_qty: 2, starts_on: inD(-5), ends_on: null, active: true },
+        { id: 7, kind: 'loyalty', period_months: 1, min_total: 1500, disc_pct: 2, starts_on: '2026-09-01', ends_on: null, active: true },
+        { id: 8, kind: 'loyalty', period_months: 3, min_total: 1500, disc_pct: 5, starts_on: '2026-09-01', ends_on: null, active: true }]; D.promoSeq = 8; save(); }
+      const P = id => D.products.find(x => x.id === id) || {};
+      return wait(clone(D.promos.map(m => Object.assign({ kind: 'free_same' }, m, { product: m.product_id ? P(m.product_id).name : null, price: m.product_id ? P(m.product_id).price : null,
+        gift_product: m.gift_product_id ? P(m.gift_product_id).name : null, given: m.id === 1 ? 3 : 0,
+        state: !m.active || (m.ends_on && m.ends_on < today) ? 'ended' : m.starts_on > today ? 'upcoming' : 'running' })))); },
+    async promoSave(id, p) {
+      if (!isBoss()) fail('Only the admin or a manager can change promotions');
+      const k = p.kind || 'free_same', pr = D.products.find(x => x.id === +p.product_id);
+      if (['free_same', 'flash', 'gift'].includes(k) && !pr) fail('Choose a product');
+      if (['free_same', 'gift'].includes(k) && !(+p.buy_qty >= 1)) fail('Buy: write how many the shop must buy');
+      if (k === 'free_same' && !(+p.free_qty >= 1)) fail('Free: write how many they get free');
+      if ((k === 'gift' || (k === 'first_order' && p.gift_product_id)) && (!D.products.find(x => x.id === +p.gift_product_id) || !(+p.gift_qty >= 1))) fail('Choose the free gift product and how many');
+      if (k === 'flash' && !(+p.sale_price > 0 && +p.sale_price < pr.price)) fail('The sale price must be lower than the normal price ($' + (+pr.price).toFixed(2) + ')');
+      if (['order_discount', 'free_delivery'].includes(k) && !(+p.min_total > 0)) fail('Write the order amount');
+      if (['order_discount', 'first_order', 'loyalty'].includes(k) && p.disc_pct == null && p.disc_amt == null && !(k === 'first_order' && p.gift_product_id)) fail('Write the discount');
+      if (p.ends_on && p.starts_on && p.ends_on < p.starts_on) fail('The end date is before the start date');
+      await this.listPromotions();
+      const pid = ['free_same', 'flash', 'gift'].includes(k) ? +p.product_id : null;
+      if (k === 'loyalty' && (![1, 2, 3].includes(+p.period_months) || !(+p.min_total > 0))) fail('Choose 1, 2 or 3 months and how much the shop must buy');
+      if (k !== 'loyalty') D.promos.forEach(m => { if ((m.kind || 'free_same') === k && (m.product_id || null) === pid && m.id !== id) m.active = false; });
+      const row = Object.assign({}, p, { kind: k, product_id: pid, starts_on: p.starts_on || new Date().toISOString().slice(0, 10), ends_on: p.ends_on || null, active: true });
+      if (id) Object.assign(D.promos.find(m => m.id === id), row); else D.promos.push(Object.assign({ id: ++D.promoSeq }, row));
+      save(); return wait(id || D.promoSeq); },
+    async promoDelete(id) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); const today = new Date().toISOString().slice(0, 10);
+      const m = (D.promos || []).find(x => x.id === id); if (!m) return wait(null); if (m.active && !(m.ends_on && m.ends_on < today)) fail('End the promotion first, then delete it');
+      D.promos = D.promos.filter(x => x.id !== id); save(); return wait(null); },
+    async promoPageGet() { if (!isBoss()) fail('Only the admin or a manager can change promotions'); return wait(clone(D.promoPage || {})); },
+    async promoPageSave(p) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); D.promoPage = Object.assign({}, p); save(); return wait(null); },
+    async promoEnd(id) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); const m = (D.promos || []).find(x => x.id === id); if (m) { m.active = false; save(); } return wait(null); },
+    async preorderList() {
+      if (!isBoss()) fail('Only the admin or a manager can see pre-orders');
+      const ph = t => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#e5e7eb"/><text x="100" y="108" font-size="22" text-anchor="middle" fill="#6b7280" font-family="sans-serif">${t}</text></svg>`);
+      if (!D.pre) D.pre = [
+        { id: 3, no: 'PR-00003', customer_id: 1, shop: 'Lucky Phone Shop', who: 'Dara @luckyphone_pp', phone: '012 345 111', province: 'Phnom Penh', rep: 'Chhin Kimlong', link: 'https://m.tb.cn/h.gHjK123', title: '65W 氮化镓充电器快充', photo: ph('screenshot'), options: 'White, EU plug', qty: 20, note: 'Need before Khmer New Year', status: 'new', created_at: ago(25), events: [{ status: 'new', at: ago(25) }] },
+        { id: 2, no: 'PR-00002', customer_id: 3, shop: 'Star Mobile', who: 'Vuthy', phone: '015 888 999', province: 'Phnom Penh', rep: 'Chhin Kimlong', link: 'https://item.taobao.com/item.htm?id=6543210', title: '磁吸无线充电宝 10000mAh', photo: ph('power bank'), options: 'Black', qty: 10, status: 'paid_check', price_each: 11.5, total: 115, eta_days: 12, cost_cny: 58, pay_photo: ph('ABA receipt'), created_at: ago(3000), events: [{ status: 'new', at: ago(3000) }, { status: 'quoted', at: ago(2800) }, { status: 'accepted', at: ago(200) }, { status: 'paid_check', at: ago(90) }] },
+        { id: 1, no: 'PR-00001', customer_id: 2, shop: 'Mony Shop', who: 'Mony', phone: '017 222 333', province: 'Phnom Penh', rep: 'Sokha Chan', link: 'https://detail.tmall.com/item.htm?id=778899', title: 'iPhone 16 手机壳 透明', photo: ph('case'), options: 'Clear, iPhone 16', qty: 50, status: 'shipping', price_each: 1.1, total: 55, eta_days: 14, cost_cny: 3.2, paid_amount: 55, created_at: ago(9000), events: [{ status: 'new', at: ago(9000) }, { status: 'paid', at: ago(7000) }, { status: 'bought', at: ago(6000) }, { status: 'shipping', at: ago(3000) }] }];
+      return wait(clone(D.pre)); },
+    async preorderUpdate(id, p) {
+      if (!isBoss()) fail('Only the admin or a manager can change pre-orders');
+      const r = (D.pre || []).find(x => x.id === id); if (!r) fail('Pre-order not found');
+      const a = p.action, map = { quote: 'quoted', reject: 'rejected', paid: 'paid', pay_again: 'accepted', bought: 'bought', shipping: 'shipping', arrived: 'arrived', delivered: 'delivered', cancel: 'cancelled' };
+      if (a === 'quote') { if (!(+p.price_each > 0)) fail('Write the price for one piece'); Object.assign(r, { price_each: +p.price_each, total: Math.round(p.price_each * r.qty * 100) / 100, eta_days: p.eta_days ? +p.eta_days : null, cost_cny: p.cost_cny ? +p.cost_cny : r.cost_cny }); }
+      if (a === 'paid') r.paid_amount = +p.paid_amount || r.total;
+      if (p.admin_note) r.admin_note = p.admin_note;
+      r.status = map[a]; (r.events = r.events || []).push({ status: r.status, at: new Date().toISOString() }); save(); return wait(clone(r)); },
+    async preorderCounts() { if (!isBoss()) return wait({}); const l = D.pre || (await this.preorderList(), D.pre);
+      return wait({ new: l.filter(x => x.status === 'new').length, pay: l.filter(x => x.status === 'paid_check').length }); },
+    async shopRewardsAdmin() {
+      if (!isBoss()) fail('Only the admin or a manager can see rewards');
+      if (!D.rewards) D.rewards = { paid: {}, hist: [{ at: ago(60 * 20), shop: 'Lucky Phone Shop', kind: 'earned', amount: 32, note: '⭐ Money back 2% for buying $1,600.00 in Aug 2026' },
+        { at: ago(60 * 30), shop: 'Star Mobile', kind: 'earned', amount: 18.5, note: '⭐ Money back 5% for buying $370.00 in Jun–Aug 2026' }] };
+      const shops = [['Lucky Phone Shop', 1, 32, 'Chhin Kimlong'], ['Star Mobile', 3, 18.5, 'Chhin Kimlong']].map(([shop, id, e, rep]) => ({ customer_id: id, shop, rep, earned: e, used: 0, paid_out: D.rewards.paid[id] || 0, balance: e - (D.rewards.paid[id] || 0) }));
+      return wait(clone({ shops, history: D.rewards.hist })); },
+    async shopRewardPayout(cid) { await this.shopRewardsAdmin(); const x = { 1: ['Lucky Phone Shop', 32], 3: ['Star Mobile', 18.5] }[cid]; D.rewards.paid[cid] = x[1];
+      D.rewards.hist.unshift({ at: new Date().toISOString(), shop: x[0], kind: 'paid_out', amount: -x[1], note: 'Paid in cash / bank', by: me.full_name }); save(); return wait(x[1]); },
+    async shopRewardsCheck() { if (!isBoss()) fail('Only the admin or a manager can do this'); return wait(0); },
+    async shopAnnounceInfo() { return wait({ can_message: 3, shops: 3, linked: 5, ready: true, open_link: 'https://t.me/ktronics_bot/shop', last: D.announces || null }); },
+    async shopAnnounce(text) { if (!String(text || '').trim()) fail('Write the message'); D.announces = [{ body: text.slice(0, 120), sent_to: 3, at: new Date().toISOString(), by: 'Mr. Lee' }].concat(D.announces || []).slice(0, 5); save(); return wait(3); },
+    async shopChangeList(cid) {
+      if (!allow('customers.approve')) return wait([]);
+      if (!D.shopChanges) { D.shopChanges = [{ id: 1, customer_id: 1, tg_name: 'Dara', tg_username: 'luckyphone_pp', status: 'pending', created_at: ago(35),
+        old: { owner: D.customers[0].owner_name, phone: D.customers[0].phone, area: D.customers[0].area || null, lat: D.customers[0].lat, lng: D.customers[0].lng },
+        new: { owner: D.customers[0].owner_name, phone: '015 888 222', area: (D.customers[0].area || 'Orussey Market') + ', stall 12', lat: 11.5571, lng: 104.9165 } }]; save(); }
+      return wait(clone(D.shopChanges.filter(r => r.status === 'pending' && (cid == null || r.customer_id === cid)).map(r => { const c = D.customers.find(x => x.id === r.customer_id) || {};
+        return Object.assign({}, r, { shop: c.name, province: c.province, rep: (D.users.find(u => u.id === c.assigned_to) || {}).full_name || null }); }))); },
+    async shopChangeDecide(id, ok) {
+      if (!allow('customers.approve')) fail('You are not allowed to approve shop changes');
+      const r = (D.shopChanges || []).find(x => x.id === id); if (!r || r.status !== 'pending') fail('This request was already handled');
+      if (ok) { const c = D.customers.find(x => x.id === r.customer_id); Object.assign(c, { owner_name: r.new.owner, phone: r.new.phone, area: r.new.area }); if (r.new.lat != null) Object.assign(c, { lat: r.new.lat, lng: r.new.lng }); }
+      r.status = ok ? 'approved' : 'rejected'; save(); return wait(null); },
     async shopUnlink(tg) { D.shopTg = (D.shopTg || []).filter(u => u.tg_user_id !== tg); save(); return wait(null); },
     async shopAdminStatus() { if (role() !== 'admin') fail('Only the admin can see this'); const mon = new Date(); mon.setDate(1); mon.setHours(0, 0, 0, 0);
       const tgo = D.orders.filter(o => o.source === 'telegram' && new Date(o.created_at) >= mon);
@@ -1901,7 +2051,8 @@ window.makeDemoApi = function () {
         warehouses: D.warehouses.filter(w => !w.rep_id).map(w => ({ id: w.id, name: w.name })), warehouse: +(D.settings || {}).shop_warehouse || (D.warehouses.find(w => !w.rep_id) || {}).id }); },
     async shopSetMenu() { if (!(D.tg || {}).token) fail('Connect the Telegram bot first (Settings → Telegram alerts)'); D.tg.last = { ok: true }; return wait(9); },
     async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
-      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)) }); },
+      return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)),
+        reps: D.users.filter(u => u.active && u.role === 'sales').map(u => ({ name: u.full_name, telegram: !!(D.stg || {})[u.id] })) }); },
     async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; tk = (tk || '').trim();
       if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
       if (!/^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/.test(tk)) fail('That does not look like a bot token. It looks like 1234567890:AAH... (numbers, a colon, then letters).');
@@ -3218,7 +3369,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 // Telegram shop, staff side: invite link + QR for a shop, linked Telegram users, "Telegram" badge on orders, product photos.
 (function () {
   const K = window.KT;
-  const { api, esc, $, $$, toast, busy } = K;
+  const { api, esc, money, $, $$, toast, busy } = K;
   const ago = t => { if (!t) return 'never'; const d = Math.floor((Date.now() - new Date(t)) / 86400000); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago'; };
 
   K.tgBadge = o => o && o.source === 'telegram' ? '<span class="pill bl" title="Ordered by the shop in the Telegram shop">🛒 Telegram</span>' : '';
@@ -3259,6 +3410,217 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const copy = async () => { try { await navigator.clipboard.writeText(msg); toast('Message copied'); return true; } catch (e) { toast('Could not copy. Press and hold the link to copy it.'); return false; } };
     $('#icp', s.el).onclick = copy;
     if ($('#itg', s.el)) $('#itg', s.el).addEventListener('click', () => { copy(); });
+  };
+
+  // a shop asked in the Telegram shop to change its details: show old → new, approve or reject (people with "Approve new shops")
+  K.shopChangesCard = function (el, list, after) {
+    if (!el) return;
+    if (!list || !list.length) { el.innerHTML = ''; return; }
+    const map = (la, ln) => `https://maps.google.com/?q=${la},${ln}`;
+    const row = (k, o, n) => (o || '') === (n || '') ? '' : `<div class="row small" style="gap:6px;flex-wrap:wrap;align-items:baseline"><span class="muted" style="min-width:92px">${k}</span><s class="muted">${esc(o || '—')}</s><span>→</span><b>${esc(n || '—')}</b></div>`;
+    el.innerHTML = list.map(r => `<div class="card" style="border-color:#F3D2A8;background:var(--ors);gap:8px">
+      <div class="row"><b class="grow">✏️ ${esc(r.shop)} wants to change its details</b><span class="pill or">Waiting</span></div>
+      <div class="small muted">From the Telegram shop · ${esc(r.tg_name || 'Telegram user')}${r.tg_username ? ' @' + esc(r.tg_username) : ''} · ${esc(K.when(r.created_at))}${r.rep ? ' · Sales rep: ' + esc(r.rep) : ''}</div>
+      ${row('Owner', r.old.owner, r.new.owner)}${row('Phone', r.old.phone, r.new.phone)}${row('Market / area', r.old.area, r.new.area)}
+      ${r.new.lat != null ? `<div class="row small" style="gap:6px"><span class="muted" style="min-width:92px">GPS</span><a href="${map(r.new.lat, r.new.lng)}" target="_blank" rel="noopener"><b>new location</b></a>${r.old.lat != null ? `<span class="muted">(old: <a href="${map(r.old.lat, r.old.lng)}" target="_blank" rel="noopener">map</a>)</span>` : ''}</div>` : ''}
+      <div class="small" style="color:var(--or);font-weight:700">⚠️ Call the shop on the phone number you already have to check it was really them, then approve.</div>
+      <input class="inp" data-cnote="${r.id}" placeholder="Note to the shop if you reject (optional)">
+      <div class="btns" style="margin:0"><button class="btn red sm" data-cdec="${r.id}" data-ok="0">Reject</button><button class="btn green sm" data-cdec="${r.id}" data-ok="1">✓ Approve change</button></div></div>`).join('');
+    $$('[data-cdec]', el).forEach(b => b.onclick = async () => {
+      const ok = b.dataset.ok === '1', n = $(`[data-cnote="${b.dataset.cdec}"]`, el);
+      await busy(b, () => api.shopChangeDecide(+b.dataset.cdec, ok, n ? n.value.trim() : ''));
+      toast(ok ? 'Approved. The shop details are updated' : 'Rejected. The shop was told in Telegram');
+      if (after) after(ok);
+    });
+  };
+  K.shopChangesSheet = async function (after) {
+    const list = await api.shopChangeList(null);
+    const s = K.sheet('Shop changes to approve', '<div id="chgl" style="display:flex;flex-direction:column;gap:10px"></div>');
+    const draw = l => { if (!l.length) { s.close(); if (after) after(); return; } K.shopChangesCard(s.el.querySelector('#chgl'), l, async () => { K.forget && K.forget('customers'); draw(await api.shopChangeList(null)); }); };
+    draw(list);
+  };
+
+  // ---------- promotions for the Telegram shop (admin and managers) ----------
+  K.PROMOS = {};
+  K.loadPromos = async () => { try { return await api.listPromotions(); } catch (e) { return []; } };
+  const $$m = v => money(v).replace('.00', '');
+  const off = m => m.disc_pct != null ? (+m.disc_pct) + '% off' : m.disc_amt != null ? $$m(m.disc_amt) + ' off' : '';
+  const offKm = m => m.disc_pct != null ? 'បញ្ចុះ ' + (+m.disc_pct) + '%' : m.disc_amt != null ? 'បញ្ចុះ ' + $$m(m.disc_amt) : '';
+  const KINDS = [
+    ['free_same', '🎁', 'Buy X, get the same item free', 'e.g. buy 10 chargers, get 1 charger free'],
+    ['flash', '🔥', 'Sale price for a time', 'e.g. 65W charger $12 → $10.50 until Sunday'],
+    ['gift', '🎀', 'Buy X, get another item free', 'e.g. buy 10 chargers, get 5 cables free'],
+    ['order_discount', '💰', 'Discount on big orders', 'e.g. 3% off orders over $200'],
+    ['free_delivery', '🚚', 'Free delivery over an amount', 'e.g. free delivery in Phnom Penh over $50'],
+    ['first_order', '🆕', 'First order gift or discount', 'for a shop\'s first order in the Telegram shop'],
+    ['loyalty', '⭐', 'Money back for buying a lot', 'e.g. buy $1,500 in a month → 2% back · or in 3 months → 5% back']];
+  K.PROMO_KINDS = KINDS;
+  K.promoIcon = m => (KINDS.find(k => k[0] === (m.kind || 'free_same')) || KINDS[0])[1];
+  K.promoText = m => ({
+    free_same: () => `Buy ${m.buy_qty} get ${m.free_qty} free`,
+    flash: () => `Sale ${money(m.sale_price)} (normal ${money(m.price)})`,
+    gift: () => `Buy ${m.buy_qty} → ${m.gift_qty} × ${m.gift_product || 'gift'} free`,
+    order_discount: () => `${off(m)} orders over ${$$m(m.min_total)}`,
+    free_delivery: () => `Free delivery${m.area ? ' ' + m.area : ''} for orders over ${$$m(m.min_total)}`,
+    first_order: () => `First order: ${[off(m), m.gift_product_id ? m.gift_qty + ' × ' + (m.gift_product || 'gift') + ' free' : ''].filter(Boolean).join(' + ')}${+m.min_total ? ' (over ' + $$m(m.min_total) + ')' : ''}`,
+    loyalty: () => `Buy ${$$m(m.min_total)} ${(m.period_months || 1) > 1 ? 'in ' + m.period_months + ' months' : 'in a month'} → ${m.disc_pct != null ? (+m.disc_pct) + '%' : $$m(m.disc_amt)} back`
+  }[m.kind || 'free_same'] || (() => ''))();
+  K.promoKm = m => ({
+    free_same: () => `${m.product}: ទិញ ${m.buy_qty} ថែម ${m.free_qty}`,
+    flash: () => `${m.product}: តម្លៃពិសេស ${money(m.sale_price)} (ធម្មតា ${money(m.price)})`,
+    gift: () => `${m.product}: ទិញ ${m.buy_qty} ថែម ${m.gift_product} ${m.gift_qty}`,
+    order_discount: () => `បញ្ជាទិញលើស ${$$m(m.min_total)} ${offKm(m)}`,
+    free_delivery: () => `ដឹកជញ្ជូនឥតគិតថ្លៃ${m.area ? ' ' + m.area : ''} ពេលបញ្ជាទិញលើស ${$$m(m.min_total)}`,
+    first_order: () => `ការបញ្ជាទិញលើកដំបូង ${[offKm(m), m.gift_product_id ? 'ថែម ' + m.gift_product + ' ' + m.gift_qty : ''].filter(Boolean).join(' + ')}`,
+    loyalty: () => `ទិញសរុប ${$$m(m.min_total)} ក្នុងរយៈពេល ${m.period_months || 1} ខែ ទទួលប្រាក់វិញ ${m.disc_pct != null ? (+m.disc_pct) + '%' : $$m(m.disc_amt)}`
+  }[m.kind || 'free_same'] || (() => ''))();
+  const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+  // a two-column (English | Khmer) block of text boxes; rows = [[key, label, placeholderEn, placeholderKm, long]]
+  const wordsGrid = (rows, cur, pre) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;align-items:end">
+      <b class="small">English</b><b class="small">ខ្មែរ</b>
+      ${rows.map(([k, lbl, pe, pk, long]) => ['en', 'km'].map(l => { const id = pre + k + '_' + l, v = esc((cur || {})[k + '_' + l] || ''), ph = esc(l === 'en' ? pe : pk);
+        return `<label class="f" style="margin:0">${l === 'en' ? esc(lbl) : '&nbsp;'}${long ? `<textarea class="inp" id="${id}" rows="2" maxlength="300" placeholder="${ph}">${v}</textarea>` : `<input class="inp" id="${id}" maxlength="${/badge|word/.test(k) ? 16 : 90}" value="${v}" placeholder="${ph}">`}</label>`; }).join('')).join('')}</div>`;
+  const readWords = (el, rows, pre) => { const o = {}; rows.forEach(([k]) => ['en', 'km'].forEach(l => { const e = $('#' + pre + k + '_' + l, el); if (e && e.value.trim()) o[k + '_' + l] = e.value.trim(); })); return o; };
+  K.promoPageSheet = async function () {
+    const cur = await api.promoPageGet().catch(() => ({})) || {};
+    const rows = [['kicker', 'Banner: small line', 'DEALS FOR YOU', 'ការផ្តល់ជូនសម្រាប់អ្នក'], ['title', 'Banner: big title', 'Save more on every order', 'សន្សំបានច្រើនលើគ្រប់ការបញ្ជាទិញ'],
+      ['sub', 'Banner: text', 'Free items and discounts are added in your cart by themselves.', 'ទំនិញថែម និងការបញ្ចុះតម្លៃ ត្រូវបានបញ្ចូលក្នុងកន្ត្រកដោយស្វ័យប្រវត្តិ។', true],
+      ['offers', 'Heading: offers', 'Offers for you', 'ការផ្តល់ជូនសម្រាប់អ្នក'], ['sale', 'Heading: sale products', 'Sale price', 'តម្លៃពិសេស'],
+      ['free', 'Heading: buy & get free', 'Buy more, get free', 'ទិញ ថែមឥតគិតថ្លៃ'], ['gift', 'Heading: free gift', 'Free gift', 'ទិញ ថែមអំណោយ']];
+    const s = K.sheet('✏️ Promotions page words', `<div class="small muted" style="line-height:1.6">The words at the top of the shop's <b>Promotions</b> page. Leave a box empty to keep the shop's own words (shown in grey).</div>
+      ${wordsGrid(rows, cur, 'pg_')}<button class="btn block" id="pgok">Save words</button>`);
+    $('#pgok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.promoPageSave(readWords(s.el, rows, 'pg_'))); s.close(); toast('Saved. Shops see the new words next time they open the shop'); };
+  };
+  K.promosSheet = async function (products, onDone) {
+    const s = K.sheet('🎁 Promotions (Telegram shop)', '<div id="prl">' + K.loading + '</div>');
+    const today = new Date().toISOString().slice(0, 10), act = products.filter(p => p.active !== false);
+    const draw = async () => {
+      const list = await K.loadPromos(), el = $('#prl', s.el); if (!el) return;
+      const pill = st => st === 'running' ? '<span class="pill gr">Running</span>' : st === 'upcoming' ? '<span class="pill bl">Starts later</span>' : '<span class="pill gy">Ended</span>';
+      el.innerHTML = `<div class="small muted" style="line-height:1.6">Promotions show <b>only in the Telegram shop</b> and are worked out by themselves in the shop's cart and order. Only the admin and managers can see and change them.
+          When an order gets more than one discount (big order, first order), only the biggest one is given.</div>
+        <div class="btns" style="margin:0"><button class="btn" id="prnew">＋ New promotion</button><button class="btn out" id="prann">📣 Announce to shops</button><button class="btn out" id="prrw">⭐ Rewards earned</button><button class="btn out" id="prpg">✏️ Page words</button></div>
+        ${list.length ? list.map(m => `<div class="card" style="gap:6px;${m.state === 'ended' ? 'opacity:.65' : ''}"><div class="row"><b class="grow">${K.promoIcon(m)} ${esc(m.product || (KINDS.find(k => k[0] === m.kind) || [])[2] || '')}</b>${pill(m.state)}</div>
+            <div class="row small"><b style="color:var(--p)">${esc(K.promoText(m))}</b><span class="muted">· ${esc(fmtD(m.starts_on))} → ${m.ends_on ? esc(fmtD(m.ends_on)) : 'no end date'}</span></div>
+            ${m.note || +m.given ? `<div class="small muted">${m.note ? esc(m.note) : ''}${+m.given ? (m.note ? ' · ' : '') + m.given + ' given free so far' : ''}</div>` : ''}
+            ${m.state !== 'ended' ? `<div class="btns" style="margin:0"><button class="btn sm out" data-pre="${m.id}">Edit</button><button class="btn sm out red" data-prx="${m.id}">End now</button></div>` : `<div class="btns" style="margin:0"><button class="btn sm out" data-pre="${m.id}">Run again</button><button class="btn sm out red" data-prd="${m.id}">🗑 Delete</button></div>`}</div>`).join('')
+          : '<div class="empty">No promotions yet</div>'}`;
+      $('#prnew', el).onclick = () => chooseKind();
+      $('#prann', el).onclick = () => K.announceSheet(list.filter(m => m.state === 'running'));
+      $('#prrw', el).onclick = () => K.rewardsSheet();
+      $('#prpg', el).onclick = () => K.promoPageSheet();
+      $$('[data-pre]', el).forEach(b => b.onclick = () => { const m = list.find(x => x.id === +b.dataset.pre); form(m.state === 'ended' ? Object.assign({}, m, { id: null, starts_on: today, ends_on: null }) : m); });
+      $$('[data-prd]', el).forEach(b => b.onclick = async () => { const m = list.find(x => x.id === +b.dataset.prd);
+        if (!(await K.confirmSheet('Delete this promotion?', (m.kind === 'loyalty' ? 'Money back already given to shops stays with them. ' : '') + 'It is removed from this list. Orders that used it do not change.', 'Delete', true))) return;
+        await busy(b, () => api.promoDelete(m.id)); toast('Promotion deleted'); draw(); });
+      $$('[data-prx]', el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('End this promotion now?', 'Shops will not get it from now on.', 'End now', true))) return; await busy(b, () => api.promoEnd(+b.dataset.prx)); toast('Promotion ended'); draw(); if (onDone) onDone(); });
+    };
+    const chooseKind = () => {
+      const c = K.sheet('What kind of promotion?', `<div style="display:flex;flex-direction:column;gap:8px">${KINDS.map(([k, ic, t, ex]) => `<button class="card" data-kind="${k}" style="text-align:left;font:inherit;color:inherit;cursor:pointer;gap:2px"><b>${ic} ${esc(t)}</b><span class="small muted">${esc(ex)}</span></button>`).join('')}</div>`);
+      $$('[data-kind]', c.el).forEach(b => b.onclick = () => { c.close(); form({ kind: b.dataset.kind }); });
+    };
+    // grey examples = what the shop shows by itself for this promotion
+    const TXROWS = (k, m) => { m = m || {}; const prod = ['free_same', 'flash', 'gift'].includes(k);
+      const big = m.disc_pct != null ? (+m.disc_pct) + '%' : m.disc_amt != null ? $$m(m.disc_amt) : '';
+      const en = K.promoText(Object.assign({ kind: k }, m)).replace(/^First order: /, ''), km = K.promoKm(Object.assign({ kind: k, product: m.product || '' }, m)).replace(/^[^:]*: /, '');
+      const auto = { free_same: [en, km, 'FREE', 'ឥតគិតថ្លៃ'], flash: ['Sale', 'តម្លៃពិសេស', m.price && m.sale_price ? '−' + Math.round((1 - m.sale_price / m.price) * 100) + '%' : '−10%', ''], gift: [en, km, 'GIFT', 'អំណោយ'],
+        order_discount: ['Big orders', 'បញ្ជាទិញច្រើន', big || '3%', big || '3%', 'OFF', 'បញ្ចុះ', en, km],
+        free_delivery: ['Free delivery', 'ដឹកជញ្ជូនឥតគិតថ្លៃ', 'FREE', 'ឥតគិតថ្លៃ', 'DELIVERY', 'ដឹកជញ្ជូន', en, km],
+        first_order: ['Your first order', 'ការបញ្ជាទិញលើកដំបូង', big || 'FREE', big || 'ឥតគិតថ្លៃ', big ? 'OFF' : 'GIFT', big ? 'បញ្ចុះ' : 'អំណោយ', en, km],
+        loyalty: ['Money back · ' + ((m.period_months || 1) > 1 ? m.period_months + ' months' : 'this month'), 'ប្រាក់ត្រឡប់វិញ', big || '2%', big || '2%', 'BACK', 'ត្រឡប់វិញ', en, km] }[k];
+      auto[3] = auto[3] || auto[2];
+      return prod ? [['title', 'Title (on the product card)', auto[0], auto[1]], ['badge', 'Badge on the photo', auto[2], auto[3]]]
+        : [['title', 'Title', auto[0], auto[1]], ['desc', 'Description', auto[6], auto[7], true], ['badge', 'Badge (big)', auto[2], auto[3]], ['word', 'Badge word (small)', auto[4], auto[5]]]; };
+    const form = m => {
+      const k = m.kind || 'free_same', K1 = KINDS.find(x => x[0] === k);
+      const prodSel = (id, cur, lbl) => `<label class="f">${lbl}<select class="inp" id="${id}">${cur ? '' : '<option value="">Choose a product…</option>'}${act.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)} · ${money(p.price)}</option>`).join('')}</select></label>`;
+      const num = (id, lbl, v, step) => `<label class="f">${lbl}<input class="inp" id="${id}" type="number" inputmode="decimal" min="0" ${step ? 'step="' + step + '"' : ''} value="${v == null ? '' : esc(v)}"></label>`;
+      const discF = opt => `<div class="btns"><label class="f">Discount${opt ? ' (optional)' : ''}<select class="inp" id="dt"><option value="pct" ${m.disc_amt == null ? 'selected' : ''}>% of the order</option><option value="amt" ${m.disc_amt != null ? 'selected' : ''}>$ amount</option></select></label>${num('dv', 'How much', m.disc_amt != null ? m.disc_amt : m.disc_pct, '0.01')}</div>`;
+      const body = {
+        free_same: () => prodSel('pp', m.product_id, 'Product') + `<div class="btns">${num('pb', 'Buy (how many)', m.buy_qty || 10)}${num('pf', 'Get free (same item)', m.free_qty || 1)}</div>`,
+        flash: () => prodSel('pp', m.product_id, 'Product') + num('sp', 'Sale price ($)', m.sale_price, '0.01') + '<div class="small muted" id="spn"></div>',
+        gift: () => prodSel('pp', m.product_id, 'When the shop buys') + num('pb', 'How many', m.buy_qty || 10) + prodSel('gp', m.gift_product_id, 'They get free') + num('gq', 'How many free', m.gift_qty || 1),
+        order_discount: () => num('mt', 'For orders over ($)', m.min_total || 200, '0.01') + discF(false),
+        free_delivery: () => num('mt', 'For orders over ($)', m.min_total || 50, '0.01') + `<label class="f">Where (optional, shops see it)<input class="inp" id="ar" maxlength="80" value="${esc(m.area || '')}" placeholder="e.g. in Phnom Penh"></label><div class="small muted">The shop sees "Add $12 more for free delivery". The order is marked 🚚 Free delivery for your team.</div>`,
+        first_order: () => discF(true) + `<label class="row small" style="gap:8px"><input type="checkbox" id="fg" ${m.gift_product_id ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--p)">Also give a free gift</label><div id="fgb" style="display:${m.gift_product_id ? 'flex' : 'none'};flex-direction:column;gap:10px">${prodSel('gp', m.gift_product_id, 'Gift')}${num('gq', 'How many', m.gift_qty || 1)}</div>` + num('mt', 'Only for first orders over ($, optional)', m.min_total, '0.01') + '<div class="small muted">A shop\'s first order in the Telegram shop, when it has never ordered before (shops your reps already sell to don\'t count as new).</div>',
+        loyalty: () => `<div class="btns"><label class="f">Count the shop's buying<select class="inp" id="pm">${[[1, 'every month'], [2, 'every 2 months'], [3, 'every 3 months']].map(([n, l]) => `<option value="${n}" ${(m.period_months || 1) === n ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${num('mt', 'Bought at least ($)', m.min_total || 1500, '0.01')}</div>`
+          + `<div class="btns"><label class="f">Money back<select class="inp" id="dt"><option value="pct" ${m.disc_amt == null ? 'selected' : ''}>% of what they bought</option><option value="amt" ${m.disc_amt != null ? 'selected' : ''}>$ amount</option></select></label>${num('dv', 'How much', m.disc_amt != null ? m.disc_amt : m.disc_pct, '0.01')}</div>`
+          + '<div class="small muted" style="line-height:1.6">Periods start from the start month: e.g. start in September → every 3 months = Sep–Nov, then Dec–Feb. At the end of each period, shops that bought enough (all their approved orders, also from sales reps) get the money back as <b>reward credit</b>: it is taken off their next Telegram order, or you pay it in cash from <b>⭐ Rewards earned</b>. The shop is told in Telegram and sees its progress in the shop. A 2- or 3-month reward is only for shops that got <b>no monthly reward</b> in those months.</div>'
+      }[k]();
+      const f = K.sheet((m.id ? 'Edit: ' : '') + K1[1] + ' ' + K1[2], `${body}
+        <div class="small" id="pex" style="color:var(--p);font-weight:700"></div>
+        <div class="btns"><label class="f">Starts<input class="inp" id="ps" type="date" value="${esc(m.starts_on || today)}"></label><label class="f">Ends (optional)<input class="inp" id="pe" type="date" value="${esc(m.ends_on || '')}"></label></div>
+        <label class="f">Note (optional, for your team)<input class="inp" id="pn" maxlength="200" value="${esc(m.note || '')}" placeholder="e.g. October promotion"></label>
+        <details class="card" style="background:var(--bg);gap:10px" ${m.texts ? 'open' : ''}><summary style="cursor:pointer;font-weight:700">✏️ Words shops see (optional)</summary>
+          <div class="small muted" style="line-height:1.6">Write your own words for this promotion in the shop. Leave a box empty to keep the shop's automatic words (shown in grey). ${['free_same', 'flash', 'gift'].includes(k) ? 'The <b>title</b> shows on the product card; the <b>badge</b> is the small label on the photo (e.g. −11%, FREE).' : 'The <b>badge</b> is the big word on the left of the coupon (e.g. 2%, FREE) and the <b>badge word</b> is under it (e.g. BACK, OFF).'}</div>
+          ${wordsGrid(TXROWS(k, m), m.texts, 'tx_')}</details>
+        <button class="btn block" id="pok">Save promotion</button>`);
+      const v = id => { const e = $('#' + id, f.el); return e ? e.value : ''; }, n = id => v(id) === '' ? null : +v(id);
+      const read = () => { const p = { kind: k, product_id: n('pp'), buy_qty: n('pb'), free_qty: n('pf'), sale_price: n('sp'), gift_product_id: n('gp'), gift_qty: n('gq'), min_total: n('mt'), area: v('ar').trim(), pay_days: n('pd'),
+          period_months: n('pm'), starts_on: v('ps'), ends_on: v('pe') || null, note: v('pn').trim(), texts: readWords(f.el, TXROWS(k, m), 'tx_') };
+        if ($('#dt', f.el)) { const dv = n('dv'); p.disc_pct = v('dt') === 'pct' ? dv : null; p.disc_amt = v('dt') === 'amt' ? dv : null; }
+        if (k === 'first_order' && !$('#fg', f.el).checked) { p.gift_product_id = null; p.gift_qty = null; }
+        const pr = act.find(x => x.id === p.product_id), gp = act.find(x => x.id === p.gift_product_id);
+        return Object.assign(p, { product: pr && pr.name, price: pr && pr.price, gift_product: gp && gp.name }); };
+      const ex = () => { const p = read(); $('#pex', f.el).textContent = (k === 'free_same' && p.buy_qty && p.free_qty) ? `🎁 Buy ${p.buy_qty} → ${p.free_qty} free · buy ${p.buy_qty * 2} → ${p.free_qty * 2} free · buy ${p.buy_qty * 3} → ${p.free_qty * 3} free`
+          : (k === 'flash' && p.sale_price && p.price) ? `🔥 ${money(p.price)} → ${money(p.sale_price)} (${Math.round((1 - p.sale_price / p.price) * 100)}% less)` : (p.product || !['free_same', 'flash', 'gift'].includes(k)) ? K.promoIcon(p) + ' ' + K.promoText(p) : ''; };
+      $$('input,select', f.el).forEach(e => { e.addEventListener('input', ex); e.addEventListener('change', ex); });
+      if ($('#fg', f.el)) $('#fg', f.el).onchange = () => { $('#fgb', f.el).style.display = $('#fg', f.el).checked ? 'flex' : 'none'; ex(); };
+      ex();
+      $('#pok', f.el).onclick = async e => {
+        const p = read(); ['product', 'price', 'gift_product'].forEach(x => delete p[x]);
+        if (['free_same', 'flash', 'gift'].includes(k) && !p.product_id) return toast('Choose a product');
+        await busy(e.currentTarget, () => api.promoSave(m.id || null, p)); f.close(); toast('Promotion saved'); draw(); if (onDone) onDone();
+      };
+    };
+    draw();
+  };
+  // ⭐ money back: which shops have reward credit, pay it out in cash, history
+  K.rewardsSheet = async function () {
+    const s = K.sheet('⭐ Rewards earned (money back)', '<div id="rwl">' + K.loading + '</div>');
+    const KIND = { earned: '⭐ Earned', used: '🛒 Used on order', back: '↩️ Given back (order cancelled)', paid_out: '💵 Paid in cash' };
+    const draw = async () => {
+      let d; try { d = await api.shopRewardsAdmin(); } catch (e) { $('#rwl', s.el).innerHTML = `<div class="small" style="color:var(--rd)">${esc(e.message)}</div>`; return; }
+      const el = $('#rwl', s.el); if (!el) return;
+      const withBal = d.shops.filter(x => +x.balance > 0);
+      el.innerHTML = `<div class="small muted" style="line-height:1.6">Rewards are worked out every night when a period ends. A shop's reward credit is taken off its next Telegram order by itself, or you can pay it in cash here.</div>
+        <div class="btns" style="margin:0"><button class="btn sm out" id="rwchk">Check now</button></div>
+        <b>Shops with reward credit (${withBal.length} · ${money(withBal.reduce((a, x) => a + +x.balance, 0))})</b>
+        ${withBal.length ? withBal.map(x => `<div class="card" style="gap:4px"><div class="row"><b class="grow">${esc(x.shop)}</b><b style="color:var(--gr)">${money(x.balance)}</b></div>
+            <div class="small muted">Earned ${money(x.earned)} · used ${money(x.used)} · paid ${money(x.paid_out)}${x.rep ? ' · Sales rep: ' + esc(x.rep) : ''}</div>
+            <div class="btns" style="margin:0"><button class="btn sm out" data-rwpay="${x.customer_id}" data-amt="${x.balance}" data-nm="${esc(x.shop)}">💵 Paid ${money(x.balance)} in cash</button></div></div>`).join('') : '<div class="empty">No shop has reward credit now</div>'}
+        ${d.history.length ? `<b>History</b><div class="card flush">${d.history.map(h => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(h.shop)} · ${esc(KIND[h.kind] || h.kind)}</div>
+            <div class="st">${esc(K.when(h.at))}${h.order_no ? ' · ' + esc(h.order_no) : ''}${h.note ? ' · ' + esc(h.note) : ''}${h.by ? ' · ' + esc(h.by) : ''}</div></div><b style="color:${+h.amount > 0 ? 'var(--gr)' : 'var(--mu)'}">${+h.amount > 0 ? '+' : ''}${money(h.amount)}</b></div>`).join('')}</div>` : ''}`;
+      $('#rwchk', el).onclick = async e => { const n = await busy(e.currentTarget, () => api.shopRewardsCheck()); toast(n ? n + ' new reward' + (n > 1 ? 's' : '') : 'Nothing new. Rewards are given when a period ends'); draw(); };
+      $$('[data-rwpay]', el).forEach(b => b.onclick = async () => {
+        if (!(await K.confirmSheet('Paid ' + money(b.dataset.amt) + ' to ' + b.dataset.nm + '?', 'Their reward credit becomes $0, so it is not taken off their next order.', 'Yes, paid'))) return;
+        await busy(b, () => api.shopRewardPayout(+b.dataset.rwpay, 'Paid in cash / bank')); toast('Saved'); draw(); });
+    };
+    draw();
+  };
+  // send a message (and a photo) to the shops in the Telegram shop
+  K.announceSheet = async function (running) {
+    let info; try { info = await api.shopAnnounceInfo(); } catch (e) { return toast(e.message); }
+    if (!running) running = (await K.loadPromos()).filter(m => m.state === 'running');
+    const draft = running.length ? '🔥 ប្រូម៉ូសិនពី K-TRONiCS · Promotion from K-TRONiCS\n\n' + running.map(m => `${K.promoIcon(m)} ${K.promoKm(m)}\n     ${m.product ? m.product + ': ' : ''}${K.promoText(m)}${m.ends_on ? ' (until ' + fmtD(m.ends_on) + ')' : ''}`).join('\n') + '\n\nចុចប៊ូតុងខាងក្រោមដើម្បីបញ្ជាទិញ · Tap the button below to order 👇' : '';
+    let photo = null;
+    const s = K.sheet('📣 Announce to shops', `
+      <div class="small" style="line-height:1.6">Goes to <b>${info.can_message} people</b> (${info.shops} shops) in Telegram: the shops that turned on order updates.${info.linked > info.can_message ? ` <span class="muted">${info.linked - info.can_message} more people use the shop but did not allow messages; they see promotions when they open the shop.</span>` : ''}</div>
+      ${info.ready ? '' : '<div class="small" style="color:var(--rd)">Connect the Telegram bot first (Settings → Telegram alerts).</div>'}
+      <label class="f">Message<textarea class="inp" id="am" rows="8" maxlength="3500" style="min-height:190px">${esc(draft)}</textarea></label>
+      <div class="row" style="gap:10px"><div id="apv" style="width:64px;height:64px;border-radius:12px;background:var(--bg);border:1px solid var(--line);overflow:hidden;display:flex;align-items:center;justify-content:center;flex:none">📷</div>
+        <button type="button" class="btn sm out" id="apb">Add a photo (optional)</button><input type="file" id="apf" accept="image/*" hidden></div>
+      <label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" id="abt" checked style="width:18px;height:18px;accent-color:var(--p)">Add a <b>🛒 Open the shop</b> button (opens the promotions)</label>
+      ${info.open_link ? `<div class="small muted">To reach everyone, also post it in your Telegram channel with the shop link: <span style="font-family:monospace;word-break:break-all">${esc(info.open_link)}?startapp=promo</span></div>` : ''}
+      <button class="btn block" id="ago" ${info.ready && info.can_message ? '' : 'disabled'}>Send to ${info.can_message} people</button>
+      ${(info.last || []).length ? `<div class="small muted"><b>Sent before</b>${info.last.map(a => `<div>• ${esc(K.when(a.at))} · ${a.sent_to} people · ${esc(a.body)}</div>`).join('')}</div>` : ''}`);
+    $('#apb', s.el).onclick = () => $('#apf', s.el).click();
+    $('#apf', s.el).onchange = async e => { const f = e.target.files[0]; if (!f) return; photo = await busy($('#apb', s.el), () => api.uploadPhoto(f, 'products')); $('#apv', s.el).innerHTML = `<img src="${esc(photo)}" alt="" style="width:100%;height:100%;object-fit:cover">`; };
+    $('#ago', s.el).onclick = async e => {
+      const t = $('#am', s.el).value.trim(); if (!t) return toast('Write the message');
+      if (!(await K.confirmSheet('Send to ' + info.can_message + ' people?', 'They get it in Telegram now. It cannot be taken back.', 'Send'))) return;
+      const n = await busy(e.currentTarget, () => api.shopAnnounce(t, photo, $('#abt', s.el).checked)); s.close(); toast('Sent to ' + n + ' people');
+    };
   };
 
   // product photo on the product form
@@ -3984,10 +4346,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const { api, S, esc, money, $, $$, avatar, icon, data, toast, sheet, busy, route, go, when, hhmm, statusPill, emptyBox, forget, ROLE_LABEL, STATUS } = K;
   document.getElementById('root').classList.add('admin-root');
 
-  const NAV = [['dashboard', 'chart', 'Dashboard'], ['orders', 'order', 'Orders'], ['payments', 'cash', 'Payments & debt'], ['products', 'box', 'Products & stock'], ['purchases', 'truck', 'Suppliers & purchases'], ['customers', 'store', 'Customers'],
+  const NAV = [['dashboard', 'chart', 'Dashboard'], ['orders', 'order', 'Orders'], ['payments', 'cash', 'Payments & debt'], ['products', 'box', 'Products & stock'], ['purchases', 'truck', 'Suppliers & purchases'], ['customers', 'store', 'Customers'], ['preorders', 'box', '🛍 Pre-orders (Taobao)'],
     ['visits', 'pin', 'Shop visits'], ['expenses', 'receipt', 'Expenses'], ['reports', 'list', 'Reports'], ['announce', 'mega', 'Announcements'],
     ['hr', 'users', 'HR & attendance'], ['chats', 'chat', 'Chats Control'], ['permissions', 'shield', 'Roles & permissions'], ['settings', 'pen', 'Settings']];
-  const NAV_OK = { staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
+  const NAV_OK = { preorders: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
     expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), visits: () => K.allow('visits.view_all'), payments: () => K.canCollect(), purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view'), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') };
   const NEXT_PERM = { approved: 'orders.approve', delivered: 'orders.deliver', paid: 'orders.paid' };
   const nextFor = o => { const n = NEXT[o.status]; return n && K.allow(NEXT_PERM[n[0]]) ? n : null; };
@@ -3995,7 +4357,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function shell(active, title, actions, sub) {
     const nav = NAV.filter(n => !NAV_OK[n[0]] || NAV_OK[n[0]]()).map(([k, ic, label]) => {
-      const badge = k === 'orders' && counts.pending ? counts.pending : k === 'staff' && counts.staffPending ? counts.staffPending : k === 'expenses' && counts.expPending ? counts.expPending : k === 'customers' && counts.custPending ? counts.custPending : k === 'payments' && counts.payPending ? counts.payPending : k === 'purchases' && counts.poWaiting ? counts.poWaiting : k === 'hr' && (counts.leavePending || counts.staffPending) ? (counts.leavePending || 0) + (S.me.role === 'admin' ? counts.staffPending : 0) : 0;
+      const badge = k === 'orders' && counts.pending ? counts.pending : k === 'staff' && counts.staffPending ? counts.staffPending : k === 'expenses' && counts.expPending ? counts.expPending : k === 'preorders' && counts.preAct ? counts.preAct : k === 'customers' && (counts.custPending || counts.chgPending) ? (counts.custPending || 0) + (counts.chgPending || 0) : k === 'payments' && counts.payPending ? counts.payPending : k === 'purchases' && counts.poWaiting ? counts.poWaiting : k === 'hr' && (counts.leavePending || counts.staffPending) ? (counts.leavePending || 0) + (S.me.role === 'admin' ? counts.staffPending : 0) : 0;
       return `<a href="#/${k}" class="${k === active ? 'on' : ''}">${icon(ic, 20)}<span>${label}</span>${badge ? `<i class="badge">${badge}</i>` : ''}</a>`;
     }).join('');
     K.root.innerHTML = `<div class="adm">
@@ -4014,7 +4376,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   async function refreshCounts() {
     try {
       const [orders, staff, exps, custs, pays, pos, lvs] = await Promise.all([data.orders(), data.staff(), ensureBig('expenses', api.listExpenses), data.customers(), K.allow('payments.confirm') ? ensureBig('payments', api.listPayments) : [], K.allow('purchases.manage') || K.allow('purchases.receive') ? ensureBig('purchases', api.listPurchases) : [], K.allow('hr.manage') ? api.listLeave() : []]);
-      counts = { pending: orders.filter(o => o.status === 'pending').length, staffPending: staff.filter(u => !u.active).length, expPending: exps.filter(e => e.status === 'pending').length, custPending: custs.filter(c => c.status === 'pending').length,
+      const chg = K.allow('customers.approve') ? await api.shopChangeList(null).catch(() => []) : [];
+      const pc = K.isBoss() ? await api.preorderCounts().catch(() => ({})) : {};
+      counts = { chgPending: chg.length, preAct: (+pc.new || 0) + (+pc.pay || 0), pending: orders.filter(o => o.status === 'pending').length, staffPending: staff.filter(u => !u.active).length, expPending: exps.filter(e => e.status === 'pending').length, custPending: custs.filter(c => c.status === 'pending').length,
         payPending: pays.filter(p => p.status === 'pending').length, poWaiting: pos.filter(p => p.status === 'ordered').length, leavePending: lvs.filter(l => l.status === 'pending').length };
     } catch (e) {}
   }
@@ -4049,7 +4413,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="kpis">${kpi(money(d.sales_today), 'Sales today', null, '#/reports')}${kpi(d.orders_today, 'Orders today', null, '#/orders')}
         ${kpi(d.pending_orders, 'Waiting approval', d.pending_orders ? 'var(--or)' : null, '#/orders?f=pending')}${kpi(money(d.owed_total), 'Still owed by shops', d.owed_total ? 'var(--rd)' : null, '#/payments?t=debt')}${kpi(money(d.collected_today || 0), 'Collected today', d.collected_today ? 'var(--gr)' : null, '#/payments?t=all')}${kpi(d.payments_pending || 0, 'Payments to check', d.payments_pending ? 'var(--or)' : null, '#/payments')}${K.allow('attendance.view') || K.allow('hr.manage') ? kpi((d.staff_in_today || 0) + ' / ' + d.staff_active, 'Staff at work today', null, '#/hr') : ''}${K.allow('hr.manage') && d.leave_pending ? kpi(d.leave_pending, 'Leave to approve', 'var(--or)', '#/hr?t=leave') : ''}${K.allow('purchases.manage') ? kpi(money(d.owed_suppliers || 0), 'We owe suppliers', d.owed_suppliers ? 'var(--rd)' : null, '#/purchases?t=suppliers') : ''}
         ${kpi(d.visits_today, 'Shop visits today', null, '#/visits')}${kpi(d.low_stock, 'Low stock items', d.low_stock ? 'var(--or)' : null, '#/products?low=1')}
-        ${kpi(money(K.expTotals((S.cache.expenses || []).filter(e => K.inPeriod(e, K.expPeriod('month')))).total), 'Expenses this month', null, '#/expenses')}${kpi(counts.expPending, 'Expenses to check', counts.expPending ? 'var(--or)' : null, '#/expenses?s=pending')}${kpi(counts.custPending, 'New shops to approve', counts.custPending ? 'var(--or)' : null, '#/customers?s=pending')}</div>
+        ${kpi(money(K.expTotals((S.cache.expenses || []).filter(e => K.inPeriod(e, K.expPeriod('month')))).total), 'Expenses this month', null, '#/expenses')}${kpi(counts.expPending, 'Expenses to check', counts.expPending ? 'var(--or)' : null, '#/expenses?s=pending')}${kpi(counts.custPending, 'New shops to approve', counts.custPending ? 'var(--or)' : null, '#/customers?s=pending')}${counts.chgPending ? kpi(counts.chgPending, 'Shop changes to approve', 'var(--or)', '#/customers') : ''}</div>
       <div class="agrid">
         <div class="card wide"><div class="row"><b class="grow">Sales, last 7 days</b><span class="small muted">${money(d.last7.reduce((s, x) => s + +x.total, 0))}</span></div>
           <div class="bars">${d.last7.map((x, i) => `<div><em>${+x.total ? Math.round(x.total) : ''}</em><i style="height:${Math.max(2, (+x.total / max) * 130)}px;background:${i === 6 ? 'var(--p)' : 'var(--bar)'}"></i><span style="font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</span></div>`).join('')}</div></div>
@@ -4265,12 +4629,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------------- Products & stock ----------------
   route(/^\/products$/, async (_, q, current) => {
     await refreshCounts();
-    const main = shell('products', 'Products & stock', K.allow('stock.manage') ? `<button class="btn sm out" id="scount">${icon('check', 18)}<span class="hide-sm">Stock</span> count</button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Rep stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : '');
+    const main = shell('products', 'Products & stock', (K.isBoss() ? `<button class="btn sm out" id="promos">🎁<span class="hide-sm">Promotions</span></button>` : '') + (K.allow('stock.manage') ? `<button class="btn sm out" id="scount">${icon('check', 18)}<span class="hide-sm">Stock</span> count</button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Rep stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : ''));
     if ($('#add')) $('#add').onclick = () => productSheet({});
     if ($('#rep')) $('#rep').onclick = () => K.loadRepSheet(() => K.render());
     const [products, warehouses, cats] = await Promise.all([data.products(true), data.warehouses(true), K.productCats(true)]);
     if (!current()) return;
     if ($('#pcats')) $('#pcats').onclick = () => K.productCatsSheet(products, () => K.render());
+    if ($('#promos')) $('#promos').onclick = () => K.promosSheet(products);
     if ($('#scount')) $('#scount').onclick = () => K.stockCountSheet(products, warehouses, () => K.render());
     let search = '', onlyLow = q.low === '1', catF = q.c || '';
     const value = products.reduce((s, p) => s + p.total_qty * p.cost, 0);
@@ -4366,7 +4731,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // shops per sales rep
     const reps = staff.filter(u => u.active && ['sales', 'manager', 'admin'].includes(u.role)).map(u => { const mine = customers.filter(c => c.assigned_to === u.id); return { u, n: mine.length, owed: mine.reduce((s, c) => s + +c.owed, 0) }; }).filter(r => r.n || r.u.role === 'sales');
     main.innerHTML = `<div class="chips">${[['', 'All'], ['pending', 'Waiting approval'], ['approved', 'Approved'], ['rejected', 'Rejected']].map(([k, l]) => `<button class="chip ${k === stF ? 'on' : ''}" data-st="${k}">${l} <span style="opacity:.7">${k ? customers.filter(c => c.status === k).length : customers.length}</span></button>`).join('')}</div>
-      <div class="apad"><div class="kpis" id="kp"></div>
+      <div class="apad"><div id="chg" style="display:flex;flex-direction:column;gap:10px"></div><div class="kpis" id="kp"></div>
       <div class="card"><b>Shops per sales rep</b><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Shops</th><th style="text-align:right">Owed</th></tr></thead><tbody>
         ${reps.map(r => `<tr><td><a href="#/customers?rep=${esc(r.u.id)}" style="text-decoration:none;font-weight:700">${esc(r.u.full_name)}</a></td><td style="text-align:right">${r.n}</td><td style="text-align:right">${money(r.owed)}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="filters"><div class="search grow">${icon('search', 18)}<input id="cs" placeholder="Search shop, area, phone" aria-label="Search shops"></div>
@@ -4381,7 +4746,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     $('#so').onchange = e => { sort = e.target.value; draw(); };
     $('#xls').onclick = () => exportShops(shown);
     draw();
+    // shops that asked in the Telegram shop to change their details
+    if (K.allow('customers.approve')) api.shopChangeList(null).then(l => { if (current()) K.shopChangesCard($('#chg'), l, () => { forget('customers'); K.render(); }); }).catch(() => {});
+    if (q.open) { const c = customers.find(x => x.id === +q.open); if (c) customerSheet(c, staff); }
   });
+  route(/^\/customers\/(\d+)$/, ([id]) => go('#/customers?open=' + id));
 
   // ---------- Export the shops shown (Excel opens it; Khmer letters kept) ----------
   function exportShops(list) {
@@ -4431,7 +4800,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function customerSheet(c, staff) {
     const s = sheet(c.id ? c.name : 'New shop', `
       ${c.id ? `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">${kpi(money(c.owed), c.oldest_unpaid_at ? 'Owes · oldest ' + K.daysSince(c.oldest_unpaid_at) + ' days' : 'Owes', +c.owed ? 'var(--rd)' : null, '#/payments?t=debt')}${kpi(c.order_count, 'Orders')}${kpi(c.last_visit_at ? when(c.last_visit_at) : 'Never', 'Last visit')}</div>` : ''}
-      ${c.id ? '<div id="tgshop"></div>' : ''}
+      ${c.id ? '<div id="chg1" style="display:flex;flex-direction:column;gap:10px"></div><div id="tgshop"></div>' : ''}
       <label class="f">Shop name<input class="inp" id="nm" value="${esc(c.name || '')}"></label>
       <div class="btns"><label class="f">Owner<input class="inp" id="ow" value="${esc(c.owner_name || '')}"></label><label class="f">Phone<input class="inp" id="ph" type="tel" value="${esc(c.phone || '')}"></label></div>
       <label class="f">Telegram${(tg => tg ? ` · <a href="${esc(tg.url)}" target="_blank" rel="noopener">open chat</a>` : '')(K.tgLink(c.telegram))}<input class="inp" id="tg" value="${esc(c.telegram || '')}" placeholder="@username or the phone number they use on Telegram" autocapitalize="none" autocorrect="off"></label>
@@ -4449,6 +4818,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="btns">${c.id && K.allow('customers.delete') ? '<button class="btn red" id="dl">Delete shop</button>' : ''}${!c.id || K.allow('customers.manage') ? '<button class="btn" id="ok">Save shop</button>' : ''}</div>`);
     K.bindGeo(s.el);
     if (c.id) K.shopTgCard($('#tgshop', s.el), c);
+    if (c.id && K.allow('customers.approve')) api.shopChangeList(c.id).then(l => K.shopChangesCard($('#chg1', s.el), l, () => { s.close(); forget('customers'); K.render(); })).catch(() => {});
     $$('[data-rv]', s.el).forEach(b => b.onclick = async () => { await busy(b, () => api.reviewCustomer(c.id, b.dataset.rv, $('#rn', s.el).value.trim())); s.close(); toast(b.dataset.rv === 'approved' ? 'Shop approved' : 'Shop rejected'); forget('customers'); K.render(); });
     if ($('#dl', s.el)) $('#dl', s.el).onclick = async ev => { const _btn = ev.currentTarget;
       if (!(await K.confirmSheet('Delete this shop?', c.name + ' will be removed.', 'Delete', true))) return;
@@ -4949,6 +5319,73 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="pbody"></div>`;
     draw();
     if (q.o) K.purchaseSheet(+q.o, reload);
+  });
+})();
+
+// Admin web: 🛍 Pre-orders from Taobao (shops send a Taobao link in the Telegram shop; you send a price; they pay in advance)
+(function () {
+  const K = window.KT;
+  const { api, esc, money, $, $$, route, go, toast, busy, when } = K;
+  const ST = { new: ['New request', 'or'], quoted: ['Price sent · waiting for shop', 'bl'], accepted: ['Shop accepted · waiting for payment', 'bl'], paid_check: ['Payment to check', 'or'],
+    paid: ['Paid · buy it', 'gr'], bought: ['Bought in China', 'gr'], shipping: ['Shipping from China', 'gr'], arrived: ['Arrived · deliver it', 'gr'], delivered: ['Delivered', 'gy'],
+    declined: ['Shop said no', 'gy'], rejected: ['Rejected', 'gy'], cancelled: ['Cancelled', 'gy'] };
+  const FILTERS = [['act', 'Needs your action', r => ['new', 'paid_check', 'paid', 'arrived'].includes(r.status)], ['wait', 'Waiting for shop', r => ['quoted', 'accepted'].includes(r.status)],
+    ['way', 'On the way', r => ['bought', 'shipping'].includes(r.status)], ['done', 'Done / closed', r => ['delivered', 'declined', 'rejected', 'cancelled'].includes(r.status)], ['all', 'All', () => true]];
+  const NEXT = { paid: ['bought', '🛒 Mark as bought in China'], bought: ['shipping', '🚢 Mark as shipping from China'], shipping: ['arrived', '📦 Mark as arrived in Cambodia'], arrived: ['delivered', '✅ Mark as delivered'] };
+
+  route(/^\/preorders$/, async (_, q, current) => {
+    const A = K.adm;
+    if (!K.isBoss()) return go('#/dashboard');
+    await A.refreshCounts();
+    const main = A.shell('preorders', '🛍 Pre-orders (Taobao)', '');
+    let list = await api.preorderList();
+    if (!current()) return;
+    let f = q.o ? 'all' : (list.some(FILTERS[0][2]) ? 'act' : 'all');
+    const photo = src => src ? `<img src="${esc(src)}" alt="" data-big="1" style="width:110px;height:110px;object-fit:cover;border-radius:12px;border:1px solid var(--line);cursor:zoom-in;flex:none">` : '';
+    const card = r => { const [lbl, col] = ST[r.status] || [r.status, 'gy'], open = !['delivered', 'declined', 'rejected', 'cancelled'].includes(r.status);
+      const ev = (r.events || []).map(e => `${(ST[e.status] || [e.status])[0]} ${when(e.at)}`).join(' → ');
+      return `<div class="card" id="pr${r.id}" style="gap:8px;${+q.o === r.id ? 'border-color:var(--p);box-shadow:0 0 0 2px var(--p) inset' : ''}">
+        <div class="row"><b class="grow" style="font-size:16px">${esc(r.no)} · ${esc(r.shop)}</b><span class="pill ${col}">${esc(lbl)}</span></div>
+        <div class="small muted">${esc([r.who, r.phone, r.province, r.rep ? 'Sales rep: ' + r.rep : ''].filter(Boolean).join(' · '))} · ${esc(when(r.created_at))}</div>
+        <div class="row" style="gap:14px;align-items:flex-start">${photo(r.photo)}<div class="grow small" style="line-height:1.7">${r.title ? `<b>${esc(r.title)}</b><br>` : ''}🔗 <a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.link)}</a><br>
+          ${r.options ? esc(r.options) + ' · ' : ''}<b>${r.qty} pcs</b>${r.note ? `<br>Note: ${esc(r.note)}` : ''}
+          ${r.total != null ? `<br>Price: <b>${money(r.price_each)} × ${r.qty} = ${money(r.total)}</b>${r.eta_days ? ' · ' + r.eta_days + ' days' : ''}${r.cost_cny != null ? ` · your cost ¥${(+r.cost_cny).toFixed(2)}` : ''}` : ''}
+          ${r.paid_amount != null ? `<br>Paid: <b style="color:var(--gr)">${money(r.paid_amount)}</b>` : ''}</div>${r.pay_photo ? `<div style="text-align:center"><div class="small muted">Payment photo</div>${photo(r.pay_photo)}</div>` : ''}</div>
+        ${['new', 'quoted', 'declined'].includes(r.status) ? `<div class="btns" style="margin:0"><label class="f">Price for 1 piece ($)<input class="inp" data-pe="${r.id}" type="number" step="0.01" min="0" value="${r.price_each != null ? r.price_each : ''}"></label>
+            <label class="f">Arrives in (days)<input class="inp" data-ed="${r.id}" type="number" min="0" value="${r.eta_days != null ? r.eta_days : ''}"></label>
+            <label class="f">Your Taobao cost ¥ (only staff see)<input class="inp" data-cc="${r.id}" type="number" step="0.01" min="0" value="${r.cost_cny != null ? r.cost_cny : ''}"></label></div>
+          <label class="f">Note to the shop (optional)<input class="inp" data-an="${r.id}" maxlength="300" value="${esc(r.admin_note || '')}" placeholder="e.g. white only, 2 weeks"></label>
+          <div class="btns" style="margin:0"><button class="btn out red" data-rej="${r.id}">Reject (not available)</button><button class="btn" data-quote="${r.id}">${r.status === 'new' ? 'Send price to shop' : 'Send new price'}</button></div>` : ''}
+        ${r.status === 'accepted' ? `<div class="small muted">Waiting for the shop to pay ${money(r.total)} and send the payment photo. If they paid another way:</div><div class="btns" style="margin:0"><button class="btn green" data-paid="${r.id}">✓ Payment received</button></div>` : ''}
+        ${r.status === 'paid_check' ? `<div class="btns" style="margin:0"><label class="f">Amount received ($)<input class="inp" data-pa="${r.id}" type="number" step="0.01" value="${r.total}"></label></div>
+          <div class="btns" style="margin:0"><button class="btn out red" data-again="${r.id}">✗ Not received, ask again</button><button class="btn green" data-paid="${r.id}">✓ Payment received</button></div>` : ''}
+        ${NEXT[r.status] ? `<div class="btns" style="margin:0"><button class="btn" data-next="${r.id}" data-to="${NEXT[r.status][0]}">${NEXT[r.status][1]}</button></div>` : ''}
+        ${open && !['new', 'quoted', 'declined'].includes(r.status) ? `<button class="btn sm out red" data-cancel="${r.id}" style="align-self:flex-start">Cancel pre-order</button>` : ''}
+        ${ev ? `<div class="small muted">${esc(ev)}</div>` : ''}</div>`; };
+    const draw = () => {
+      const fl = FILTERS.find(x => x[0] === f), shown = list.filter(fl[2]);
+      main.innerHTML = `<div class="chips">${FILTERS.map(([k, l, fn]) => `<button class="chip ${k === f ? 'on' : ''}" data-f="${k}">${l} <span style="opacity:.7">${list.filter(fn).length}</span></button>`).join('')}</div>
+        <div class="apad"><div class="small muted" style="line-height:1.6">Shops find items in the Taobao app, copy the link and send it from the Telegram shop. Send your price (Taobao price + shipping + your fee), the shop accepts and pays first, then you buy it and update the steps. The shop gets a Telegram message at each step. Pre-orders are separate from normal orders and stock.</div>
+        ${shown.map(card).join('') || '<div class="card"><div class="empty">Nothing here</div></div>'}</div>`;
+      $$('[data-f]').forEach(b => b.onclick = () => { f = b.dataset.f; draw(); });
+      $$('[data-big]').forEach(i => i.onclick = () => K.sheet('Photo', `<img src="${esc(i.src)}" alt="" style="width:100%;border-radius:12px">`));
+      const v = (a, id) => { const e = $(`[${a}="${id}"]`); return e ? e.value.trim() : ''; };
+      const act = async (b, id, p, msg) => { try { const r = await busy(b, () => api.preorderUpdate(id, p)); list = list.map(x => x.id === r.id ? Object.assign(x, r) : x); toast(msg); A.refreshCounts(); draw(); } catch (e) {} };
+      $$('[data-quote]').forEach(b => b.onclick = () => { const id = +b.dataset.quote, pe = v('data-pe', id);
+        if (!(+pe > 0)) return toast('Write the price for one piece');
+        act(b, id, { action: 'quote', price_each: +pe, eta_days: v('data-ed', id) || null, cost_cny: v('data-cc', id) || null, admin_note: v('data-an', id) }, 'Price sent to the shop'); });
+      $$('[data-rej]').forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Reject this request?', 'The shop is told you cannot get this item.', 'Reject', true))) return;
+        act(b, +b.dataset.rej, { action: 'reject', admin_note: v('data-an', b.dataset.rej) }, 'Rejected'); });
+      $$('[data-paid]').forEach(b => b.onclick = async () => { const id = +b.dataset.paid, r = list.find(x => x.id === id), pa = v('data-pa', id) || r.total;
+        if (!(await K.confirmSheet('Payment of ' + money(pa) + ' received?', 'Only confirm when the money is really in your account.', 'Yes, received'))) return;
+        act(b, id, { action: 'paid', paid_amount: +pa }, 'Payment saved. The shop is told'); });
+      $$('[data-again]').forEach(b => b.onclick = () => act(b, +b.dataset.again, { action: 'pay_again' }, 'The shop is asked to pay again'));
+      $$('[data-next]').forEach(b => b.onclick = () => act(b, +b.dataset.next, { action: b.dataset.to }, 'Saved. The shop is told'));
+      $$('[data-cancel]').forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Cancel this pre-order?', 'If the shop already paid, give the money back yourself.', 'Cancel pre-order', true))) return;
+        act(b, +b.dataset.cancel, { action: 'cancel' }, 'Cancelled'); });
+      if (q.o && $('#pr' + q.o)) $('#pr' + q.o).scrollIntoView({ block: 'center' });
+    };
+    draw();
   });
 })();
 
@@ -5678,8 +6115,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   ];
   const DEF_FIELDS = ['order_no', 'shop', 'rep', 'staff', 'amount', 'detail', 'link', 'photo'];
   const ITEMS = [
-    ['sales', 'Total sales & orders'], ['sales_by_rep', 'Sales by each rep'], ['top_products', 'Top 5 products'], ['visits_by_rep', 'Shop visits by each rep'],
-    ['new_shops', 'New shops'], ['collected', 'Money collected (by method)'], ['owed', 'Money shops owe & overdue credit'], ['low_stock', 'Low stock list'],
+    ['sales', 'Total orders (existing shops / new shops, waiting approval, cancelled)'], ['visits_by_rep', 'Shop visits (total, first-time visits, new shops created, by rep)'],
+    ['by_rep', '👥 Each sales rep: one line each here, then <b>each rep\'s full report as its own message</b> (orders, shop visits, payments, debt, attendance, expenses, shops never visited)'],
+    ['sales_by_rep', 'Sales by each rep (one line each)'], ['top_products', 'Top 5 products'],
+    ['new_shops', 'New shops (list)'], ['collected', 'Money collected (by method)'], ['owed', 'Money shops owe & overdue credit'], ['coverage', 'Shop coverage (never visited, not visited for 30+ days, by rep)'], ['low_stock', 'Low stock list'],
     ['attendance', 'Attendance (late, not in, on leave)'], ['expenses', 'Staff expenses']
   ];
   const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 days (with today)'], ['last_week', 'The 7 days before today'], ['month', 'This month so far']];
@@ -5695,7 +6134,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const describe = r => {
     if (r.rule_type === 'summary') {
       const d = (r.days || []).length === 7 ? 'Every day' : (r.days || []).map(x => (DAYS.find(y => y[0] === x) || [0, '?'])[1]).join(', ');
-      return `📊 ${d} at <b>${esc(r.send_time || '')}</b> · ${esc((PERIODS.find(p => p[0] === r.period) || [0, 'Today'])[1])} · ${(r.items || []).length} part${(r.items || []).length === 1 ? '' : 's'}`;
+      return `📊 ${d} at <b>${esc(r.send_time || '')}</b> · ${esc((PERIODS.find(p => p[0] === r.period) || [0, 'Today'])[1])} · ${(r.items || []).length} part${(r.items || []).length === 1 ? '' : 's'}${r.send_reps ? ' · <b>+ each rep gets their own</b>' : ''}`;
     }
     const ev = (r.events || []).map(e => EV[e] ? EV[e][0] + ' ' + EV[e][1] : e);
     return ev.slice(0, 4).map(esc).join(' · ') + (ev.length > 4 ? ` <span class="muted">+${ev.length - 4} more</span>` : '');
@@ -5755,14 +6194,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         try { await api.tgRuleOn(+c.dataset.on, c.checked); } catch (err) { return toast(err.message); }
         toast(c.checked ? 'Alert on' : 'Alert off'); await reload(); });
       $$('[data-test]', el).forEach(b => b.onclick = async () => {
-        const id = +b.dataset.test, r = await tryB(b, async () => answer(await api.tgTest(id), id));
-        if (!r) return; if (r.ok) toast('Sent. Check Telegram'); else { toast(r.error || 'Not sent'); if (r.migrated_to) await reload(); }
+        const id = +b.dataset.test, rule = rules().find(x => x.id === id) || {}, r = await tryB(b, async () => answer(await api.tgTest(id), id));
+        if (!r) return;
+        if (r.ok && rule.send_reps) { const n = await api.tgSendRepsNow(id).catch(() => 0); toast('Sent to the group, and to ' + n + ' sales rep' + (n === 1 ? '' : 's')); }
+        else if (r.ok) toast('Sent. Check Telegram'); else { toast(r.error || 'Not sent'); if (r.migrated_to) await reload(); }
       });
     }
 
     // add or change one alert
     function edit(r) {
-      const cur = r || { name: '', rule_type: 'event', events: [], fields: DEF_FIELDS.slice(), items: ['sales', 'sales_by_rep', 'visits_by_rep', 'collected'], send_time: '18:00', days: [1, 2, 3, 4, 5, 6], period: 'today', chat_id: '', chat_title: '', enabled: true };
+      const cur = r || { name: '', rule_type: 'event', events: [], fields: DEF_FIELDS.slice(), items: ['sales', 'visits_by_rep', 'collected', 'owed', 'coverage', 'attendance', 'by_rep'], send_reps: true, send_time: '18:00', days: [1, 2, 3, 4, 5, 6], period: 'today', chat_id: '', chat_title: '', enabled: true };
       let type = cur.rule_type || 'event', chat = cur.chat_id || '', title = cur.chat_title || '';
       const chk = (attr, k, on, label, sub) => `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;padding:3px 0"><input type="checkbox" ${attr}="${k}" ${on ? 'checked' : ''} style="${box};margin-top:1px"><div>${label}${sub ? `<div class="small muted">${sub}</div>` : ''}</div></label>`;
       const s = K.sheet(r ? 'Edit alert' : 'New alert', `
@@ -5783,6 +6224,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <label class="f" style="flex:2;min-width:200px">Covers<select class="inp" id="tgper">${PERIODS.map(([k, l]) => `<option value="${k}" ${k === (cur.period || 'today') ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
           <div class="f" style="gap:6px">On these days<div class="chips" style="padding:0">${DAYS.map(([d, l]) => `<button class="chip ${(cur.days || []).includes(d) ? 'on' : ''}" data-day="${d}">${l}</button>`).join('')}</div>
             <div class="small muted">Phnom Penh time. It's sent once that day, within a few minutes after the time.</div></div>
+          <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer;padding:10px 12px;border:1px solid var(--line);border-radius:12px"><input type="checkbox" id="tgreps" ${cur.send_reps ? 'checked' : ''} style="${box};margin-top:1px">
+            <div><b>📊 Also send each sales rep their own report</b><div class="small muted">The same full report, only their own: orders, month target, shop visits, payments, their shops' debt, attendance, expenses and the shops they never visited.
+              In the staff app ("My daily report" chat + notification) for every rep, and in Telegram for reps who connected their Telegram (More → Connect my Telegram).</div>
+              ${(st.reps || []).length ? `<div class="small" style="margin-top:4px">Telegram connected: ${(st.reps || []).map(x => `${x.telegram ? '✅' : '⬜'} ${esc(x.name)}`).join(' · ')}</div>` : ''}</div></label>
         </div>
         <div class="f" style="gap:8px"><b>Send to</b><div id="tgcur" class="small"></div>
           <div class="small muted" style="line-height:1.6">Add ${st.bot_name ? '<b>@' + esc(st.bot_name) + '</b>' : 'your bot'} to the Telegram group and send <b>/start</b> there, then press Find. For your private chat, open the bot in Telegram and press Start.</div>
@@ -5800,7 +6245,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const collect = () => {
         const p = { name: $('#tgn', E).value.trim(), rule_type: type, chat_id: chat, chat_title: title, enabled: cur.enabled !== false };
         if (type === 'event') { p.events = $$('[data-ev]', E).filter(c => c.checked).map(c => c.dataset.ev); p.fields = $$('[data-fl]', E).filter(c => c.checked).map(c => c.dataset.fl); }
-        else { p.items = ITEMS.map(x => x[0]).filter(k => $(`[data-it="${k}"]`, E).checked); p.fields = []; p.send_time = $('#tgtime', E).value; p.period = $('#tgper', E).value;
+        else { p.items = ITEMS.map(x => x[0]).filter(k => $(`[data-it="${k}"]`, E).checked); p.fields = []; p.send_time = $('#tgtime', E).value; p.period = $('#tgper', E).value; p.send_reps = $('#tgreps', E).checked;
           p.days = $$('[data-day]', E).filter(b => b.classList.contains('on')).map(b => +b.dataset.day); }
         if (!p.name) {       // a name is made from the choices if left empty
           if (type === 'summary') p.name = 'Summary ' + (p.send_time || '');
@@ -5895,7 +6340,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
         ${tick('ssu', s.shop_signup !== 'false', 'New shops can register by themselves', 'Anyone with the shop link fills in their shop (name, phone, province, market, location) and can order straight away. The shop waits for your approval with no sales rep; approving its first order approves the shop. When off, only shops with an invite link from a sales rep can order.')}
         <div class="btns"><label class="f">Minimum order ($, 0 = none)<input class="inp" id="smin" type="number" inputmode="decimal" value="${esc(s.shop_min_order || '0')}"></label>
           <label class="f">Sell from<select class="inp" id="swh">${(st.warehouses || []).map(w => `<option value="${w.id}" ${w.id === st.warehouse ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select></label></div>
-        <div class="small muted" style="margin-top:-6px">Shops see the stock of this warehouse and cannot order more than it has. Stock is taken when you approve the order, like any order.</div>
+        <div class="small muted" style="margin-top:-6px">Telegram orders come out of this warehouse. Shops don't see your stock and can order any amount; when you don't have enough, the order note says so, so you can call the shop. Stock is taken when you approve the order, like any order.</div>
         <div class="f" style="gap:4px"><b>Payment choices shops see</b>
           <div class="small muted">💳 <b>Pay now</b>: after sending the order, the shop sees your KHQR ${s.company_khqr ? '<span class="pill gr">KHQR is set</span>' : '<span class="pill or">add your KHQR in Company &amp; invoice</span>'} and the amount to pay.<br>
           💬 <b>Chat to us</b>: opens a Telegram chat with the account below. Shown only when you fill it in. Both kinds of order arrive as Pending (to be paid).</div></div>
@@ -5906,9 +6351,14 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
         <label class="f">Welcome message at the top of the shop (optional)<textarea class="inp" id="swel" maxlength="300" placeholder="e.g. Free delivery in Phnom Penh for orders over $50">${esc(s.shop_welcome || '')}</textarea></label>
         <div class="small muted">Only products with a selling price are shown. Add product photos in Products &amp; stock (edit a product → Photo).</div>
         <button class="btn" id="ssave">Save shop settings</button></div>
+      <div class="card"><b>3 · Promotions &amp; announcements</b>
+        <div class="small muted">Promotions show on the shop's <b>Promotions</b> tab, and free items and discounts are added to the order by themselves. You can write your own words for each promotion and for the page (✏️ Page words). Announcements go to the shops in Telegram.</div>
+        <div class="btns" style="justify-content:flex-start;margin:0"><button class="btn out" id="spromo">🎁 Promotions</button><button class="btn out" id="sann">📣 Announce to shops</button></div></div>
       </div>`;
     if ($('#sqr', el) && window.qrcode) { try { const q = window.qrcode(0, 'M'); q.addData(st.open_link); q.make(); $('#sqr', el).innerHTML = q.createSvgTag({ cellSize: 4, margin: 1, scalable: true }).replace('<svg ', '<svg style="width:100%;height:auto;display:block" '); } catch (e) {} }
     $$('[data-copy]', el).forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch (e) { toast('Could not copy'); } });
+    $('#spromo', el).onclick = async () => K.promosSheet(await K.data.products(true), () => {});
+    $('#sann', el).onclick = () => K.announceSheet();
     $('#menu', el).onclick = async e => {
       const r = await busy(e.currentTarget, async () => answer(await api.shopSetMenu())).catch(() => null);
       if (r) toast(r.ok ? 'Done. Shops now see a 🛒 Order button in the bot chat' : 'Telegram said: ' + (r.error || 'no'));
@@ -6030,6 +6480,8 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
     const newShops = custs.filter(c => c.status === 'pending').length;
+    if (K.allow('customers.approve')) { try { const chg = await api.shopChangeList(null); if (!current()) return;
+      if (chg.length) html += `<button class="card" id="chgcard" style="text-align:left;font:inherit;color:inherit;cursor:pointer;border-color:#F3D2A8;background:var(--ors);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('pen')}</div><div class="grow"><div class="tt">${chg.length} shop change${chg.length > 1 ? 's' : ''} to approve</div><div class="st">${esc(chg.map(r => r.shop).slice(0, 3).join(', '))} · asked in the Telegram shop</div></div>${icon('right', 20)}</div></button>`; } catch (e) {} }
     if (newShops) html += `<a class="card" href="#/customers?s=pending" style="text-decoration:none;color:inherit;border-color:#F3D2A8;background:var(--ors);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('store')}</div><div class="grow"><div class="tt">${newShops} new shop${newShops > 1 ? 's' : ''} to approve</div><div class="st">Added by sales staff</div></div>${icon('right', 20)}</div></a>`;
     const toCheck = pays.filter(p => p.status === 'pending').length;
     const card = (href, ic, title, sub, bg, bd, fg) => `<a class="card" href="${href}" style="text-decoration:none;color:inherit;border-color:${bd};background:${bg};margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:${fg}">${icon(ic)}</div><div class="grow"><div class="tt">${title}</div><div class="st">${sub}</div></div>${icon('right', 20)}</div></a>`;
@@ -6047,6 +6499,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
     const unreadConvs = convs.filter(c => c.unread).slice(0, 3);
     if (unreadConvs.length) html += `<div class="sec" style="margin-top:18px"><span>New messages</span><a href="#/chat">Open chat</a></div><div class="card flush" style="margin-top:10px">${unreadConvs.map(K.convRow).join('')}</div>`;
     if ($('#home-rest')) $('#home-rest').innerHTML = html;   // the person may have left the home screen meanwhile
+    if ($('#chgcard')) $('#chgcard').onclick = () => K.shopChangesSheet(() => K.render());
   });
 
   function orderRow(o) {
@@ -6089,6 +6542,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
+        <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">Get my daily report in Telegram</div></div></button>
         ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view')
           ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + item('#/hr', 'users', 'HR & attendance', 'Staff, today, attendance, leave, pay', 'var(--ors)', 'var(--or)')
           : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
@@ -6101,6 +6555,7 @@ window.KT_SHOP_BANNER = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoC
       ${!K.live ? `<button class="list-item" id="reset"><div class="ic-av sq" style="background:#EFEDF4;color:var(--mu)">${icon('refresh', 20)}</div><div class="grow"><div class="tt">Reset demo data</div><div class="st">Start the demo again from the beginning</div></div></button>` : ''}</div>
       <div class="small muted" style="text-align:center">K-TRONiCS Staff · Stage 1</div></div>` });
     $('#nlist').onclick = () => K.openNotifs(); K.bindPush($('#main'));
+    if ($('#mytg')) $('#mytg').onclick = () => K.staffTgSheet();
     $('#logout').onclick = async () => { if (await K.confirmSheet('Log out?', 'You will need your username and password to log in again.', 'Log out', true)) K.logout(); };
     if ($('#reset')) $('#reset').onclick = async () => { if (await K.confirmSheet('Reset demo?', 'All demo changes on this phone will be deleted.', 'Reset', true)) { api.resetDemo(); K.logout(); } };
   });
