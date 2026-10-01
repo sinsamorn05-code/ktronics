@@ -237,6 +237,26 @@ main.chatmain{padding-bottom:176px;gap:8px}
 .gitem{display:flex;align-items:center;gap:12px;width:100%;padding:12px 0;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;color:var(--ink)}
 .gitem:last-child{border-bottom:0}.gitem b{display:block;font-size:14.5px}.gitem .small{display:block;margin-top:1px}.gitem svg{width:20px;height:20px}
 .guidecard{background:var(--bls,#E6EDFF);border:0}.guidecard .rico{background:#fff;color:#1D4ED8}
+/* sliding banners (admin web: Staff banners → Telegram shop) */
+.sbn{position:relative;border-radius:calc(var(--r) + 4px);overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.sbn-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.sbn-track::-webkit-scrollbar{display:none}
+.sbn-s{flex:0 0 100%;scroll-snap-align:start;position:relative;aspect-ratio:12/5;min-height:128px;border:0;padding:0;margin:0;font:inherit;color:#fff;text-align:left;cursor:pointer;overflow:hidden;display:block}
+.sbn-s.txt{display:flex;align-items:flex-end;padding:18px}
+.sbn-s .blob{position:absolute;right:-30px;top:-30px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.12)}
+.sbn-s .blob.two{right:auto;left:-40px;top:auto;bottom:-60px;width:130px;height:130px;background:rgba(255,255,255,.07)}
+.sbn-ic{position:absolute;right:16px;top:16px;color:rgba(255,255,255,.9)}.sbn-ic svg{width:30px;height:30px}
+.sbn-w{position:relative;display:flex;flex-direction:column;gap:4px;max-width:88%}
+.sbn-w b{font-size:21px;line-height:1.25;font-weight:800;font-family:var(--disp)}
+.sbn-w span{font-size:13.5px;line-height:1.4;opacity:.92}
+.sbn-w em{position:absolute;right:-26px;bottom:0;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.22);display:grid;place-items:center;font-style:normal}
+.sbn-w em svg{width:14px;height:14px}
+.sbn-s.img img{width:100%;height:100%;object-fit:cover;display:block}
+.sbn-shade{position:absolute;inset:auto 0 0 0;padding:14px 16px;background:linear-gradient(transparent,rgba(0,0,0,.62))}
+.sbn-dots{position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:5px;pointer-events:none}
+.sbn-dots i{width:6px;height:6px;border-radius:99px;background:rgba(255,255,255,.5);transition:width .2s}
+.sbn-dots i.on{width:16px;background:#fff}
+main > .sbn{margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -590,7 +610,7 @@ main.chatmain{padding-bottom:176px;gap:8px}
         const bd = k === 'cart' && n ? n : k === 'chat' && unread ? unread : k === 'promos' && !on ? nPromo : 0;
         return `<button class="${on ? 'on' : ''}" data-tab="${k}"><span class="ic">${ic}${bd ? `<i class="badge">${bd > 9 ? '9+' : bd}</i>` : ''}</span><span class="tl2">${esc(l)}</span></button>`; }).join('')}</nav>`);
     if (tab === 'chat') bindChat();
-    bind();
+    bind(); bindBanners();
     mainButton();
   }
   // a product photo, or a clean placeholder with the category icon
@@ -611,11 +631,50 @@ main.chatmain{padding-bottom:176px;gap:8px}
       <div class="pbody">${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}<div class="pn">${esc(p.name)}</div>${withPromo ? promoTag(p) : ''}
         <div class="prow">${priceHtml(p)}</div>${q ? qtyCtl(p) : ''}</div></div>`; };
   const secTitle = (text, right) => `<div class="sect"><h2>${esc(text)}</h2>${right ? `<span>${esc(right)}</span>` : ''}</div>`;
+  // ---------- sliding banners (made in the admin web: Staff banners → Telegram shop) ----------
+  const BCOL = { red: ['#D7141A', '#FF5A36'], blue: ['#1D4ED8', '#3B82F6'], green: ['#127A3E', '#22A35A'], orange: ['#C2410C', '#F59E0B'], purple: ['#6D28D9', '#A855F7'], dark: ['#131316', '#3A3A44'] };
+  let sbnIdx = 0, sbnTouch = 0; const sbnSeen = new Set();
+  const bannersNow = () => (S && S.banners) || [];
+  const bWord = (b, k) => (lang === 'km' ? b[k + '_km'] || b[k + '_en'] : b[k + '_en'] || b[k + '_km']) || '';
+  function bannerStrip() {
+    const L = bannersNow(); if (!L.length) return '';
+    if (sbnIdx >= L.length) sbnIdx = 0;
+    const slide = b => { const c = BCOL[b.color] || BCOL.red, ti = bWord(b, 'title'), bo = bWord(b, 'body'), go = b.link_kind && b.link_kind !== 'none';
+      const words = ti || bo ? `<div class="sbn-w">${ti ? `<b>${esc(ti)}</b>` : ''}${bo ? `<span>${esc(bo)}</span>` : ''}${go ? `<em>${IC.chev}</em>` : ''}</div>` : '';
+      return b.image_url ? `<button class="sbn-s img" data-sbn="${b.id}"><img src="${esc(b.image_url)}" alt="${esc(ti)}">${words ? `<div class="sbn-shade">${words}</div>` : ''}</button>`
+        : `<button class="sbn-s txt" data-sbn="${b.id}" style="background:linear-gradient(135deg,${c[0]},${c[1]})"><i class="blob"></i><i class="blob two"></i><span class="sbn-ic">${IC.promo}</span>${words}</button>`; };
+    return `<div class="sbn"><div class="sbn-track" id="sbnt">${L.map(slide).join('')}</div>${L.length > 1 ? `<div class="sbn-dots">${L.map((b, i) => `<i class="${i === sbnIdx ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`;
+  }
+  function bannerGo(b) {
+    rpc('shop_banner_tap', { p_id: b.id }).catch(() => {}); haptic();
+    const k = b.link_kind;
+    if (k === 'promos') tab = 'promos';
+    else if (k === 'pre') tab = 'pre';
+    else if (k === 'chat') { tab = 'chat'; CHAT = null; }
+    else if (k === 'product') { const p = products.find(x => String(x.id) === String(b.link_value)); tab = 'products'; cat = ''; search = p ? p.name : ''; }
+    else if (k === 'url' && b.link_value) return openUrl(b.link_value);
+    else return;
+    window.scrollTo(0, 0); draw();
+  }
+  function bindBanners() {
+    const tr = document.getElementById('sbnt'); if (!tr) return;
+    const L = bannersNow(), dots = [...root.querySelectorAll('.sbn-dots i')];
+    tr.scrollLeft = sbnIdx * tr.clientWidth;
+    tr.addEventListener('scroll', () => { const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)); if (i !== sbnIdx) { sbnIdx = i; dots.forEach((d, k) => d.classList.toggle('on', k === i)); } }, { passive: true });
+    tr.addEventListener('touchstart', () => { sbnTouch = Date.now(); }, { passive: true });
+    tr.querySelectorAll('[data-sbn]').forEach(x => x.onclick = () => { const b = L.find(y => String(y.id) === x.dataset.sbn); if (b) bannerGo(b); });
+    const fresh = L.map(b => b.id).filter(id => !sbnSeen.has(id));
+    if (fresh.length) { fresh.forEach(id => sbnSeen.add(id)); rpc('shop_banner_seen', { p_ids: fresh }).catch(() => {}); }
+  }
+  setInterval(() => { const tr = document.getElementById('sbnt'), n = bannersNow().length;
+    if (!tr || n < 2 || document.hidden || Date.now() - sbnTouch < 6000) return;
+    sbnIdx = (sbnIdx + 1) % n; tr.scrollTo({ left: sbnIdx * tr.clientWidth, behavior: 'smooth' }); }, 5000);
   function productsView(searchBox) {
     const T = t(), cats = [...new Set(products.map(p => p.category).filter(Boolean))];
     const q = search.trim().toLowerCase();
     const list = products.filter(p => (!cat || p.category === cat) && (!q || (p.name + ' ' + (p.sku || '')).toLowerCase().includes(q)));
     return `${searchBox}
+      ${!cat && !q ? bannerStrip() : ''}
       ${!guideSeen() && !cat && !q ? `<button class="rowcard guidecard" data-guide=""><span class="rico">${IC.book}</span><span class="grow"><b>${esc(T.guideNew)}</b><span class="small muted">${esc(T.guideNewS)}</span></span><span class="muted">${IC.chev}</span></button>` : ''}
       ${cats.length > 1 ? `<div class="cats"><button class="chip ${!cat ? 'on' : ''}" data-cat="">${esc(T.all)}</button>${cats.map(c => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
       ${!cat && !q ? `<button class="rowcard" data-tab="pre"><span class="rico orange">${IC.bag}</span><span class="grow"><b>${esc(T.preRowT)}</b><span class="small muted">${esc(T.preRowS)}</span></span><span class="muted">${IC.chev}</span></button>` : ''}
@@ -688,7 +747,7 @@ main.chatmain{padding-bottom:176px;gap:8px}
     const T = t(), sale = products.filter(p => p.sale), fr = products.filter(p => p.promo), gf = products.filter(p => p.gift), cps = couponList();
     const sec = (title, l) => l.length ? secTitle(title) + `<div class="grid">${l.map(p => prodCard(p, true)).join('')}</div>` : '';
     const empty = !cps.length && !sale.length && !fr.length && !gf.length;
-    return `<div class="hero"><i class="blob"></i><span class="hic">${IC.promo}</span><div class="kick">${esc(pw('kicker', T.dealsKicker))}</div><div class="htitle">${esc(pw('title', T.dealsTitle))}</div><div class="hsub2">${esc(pw('sub', T.dealsSub))}</div></div>
+    return `${bannersNow().length ? bannerStrip() : `<div class="hero"><i class="blob"></i><span class="hic">${IC.promo}</span><div class="kick">${esc(pw('kicker', T.dealsKicker))}</div><div class="htitle">${esc(pw('title', T.dealsTitle))}</div><div class="hsub2">${esc(pw('sub', T.dealsSub))}</div></div>`}
       ${cps.length ? secTitle(pw('offers', T.offersFor)) + cps.map(couponHtml).join('') : ''}
       ${sec(pw('sale', T.secSale), sale)}${sec(pw('free', T.secFree), fr)}${sec(pw('gift', T.secGift), gf)}
       ${empty ? `<div class="center"><span class="bigic">${IC.promo}</span><p class="muted">${esc(T.noPromos)}</p></div>` : ''}`;

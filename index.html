@@ -1066,6 +1066,12 @@ html.th-white .hero span[style*="color:#fff"], html.th-white .hero .pill { color
 .rlist { margin: 4px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .rlist li { cursor: pointer; padding: 3px 4px; border-radius: 6px; } .rlist li:hover { background: var(--bg); }
 @media (max-width: 860px) { .rmap { grid-template-columns: 1fr; height: auto; padding: 12px; } .rmapbox { height: 60vh; } .rside { overflow: visible; } }
+.lfix { border-color: #F3D2A8; background: var(--ors); }
+.rfix { border-top: 1px solid var(--line); padding-top: 10px; } .rfix summary { cursor: pointer; } .rfix .lfix { margin-top: 6px; }
+
+.lvrow { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-top-color: var(--line); padding: 10px 6px; font: inherit; color: inherit; cursor: pointer; border-radius: 10px; }
+.lvrow .rdot { margin-top: 5px; } .lvrow.on { background: var(--bg); border-color: var(--line); }
+.lvlist .gap { color: var(--or); font-size: 12px; list-style: none; margin-left: -14px; }
 </style>
 </head>
 <body>
@@ -1334,12 +1340,17 @@ window.makeSupabaseApi = function (cfg) {
 
     // visits
     getVisit: id => q(sb.from('visits').select('*, customers(name, area, phone, lat, lng), profiles(full_name)').eq('id', id).maybeSingle()),
+    livePing: (lat, lng, acc) => q(sb.rpc('live_ping', { p_lat: lat, p_lng: lng, p_acc: acc == null ? null : Math.round(acc) })),
+    liveTeam: () => q(sb.rpc('live_team')),
+    liveTrail: (staffId, day) => q(sb.rpc('live_trail', { p_staff: staffId, p_day: day || null })),
+    locSuggest: customerId => q(sb.rpc('loc_suggest_list', { p_customer: customerId || null })),
+    locSuggestDo: (customerId, action) => q(sb.rpc('loc_suggest_do', { p_customer: customerId, p_action: action })),
     visitsBetween: (from, to, staffId) => all(() => { let x = sb.from('visits').select('*, customers(name, area, lat, lng), profiles(full_name)').gte('check_in_at', from).lt('check_in_at', to).order('check_in_at').order('id'); if (staffId) x = x.eq('staff_id', staffId); return x; }),
     listVisits: () => q(sb.from('visits').select('*, customers(name, area), profiles(full_name)').order('id', { ascending: false }).limit(200)),
     activeVisit: () => me ? q(sb.from('visits').select('*, customers(*)').eq('staff_id', me.id).is('check_out_at', null).order('id', { ascending: false }).limit(1).maybeSingle()) : null,
     async checkIn(v) {
       const photo_url = v.photo ? await api.uploadPhoto(v.photo, 'visits') : null;
-      return q(sb.from('visits').insert({ customer_id: v.customer_id, staff_id: me.id, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null }).select().single());
+      return q(sb.from('visits').insert({ customer_id: v.customer_id, staff_id: me.id, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null, reason: v.reason || null }).select().single());
     },
     updateVisit: (id, customerId, notes) => q(sb.rpc('update_visit', { p_id: id, p_customer: customerId, p_notes: notes || '' })),
     deleteVisit: id => q(sb.rpc('delete_visit', { p_id: id })),
@@ -1468,6 +1479,9 @@ window.makeSupabaseApi = function (cfg) {
     myBanners: () => q(sb.rpc('my_banners')),
     bannerSeen: ids => q(sb.rpc('banner_seen', { p_ids: ids })),
     bannerTap: id => q(sb.rpc('banner_tap', { p_id: id })),
+    sbannerList: () => q(sb.rpc('sbanner_list')),
+    sbannerSave: (id, p) => q(sb.rpc('sbanner_save', { p_id: id || null, p })),
+    sbannerDo: (id, action) => q(sb.rpc('sbanner_do', { p_id: id, p_action: action })),
     bannerList: () => q(sb.rpc('banner_list')),
     bannerSave: (id, p) => q(sb.rpc('banner_save', { p_id: id || null, p })),
     bannerDo: (id, action) => q(sb.rpc('banner_do', { p_id: id, p_action: action })),
@@ -1561,7 +1575,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v35';
+  const KEY = 'kt_demo_v36';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -1835,6 +1849,15 @@ window.makeDemoApi = function () {
         D.attendance.push({ id: ++D.seq.att, staff_id: u, work_date: localDay0(day), check_in_at: inn.toISOString(), check_out_at: out.toISOString(), in_lat: 11.56, in_lng: 104.92, photo_url: null, note: '' }); }); }
     [['u-sophea', 52], ['u-sokha', 58], ['u-vanna', 9 * 60 - 7 * 60 + 12], ['u-dara', 47]].forEach(([u, m]) => { const inn = new Date(); inn.setHours(7, m, 0, 0);
       const t = new Date(Math.min(+inn, Date.now() - 10 * 60000)); D.attendance.push({ id: ++D.seq.att, staff_id: u, work_date: localDay0(new Date()), check_in_at: t.toISOString(), check_out_at: null, in_lat: 11.56, in_lng: 104.92, photo_url: null, note: '' }); });
+    // live team map: where people went today (a point every ~8 minutes since they started work)
+    D.pings = [];
+    { const paths = { 'u-sokha': [[11.5600, 104.9200], [11.5633, 104.9174], [11.5400, 104.9300], [11.5100, 104.9420], [11.4836, 104.9503]],
+        'u-dara': [[11.5600, 104.9200], [11.5820, 104.8990], [11.6050, 104.8700], [11.5700, 104.8900]],
+        'u-vanna': [[11.5600, 104.9200], [11.5603, 104.9204], [11.5598, 104.9197]], 'u-sophea': [[11.5600, 104.9200], [11.5560, 104.9280], [11.5600, 104.9200]] };
+      Object.entries(paths).forEach(([u, pts]) => { const a = D.attendance.find(x => x.staff_id === u && x.work_date === localDay0(new Date())); if (!a) return;
+        const t0 = +new Date(a.check_in_at), t1 = Date.now() - 3 * 60000 - (u === 'u-dara' ? 55 * 60000 : 0), n = Math.max(2, Math.floor((t1 - t0) / (8 * 60000)));
+        for (let i = 0; i <= n; i++) { const f = i / n * (pts.length - 1), k = Math.min(pts.length - 2, Math.floor(f)), r = f - k, A = pts[k], B = pts[k + 1];
+          D.pings.push({ staff_id: u, at: new Date(t0 + (t1 - t0) * i / n).toISOString(), lat: +(A[0] + (B[0] - A[0]) * r + (rnd() - .5) * .0006).toFixed(6), lng: +(A[1] + (B[1] - A[1]) * r + (rnd() - .5) * .0006).toFixed(6) }); } }); }
     D.leave = [{ id: 1, staff_id: 'u-sokha', kind: 'annual', from_date: localDay0(new Date(Date.now() + 5 * 86400000)), to_date: localDay0(new Date(Date.now() + 6 * 86400000)), days: 2, reason: 'Family wedding in Takeo', status: 'pending', reviewed_by: null, review_note: null, created_at: ago(300) },
       { id: 2, staff_id: 'u-dara', kind: 'sick', from_date: localDay0(new Date(Date.now() - 8 * 86400000)), to_date: localDay0(new Date(Date.now() - 8 * 86400000)), days: 1, reason: 'Fever', status: 'approved', reviewed_by: 'u-lee', review_note: null, created_at: ago(12000) }];
     D.seq.leave = 2; D.notifs = []; D.seq.notif = 0;
@@ -1915,6 +1938,8 @@ window.makeDemoApi = function () {
   const alert = (body, meta, type) => D.convs.filter(c => c.slug === alertSlug(type) || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
   const who = id => (user(id) || {}).full_name || 'Someone';
   const shopName = id => (D.customers.find(c => c.id === id) || {}).name || 'shop';
+  const geoM = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, s1 = Math.sin(r(c - a) / 2), s2 = Math.sin(r(d - b) / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(s1 * s1 + Math.cos(r(a)) * Math.cos(r(c)) * s2 * s2))); };
   function joinChannels(u) {
     if (!u.active) return;
     if (u.role === 'guest') return;
@@ -2217,7 +2242,7 @@ window.makeDemoApi = function () {
       if (['approved', 'rejected'].includes(status)) notify(cu.assigned_to, 'Shop ' + status, cu.name + (note ? ' · ' + note : ''), '#/customers/' + id);
       save(); return wait(null);
     },
-    async setCustomerLocation(id, lat, lng) { const c = D.customers.find(x => x.id === id); if (!(allow('customers.manage') || (c.assigned_to === me.id && c.lat == null))) fail('You cannot change this shop'); c.lat = lat; c.lng = lng; save(); return wait(null); },
+    async setCustomerLocation(id, lat, lng) { const c = D.customers.find(x => x.id === id); if (!(allow('customers.manage') || (c.assigned_to === me.id && c.lat == null))) fail('You cannot change this shop'); if (c.lat == null) c.map_url = `https://www.google.com/maps?q=${lat},${lng}`; c.lat = lat; c.lng = lng; save(); return wait(null); },
     async deleteCustomer(id) {
       const c = D.customers.find(x => x.id === id);
       if (!(allow('customers.delete') || (c.assigned_to === me.id && c.status !== 'approved'))) fail('You cannot delete this shop');
@@ -2349,6 +2374,17 @@ window.makeDemoApi = function () {
       save(); notifyOrder(o); return wait(null);
     },
 
+    async locSuggest(customerId) {
+      if (!me || !['admin', 'manager'].includes(me.role)) return wait([]);
+      return wait((D.locFix || []).filter(f => f.status === 'open' && (!customerId || f.customer_id === customerId)).map(f => { const c = D.customers.find(x => x.id === f.customer_id) || {};
+        return Object.assign(clone(f), { name: c.name, rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null, old_lat: c.lat, old_lng: c.lng }); }));
+    },
+    async locSuggestDo(customerId, action) {
+      if (!me || !['admin', 'manager'].includes(me.role)) fail('Only the admin or a manager can change a shop location');
+      const f = (D.locFix || []).find(x => x.customer_id === customerId && x.status === 'open'); if (!f) fail('This was already decided');
+      if (action === 'use') { const c = D.customers.find(x => x.id === customerId); c.lat = f.lat; c.lng = f.lng; c.map_url = `https://www.google.com/maps?q=${f.lat},${f.lng}`; }
+      f.status = action === 'use' ? 'used' : 'kept'; save(); return wait(null);
+    },
     async visitsBetween(from, to, staffId) {
       const f = new Date(from), t = new Date(to);
       return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all')) && (!staffId || v.staff_id === staffId) && new Date(v.check_in_at) >= f && new Date(v.check_in_at) < t)
@@ -2374,10 +2410,28 @@ window.makeDemoApi = function () {
       if (!allow('visits.create')) fail('You are not allowed to check in');
       if (!allow('customers.view_all') && (D.customers.find(c => c.id === v.customer_id) || {}).assigned_to !== me.id) fail('This shop belongs to another sales rep');
       const photo_url = v.photo ? await api.uploadPhoto(v.photo) : null;
-      const row = { id: ++D.seq.visit, customer_id: v.customer_id, staff_id: me.id, check_in_at: now(), check_out_at: null, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null };
+      const cu = D.customers.find(x => x.id === v.customer_id);
+      if (v.save_loc && cu && cu.lat == null && v.lat != null) { cu.lat = v.lat; cu.lng = v.lng; cu.map_url = `https://www.google.com/maps?q=${v.lat},${v.lng}`; }
+      // like the server: the distance is measured here, not taken from the phone
+      const dist = v.lat != null && cu && cu.lat != null ? Math.round(geoM(v.lat, v.lng, cu.lat, cu.lng)) : null;
+      const row = { id: ++D.seq.visit, customer_id: v.customer_id, staff_id: me.id, check_in_at: now(), check_out_at: null, lat: v.lat, lng: v.lng, distance_m: dist, photo_url, notes: v.notes || null, reason: (v.reason || '').trim() || null };
       D.visits.push(row);
-      const sn = shopName(row.customer_id), d = row.distance_m;
-      alert(d == null ? '📍 ' + me.full_name + ' checked in at ' + sn + ' (no GPS)' : d > 200 ? '⚠️ ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m from the shop' : '📍 ' + me.full_name + ' checked in at ' + sn + ' · ' + d + ' m away', { customer_id: row.customer_id, visit_id: row.id }, 'visits');
+      const sn = shopName(row.customer_id), d = row.distance_m, who = me.full_name;
+      alert((row.lat == null ? '📍 ' + who + ' checked in at ' + sn + ' (no GPS)' : d == null ? '📍 ' + who + ' checked in at ' + sn + ' (the shop has no GPS yet)'
+        : d > 300 ? '🚨 ' + who + ' checked in at ' + sn + ' · ' + d + ' m from the shop. Probably not at the shop!' : d > 100 ? '⚠️ Far check-in: ' + who + ' at ' + sn + ' · ' + d + ' m from the shop'
+        : '📍 ' + who + ' checked in at ' + sn + ' · ' + d + ' m away') + (d > 100 ? '\n' + (row.reason ? 'Reason: ' + row.reason : 'No reason given') : ''), { customer_id: row.customer_id, visit_id: row.id }, 'visits');
+      if (d > 100) {
+        const bosses = D.users.filter(u => u.active !== false && ['admin', 'manager'].includes(u.role) && u.id !== me.id);
+        bosses.forEach(u => notify(u.id, d > 300 ? 'Probably not at the shop' : 'Far check-in', who + ' · ' + sn + ' · ' + d + ' m' + (row.reason ? ' · ' + row.reason : ''), '#/visits/' + row.id));
+        const same = D.visits.filter(x => x.customer_id === row.customer_id && x.lat != null && x.distance_m > 100 && geoM(x.lat, x.lng, row.lat, row.lng) <= 100);
+        const old = (D.locFix || []).find(f => f.customer_id === row.customer_id);
+        if (same.length >= 2 && !(old && old.status === 'kept' && geoM(old.lat, old.lng, row.lat, row.lng) <= 100)) {
+          const la = same.reduce((a, x) => a + x.lat, 0) / same.length, ln = same.reduce((a, x) => a + x.lng, 0) / same.length;
+          const isNew = !(old && old.status === 'open');
+          D.locFix = (D.locFix || []).filter(f => f.customer_id !== row.customer_id).concat([{ customer_id: row.customer_id, lat: la, lng: ln, dist_m: Math.round(geoM(la, ln, cu.lat, cu.lng)), visits: same.length, status: 'open', created_at: now() }]);
+          if (isNew) bosses.forEach(u => notify(u.id, 'Shop location may be wrong', sn + ': ' + same.length + ' check-ins were about ' + Math.round(geoM(la, ln, cu.lat, cu.lng)) + ' m from the saved spot, at the same place. Check it and tap "Use new location" if it is right.', '#/customers/' + row.customer_id));
+        }
+      }
       save(); return wait(clone(row));
     },
     async updateVisit(id, customerId, notes) {
@@ -2786,6 +2840,31 @@ window.makeDemoApi = function () {
       else { const act = L.filter(x => x.active).sort((a, c) => a.sort - c.sort || c.id - a.id); act.forEach((x, i) => { x.sort = i; }); const i = act.indexOf(b), j = action === 'up' ? i - 1 : i + 1;
         if (act[j]) { const t = act[j].sort; act[j].sort = b.sort; b.sort = t; } }
       save(); return wait(null); },
+    // Telegram shop banners (demo)
+    _sbanners() { if (!D.sbanners) { D.sbanners = [
+        { id: 2, title_km: 'ប្រូម៉ូសិនខែតុលា', title_en: 'October deals', body_km: 'ទិញ 10 ថែម 1 លើកាស និងឆ្នាំងសាក', body_en: 'Buy 10 get 1 free on cables and chargers', image_url: null, color: 'red', link_kind: 'promos', link_value: null, provinces: [], starts_on: '2026-09-01', ends_on: null, sort: 0, active: true },
+        { id: 1, title_km: 'រកមិនឃើញ? កុម្ម៉ង់ពីចិន', title_en: "Can't find it? Order from China", body_km: 'ផ្ញើតំណ Taobao មកយើង', body_en: 'Send us a Taobao link', image_url: null, color: 'orange', link_kind: 'pre', link_value: null, provinces: [], starts_on: '2026-09-01', ends_on: null, sort: 1, active: true }];
+        D.sbannerSeq = 2; } return D.sbanners; },
+    async sbannerList() { if (!isBoss()) fail('Only the admin or a manager can change banners'); const t = new Date().toISOString().slice(0, 10);
+      const shops = D.customers.filter(c => c.status === 'approved' || c.status == null);
+      return wait(clone(api._sbanners().slice().sort((a, b) => (!a.active) - (!b.active) || a.sort - b.sort || b.id - a.id).map(b => Object.assign({}, b, {
+        state: !b.active || (b.ends_on && b.ends_on < t) ? 'ended' : b.starts_on > t ? 'upcoming' : 'running',
+        product_name: b.link_kind === 'product' ? ((D.products || []).find(p => String(p.id) === String(b.link_value)) || {}).name : null,
+        reach: shops.filter(c => !(b.provinces || []).length || b.provinces.includes(c.province)).length, seen: b.id === 2 ? 4 : 0, tapped: b.id === 2 ? 1 : 0,
+        viewers: b.id === 2 ? [{ name: 'Lucky Phone Shop', seen: now(), tapped: now() }, { name: 'Star Mobile', seen: now(), tapped: null }, { name: 'Phone Zone', seen: now(), tapped: null }, { name: 'Mony Shop', seen: now(), tapped: null }] : [] })))); },
+    async sbannerSave(id, p) { if (!isBoss()) fail('Only the admin or a manager can change banners'); api._sbanners();
+      if (!p.image_url && !(p.title_en || '').trim() && !(p.title_km || '').trim()) fail('Write a title or add a picture');
+      if (p.link_kind === 'url' && !/^https?:\/\//.test(p.link_value || '')) fail('The website link must start with https://');
+      if (p.ends_on && p.starts_on && p.ends_on < p.starts_on) fail('The end date is before the start date');
+      const row = Object.assign({ color: 'red', link_kind: 'none', provinces: [] }, p, { starts_on: p.starts_on || new Date().toISOString().slice(0, 10), ends_on: p.ends_on || null, active: true });
+      if (id) Object.assign(D.sbanners.find(b => b.id === id), row); else D.sbanners.push(Object.assign({ id: ++D.sbannerSeq, sort: Math.min(0, ...D.sbanners.map(b => b.sort)) - 1 }, row));
+      save(); return wait(id || D.sbannerSeq); },
+    async sbannerDo(id, action) { if (!isBoss()) fail('Only the admin or a manager can change banners'); const L = api._sbanners(), b = L.find(x => x.id === id); if (!b) return wait(null);
+      if (action === 'end') { b.active = false; b.ends_on = new Date().toISOString().slice(0, 10); }
+      else if (action === 'delete') D.sbanners = L.filter(x => x.id !== id);
+      else { const act = L.filter(x => x.active).sort((a, c) => a.sort - c.sort || c.id - a.id); act.forEach((x, i) => { x.sort = i; }); const i = act.indexOf(b), j = action === 'up' ? i - 1 : i + 1;
+        if (act[j]) { const t = act[j].sort; act[j].sort = b.sort; b.sort = t; } }
+      save(); return wait(null); },
     async promoPageGet() { if (!isBoss()) fail('Only the admin or a manager can change promotions'); return wait(clone(D.promoPage || {})); },
     async promoPageSave(p) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); D.promoPage = Object.assign({}, p); save(); return wait(null); },
     async promoEnd(id) { if (!isBoss()) fail('Only the admin or a manager can change promotions'); const m = (D.promos || []).find(x => x.id === id); if (m) { m.active = false; save(); } return wait(null); },
@@ -2930,6 +3009,32 @@ window.makeDemoApi = function () {
     // ---------- attendance, leave, HR ----------
     async listAttendance(from, to) { if (!role()) return []; return wait(D.attendance.filter(a => a.work_date >= from && a.work_date <= to && (a.staff_id === me.id || allow('attendance.view') || allow('hr.manage')))
       .sort((a, b) => b.work_date.localeCompare(a.work_date)).map(a => Object.assign(clone(a), { profiles: { full_name: (user(a.staff_id) || {}).full_name } }))); },
+    async livePing(lat, lng, acc) {
+      const t = localDay0(new Date()), a = me && D.attendance.find(x => x.staff_id === me.id && x.work_date === t && !x.check_out_at); if (!a) return wait(false);
+      D.pings = D.pings || []; const last = D.pings.filter(p => p.staff_id === me.id).pop();
+      if (lat != null && !(acc > 500) && !(last && Date.now() - new Date(last.at) < 90000)) { D.pings.push({ staff_id: me.id, at: now(), lat, lng }); save(); }
+      return wait(true);
+    },
+    async liveTeam() {
+      if (!me || !['admin', 'manager'].includes(me.role)) fail('Only the admin or a manager can see the live map');
+      const t = localDay0(new Date());
+      return wait(D.attendance.filter(a => a.work_date === t).map(a => { const u = user(a.staff_id) || {}; if (u.active === false) return null;
+        const pts = (D.pings || []).filter(p => p.staff_id === a.staff_id && p.at >= a.check_in_at).map(p => ({ kind: 'ping', at: p.at, lat: p.lat, lng: p.lng }))
+          .concat(D.visits.filter(v => v.staff_id === a.staff_id && v.lat != null && v.check_in_at >= a.check_in_at).map(v => ({ kind: 'shop', at: v.check_in_at, lat: v.lat, lng: v.lng })))
+          .concat(a.in_lat != null ? [{ kind: 'in', at: a.check_in_at, lat: a.in_lat, lng: a.in_lng }] : []).concat(a.check_out_at && a.out_lat != null ? [{ kind: 'out', at: a.check_out_at, lat: a.out_lat, lng: a.out_lng }] : [])
+          .sort((x, y) => new Date(y.at) - new Date(x.at));
+        const lp = pts[0] || {}, open = D.visits.filter(v => v.staff_id === a.staff_id && !v.check_out_at && v.check_in_at >= a.check_in_at).pop();
+        return { id: a.staff_id, name: u.full_name, role: u.role, avatar_url: u.avatar_url || null, in_at: a.check_in_at, out_at: a.check_out_at, lat: lp.lat ?? null, lng: lp.lng ?? null, seen_at: lp.at || null, seen_kind: lp.kind || null,
+          pings: (D.pings || []).filter(p => p.staff_id === a.staff_id && p.at >= a.check_in_at).length, shop: open ? shopName(open.customer_id) : null }; }).filter(Boolean).sort((x, y) => x.name.localeCompare(y.name)));
+    },
+    async liveTrail(staffId, day) {
+      if (!me || !['admin', 'manager'].includes(me.role)) fail('Only the admin or a manager can see the live map');
+      const d = day || localDay0(new Date()), a = D.attendance.find(x => x.staff_id === staffId && x.work_date === d), inDay = t => t && localDay0(new Date(t)) === d;
+      return wait((D.pings || []).filter(p => p.staff_id === staffId && inDay(p.at)).map(p => ({ kind: 'ping', at: p.at, lat: p.lat, lng: p.lng }))
+        .concat(a && a.in_lat != null ? [{ kind: 'in', at: a.check_in_at, lat: a.in_lat, lng: a.in_lng }] : []).concat(a && a.check_out_at && a.out_lat != null ? [{ kind: 'out', at: a.check_out_at, lat: a.out_lat, lng: a.out_lng }] : [])
+        .concat(D.visits.filter(v => v.staff_id === staffId && v.lat != null && inDay(v.check_in_at)).map(v => ({ kind: 'shop', at: v.check_in_at, lat: v.lat, lng: v.lng, name: shopName(v.customer_id), dist: v.distance_m })))
+        .sort((x, y) => new Date(x.at) - new Date(y.at)));
+    },
     async todayAttendance() { const t = localDay0(new Date()); return wait(clone(D.attendance.find(a => a.staff_id === me.id && a.work_date === t) || null)); },
     async clockIn(lat, lng, photo, note) {
       if (!role()) fail('Your account is not active'); const t = localDay0(new Date());
@@ -3198,7 +3303,7 @@ window.makeDemoApi = function () {
     }, old.createOrder);
 
     api.checkIn = orOld(async v => {
-      const p = { customer_id: v.customer_id, lat: v.lat, lng: v.lng, distance_m: v.distance_m, notes: v.notes || null };
+      const p = { customer_id: v.customer_id, save_loc: !!v.save_loc, reason: v.reason || null, lat: v.lat, lng: v.lng, distance_m: v.distance_m, notes: v.notes || null };
       const r = await sendOrKeep('visit', p, { photo: v.photo || null, label: await shopName(v.customer_id) });
       return r.queued ? { id: r.id, queued: true } : r;
     }, old.checkIn);
@@ -3765,6 +3870,34 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
   '← Day before': '← ថ្ងៃមុន', 'Next day →': 'ថ្ងៃបន្ទាប់ →', 'Shops not visited 30+ days': 'ហាងមិនបានចុះ 30+ ថ្ងៃ', 'No shop visits on this day.': 'គ្មានការចុះហាងនៅថ្ងៃនេះទេ។',
   'No shop visits on this day for this rep.': 'អ្នកលក់នេះគ្មានការចុះហាងនៅថ្ងៃនេះទេ។', 'still there': 'នៅទីនោះនៅឡើយ', 'No GPS at check-in (shop location shown)': 'គ្មាន GPS ពេលចូលហាង (បង្ហាញទីតាំងហាង)',
   'Tap a shop': 'ចុចលើហាង', 'to plan today. The app puts them in the shortest order.': 'ដើម្បីរៀបផ្លូវថ្ងៃនេះ។ កម្មវិធីនឹងរៀបតាមផ្លូវខ្លីបំផុត។', 'no rep': 'គ្មានអ្នកលក់', 'Map': 'ផែនទី' });
+Object.assign(window.KT_KM, { 'GPS is weak here, so the shop location will not be saved. Stand near the shop door and tap Retry.': 'GPS ខ្សោយនៅទីនេះ ដូច្នេះទីតាំងហាងមិនត្រូវបានរក្សាទុកទេ។ សូមឈរជិតទ្វារហាង ហើយចុច ព្យាយាមម្តងទៀត។' });
+Object.assign(window.KT_KM, { "Save this spot as the shop's location": 'រក្សាទុកកន្លែងនេះជាទីតាំងហាង' });
+Object.assign(window.KT_KM, { 'Retry': 'ព្យាយាមម្តងទៀត' });
+Object.assign(window.KT_KM, { "This shop has no GPS yet. This spot will be saved as the shop's location, and its Google Maps link will point here.": 'ហាងនេះមិនទាន់មាន GPS ទេ។ កន្លែងនេះនឹងត្រូវរក្សាទុកជាទីតាំងហាង ហើយតំណ Google Maps នឹងចង្អុលមកទីនេះ។' });
+Object.assign(window.KT_KM, { '🚨 You are not at this shop.': '🚨 អ្នកមិននៅហាងនេះទេ។', '⚠️ You are a bit far from this shop.': '⚠️ អ្នកនៅឆ្ងាយពីហាងនេះបន្តិច។',
+  'Your manager will get this check-in with the photo. Write why before checking in.': 'អ្នកគ្រប់គ្រងនឹងទទួលបានការចូលហាងនេះ ជាមួយរូបថត។ សូមសរសេរមូលហេតុ មុនពេលចូលហាង។',
+  'Your manager will see it. Write why before checking in.': 'អ្នកគ្រប់គ្រងនឹងឃើញវា។ សូមសរសេរមូលហេតុ មុនពេលចូលហាង។', 'Why are you far from the shop?': 'ហេតុអ្វីបានជាអ្នកនៅឆ្ងាយពីហាង?',
+  'Reason': 'មូលហេតុ', 'No reason given': 'គ្មានមូលហេតុ', 'Shop had no GPS yet': 'ហាងមិនទាន់មាន GPS',
+  'Checked in more than 300 m from the shop. The rep was probably not at the shop.': 'បានចូលហាងឆ្ងាយជាង 300 ម៉ែត្រពីហាង។ អ្នកលក់ប្រហែលជាមិននៅហាងទេ។',
+  'Checked in far from the shop. It may be worth asking why.': 'បានចូលហាងនៅឆ្ងាយពីហាង។ គួរសួរមូលហេតុ។',
+  'Shop location may be wrong': 'ទីតាំងហាងប្រហែលជាខុស', 'Saved spot': 'ទីតាំងដែលបានរក្សាទុក', 'New spot': 'ទីតាំងថ្មី', 'Keep saved spot': 'រក្សាទីតាំងចាស់', 'Use new location': 'ប្រើទីតាំងថ្មី',
+  'Use the new location?': 'ប្រើទីតាំងថ្មី?', 'The shop will move to the new spot on the map, and its Google Maps link will point there.': 'ហាងនឹងផ្លាស់ទៅទីតាំងថ្មីលើផែនទី ហើយតំណ Google Maps នឹងចង្អុលទៅទីនោះ។',
+  'Shop location updated': 'បានកែទីតាំងហាង', 'Saved spot kept': 'បានរក្សាទីតាំងចាស់', 'Far from shop (100 m+)': 'ឆ្ងាយពីហាង (100 ម៉ែត្រ+)', 'Not at the shop (300 m+)': 'មិននៅហាង (300 ម៉ែត្រ+)',
+  'Far check-in': 'ចូលហាងពីចម្ងាយ', 'Probably not at the shop': 'ប្រហែលជាមិននៅហាង' });
+Object.assign(window.KT_KM, { 'Live team map': 'ផែនទីក្រុមការងារផ្ទាល់', 'Live team': 'ក្រុមផ្ទាល់', 'Where your team is now · only during work hours': 'ក្រុមការងាររបស់អ្នកនៅទីណាឥឡូវ · តែម៉ោងធ្វើការ',
+  'Where your team is now (during work hours)': 'ក្រុមការងារនៅទីណាឥឡូវ (ម៉ោងធ្វើការ)', 'Live': 'ផ្ទាល់', 'Not updated': 'មិនបានធ្វើបច្ចុប្បន្នភាព', 'No update for 1 h+': 'គ្មានព័ត៌មានថ្មី 1 ម៉ោង+',
+  'No location yet': 'មិនទាន់មានទីតាំង', 'Finished work': 'បានបញ្ចប់ការងារ', 'Started work': 'បានចាប់ផ្តើមការងារ', "Today's trail": 'ផ្លូវថ្ងៃនេះ', 'Close': 'បិទ',
+  'Nobody has started work today yet.': 'មិនទាន់មាននរណាចាប់ផ្តើមការងារថ្ងៃនេះទេ។', 'No locations on this day.': 'គ្មានទីតាំងនៅថ្ងៃនេះទេ។', 'No update for': 'គ្មានព័ត៌មានថ្មី',
+  'Only the admin or a manager can see the live map.': 'មានតែអ្នកគ្រប់គ្រង ឬម្ចាស់ទេ ដែលអាចមើលផែនទីផ្ទាល់។',
+  'While you are at work, the app shares your location with the office every few minutes when it is open. It stops when you finish work.': 'ពេលអ្នកកំពុងធ្វើការ កម្មវិធីនឹងចែករំលែកទីតាំងរបស់អ្នកទៅការិយាល័យរៀងរាល់ប៉ុន្មាននាទីម្តង ពេលកម្មវិធីបើក។ វាឈប់ពេលអ្នកបញ្ចប់ការងារ។',
+  'Your location is shared with the office until you finish work.': 'ទីតាំងរបស់អ្នកត្រូវបានចែករំលែកទៅការិយាល័យ រហូតដល់អ្នកបញ្ចប់ការងារ។' });
+Object.assign(window.KT_KM, { 'Staff app': 'កម្មវិធីបុគ្គលិក', 'Telegram shop': 'ហាង Telegram', 'Sliding banners in the Telegram shop': 'ផ្ទាំងរំកិលក្នុងហាង Telegram', 'New shop banner': 'ផ្ទាំងហាងថ្មី', 'Edit shop banner': 'កែផ្ទាំងហាង',
+  'All shops': 'ហាងទាំងអស់', 'Only some provinces': 'តែខេត្តខ្លះ', 'Which shops see it': 'ហាងណាឃើញវា', 'When a shop taps it': 'ពេលហាងចុចលើវា', 'Open the Promotions page': 'បើកទំព័រប្រូម៉ូសិន',
+  'Open Pre-order (Taobao)': 'បើកកុម្ម៉ង់ទុក (Taobao)', 'Open Chat with us': 'បើកជជែកជាមួយយើង', 'Show this banner in the shop': 'បង្ហាញផ្ទាំងនេះក្នុងហាង', 'Choose at least one province': 'សូមជ្រើសយ៉ាងហោចណាស់ខេត្តមួយ',
+  'Banner is showing in the shop': 'ផ្ទាំងកំពុងបង្ហាញក្នុងហាង', 'Preview · what shops see now': 'មើលជាមុន · អ្វីដែលហាងឃើញឥឡូវ' });
+Object.assign(window.KT_KM, { 'Messages': 'សារ', 'Staff app banners': 'ផ្ទាំងកម្មវិធីបុគ្គលិក', 'Telegram shop banners': 'ផ្ទាំងហាង Telegram', 'Messages to all staff, and to shops in Telegram': 'សារទៅបុគ្គលិកទាំងអស់ និងទៅហាងក្នុង Telegram',
+  'Sliding pictures and messages at the top of the staff app\'s Home': 'រូបភាព និងសាររំកិល នៅខាងលើទំព័រដើមកម្មវិធីបុគ្គលិក', 'Message to shops in Telegram': 'សារទៅហាងក្នុង Telegram',
+  'Send a message and a photo to the shops that use the Telegram shop.': 'ផ្ញើសារ និងរូបថត ទៅហាងដែលប្រើហាង Telegram។', 'Message shops': 'ផ្ញើសារទៅហាង', 'New announcement to all staff': 'សេចក្តីប្រកាសថ្មីទៅបុគ្គលិកទាំងអស់' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -4089,6 +4222,7 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
         ${item('#/customers', 'store', 'Customers / shops', 'Shop list, balances, visit history', 'var(--grs)', 'var(--gr)')}
         ${item('#/visits', 'pin', 'Shop visits', K.allow('visits.view_all') ? 'All staff visits' : 'Check in and your visit history', 'var(--bls)', 'var(--bl)')}
         ${window.L ? item('#/map', 'map', 'My map', 'Your shops on a map · plan today\'s route', 'var(--grs)', 'var(--gr)') : ''}
+        ${window.L && ['admin', 'manager'].includes(S.me.role) ? item('#/live', 'nav', 'Live team map', 'Where your team is now (during work hours)', 'var(--grs)', 'var(--gr)') : ''}
         ${window.L && K.allow('visits.view_all') ? item('#/routemap', 'nav', 'Route map', 'Where each sales rep went today', 'var(--bls)', 'var(--bl)') : ''}
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
@@ -4892,7 +5026,7 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
     const maps = c.lat != null ? `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}` : c.map_url ? esc(c.map_url) : c.commune || c.district ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(K.geoLine(c, true) + ', Cambodia')}` : null;
     const missing = K.shopMissingList(c);
     const missBox = missing.length && canEdit ? `<button class="card" id="fillm" style="border-color:#F3D2A8;background:var(--ors);text-align:left;font:inherit;color:inherit;cursor:pointer"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('pen', 20)}</div><div class="grow"><b>Missing details</b><div class="small">${esc(missing.join(', '))} · tap to fill in</div></div></div></button>` : '';
-    main.innerHTML = `<div class="pad">${banner}${missBox}
+    main.innerHTML = `<div class="pad">${banner}${missBox}<div id="locfix"></div>
       <div class="card"><div class="row"><div class="ic-av sq" style="width:52px;height:52px">${icon('store', 26)}</div><div class="grow"><div class="tt" style="font-size:18px">${esc(c.name)}</div><div class="st">${esc([c.owner_name, c.area].filter(Boolean).join(' · ') || 'No area / market yet')}</div></div></div>
         <div class="row small" style="gap:6px;flex-wrap:wrap">${icon('pin', 16)}<b>${esc(K.geoLine(c) || 'No province')}</b><span class="muted">· Sales rep:</span><b>${esc(c.rep_name || (c.import_rep ? c.import_rep + ' (no account yet)' : 'none'))}</b></div>
         <div class="row" style="gap:6px;flex-wrap:wrap">${c.credit_days ? `<span class="pill bl">Credit ${c.credit_days} days</span>` : '<span class="pill gy">Cash only</span>'}${c.lat == null ? '<span class="pill or">No GPS location</span>' : ''}</div>
@@ -4913,6 +5047,7 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
       await busy(b, () => api.reviewCustomer(c.id, b.dataset.rv, $('#rn').value.trim()));
       forget('customers'); toast(b.dataset.rv === 'approved' ? 'Shop approved' : 'Shop rejected'); K.render();
     });
+    if (K.locFixCard) K.locFixCard($('#locfix'), c.id, () => { forget('customers'); K.render(); });
   });
 
   async function customerForm(c) {
@@ -4955,6 +5090,8 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
     s.el.addEventListener('click', ev => { if ((ev.target === s.el || ev.target.closest('[data-close]')) && !c.id && location.hash === '#/customers/new') history.back(); });
   }
 
+  const FAR_M = 100, STRONG_M = 300;   // metres from the shop: over 100 = far (reason needed), over 300 = probably not at the shop
+  const GOOD_GPS = 100;   // metres: a weaker GPS fix is not saved as the shop's location
   function getPosition() {
     return new Promise((res, rej) => {
       if (!navigator.geolocation) return rej(new Error('This phone cannot share its location'));
@@ -4982,7 +5119,7 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
     if (!current()) return;
     if (!v) { main.innerHTML = `<div class="pad">${emptyBox('pin', 'This visit was deleted, or only managers can see other staff visits.')}</div>`; return; }
     const mins = v.check_out_at ? Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) : null;
-    const far = v.distance_m != null && v.distance_m > 200;
+    const far = v.distance_m != null && v.distance_m > FAR_M, strong = far && v.distance_m > STRONG_M;
     const t = d => new Date(d).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const line = (k, val) => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted grow">${k}</span><b style="text-align:right">${val}</b></div>`;
     main.innerHTML = `<div class="pad">
@@ -4992,10 +5129,11 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
         ${line('Staff', esc(v.profiles ? v.profiles.full_name : ''))}
         ${line('Checked in', esc(t(v.check_in_at)))}
         ${line('Finished', v.check_out_at ? esc(t(v.check_out_at)) + ' · ' + mins + ' min' : '<span class="pill">Still on site</span>')}
-        ${line('Distance from shop', v.distance_m == null ? 'No GPS' : far ? `<span style="color:var(--or)">⚠️ ${v.distance_m} m</span>` : v.distance_m + ' m')}
+        ${line('Distance from shop', v.distance_m == null ? (v.lat == null ? 'No GPS' : 'Shop had no GPS yet') : far ? `<span style="color:${strong ? 'var(--rd)' : 'var(--or)'}">${strong ? '🚨' : '⚠️'} ${v.distance_m} m</span>` : v.distance_m + ' m')}
+        ${far ? line('Reason', v.reason ? esc(v.reason) : '<span class="muted">No reason given</span>') : ''}
         ${v.notes ? `<div style="padding-top:8px"><div class="muted small">Note</div><div>${esc(v.notes)}</div></div>` : ''}
       </div>
-      ${far ? '<div class="card small" style="background:var(--ors);color:var(--or)">Checked in far from the shop. It may be worth asking why.</div>' : ''}
+      ${far ? `<div class="card small" style="background:${strong ? 'var(--rds)' : 'var(--ors)'};color:${strong ? 'var(--rd)' : 'var(--or)'}">${strong ? 'Checked in more than 300 m from the shop. The rep was probably not at the shop.' : 'Checked in far from the shop. It may be worth asking why.'}</div>` : ''}
       <div class="btns">${v.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps/search/?api=1&query=${v.lat},${v.lng}" target="_blank" rel="noopener">${icon('pin', 18)}Check-in on map</a>` : ''}
         ${v.customers && v.customers.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps/search/?api=1&query=${v.customers.lat},${v.customers.lng}" target="_blank" rel="noopener">${icon('store', 18)}Shop on map</a>` : ''}</div>
       ${K.canFixVisit(v) ? `<button class="btn out block" id="fix">${icon('pen', 18)}Edit or delete this visit</button>` : ''}</div>`;
@@ -5035,7 +5173,7 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
       <div class="card"><b>Photo of the shop display</b><button class="photo-box" id="pbox">${icon('camera', 30)}Tap to take photo</button><input type="file" id="pf" accept="image/*" capture="environment" class="hidden"></div>
       <label class="f">Notes<textarea class="inp" id="nt" placeholder="Optional"></textarea></label>
       <button class="btn block" id="ci" disabled>${icon('pin', 20)} Check in</button></div>`;
-    const ready = () => { $('#ci').disabled = !(st.customer && st.photo); };
+    const ready = () => { $('#ci').disabled = !(st.customer && st.photo && (!st.far || (st.reason || '').trim().length >= 3)); };
     const drawShop = () => {
       $('#shop').innerHTML = st.customer ? `<div class="row"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(st.customer.name)}</div><div class="st">${esc(st.customer.area || '')}</div></div><button class="btn sm out" id="pk">Change</button></div>`
         : `<button class="btn ghost block" id="pk">${icon('store', 20)} Choose the shop</button>`;
@@ -5049,14 +5187,19 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
         const c = st.customer, has = c && c.lat != null;
         const dist = has ? distanceM(st.pos.lat, st.pos.lng, c.lat, c.lng) : null;
         st.dist = dist;
-        const far = dist != null && dist > 200;
+        const far = dist != null && dist > FAR_M, strong = dist != null && dist > STRONG_M;
+        st.far = far;
         inner = `<div class="row"><div class="ic-av sq" style="background:${far ? 'var(--ors)' : 'var(--grs)'};color:${far ? 'var(--or)' : 'var(--gr)'}">${icon(far ? 'alert' : 'check', 20)}</div><div class="grow"><b>${dist != null ? (far ? dist + ' m from the shop' : 'At the shop · ' + dist + ' m') : 'GPS found'}</b><div class="small muted">Accuracy about ${st.pos.acc} m</div></div></div>
-          ${c && !has ? `<label class="row small" style="gap:10px"><input type="checkbox" id="sl" ${st.saveLoc ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)">Save this spot as the shop's location</label>` : ''}
-          ${far ? '<div class="small" style="color:var(--or)">You seem far from this shop. You can still check in, and the manager will see the distance.</div>' : ''}`;
+          ${c && !has && st.pos.acc > GOOD_GPS ? `<div class="small" style="color:var(--or)"><span>GPS is weak here, so the shop location will not be saved. Stand near the shop door and tap Retry.</span> <span>(±${st.pos.acc} m)</span></div><button class="btn sm out" id="retry2">Retry</button>` : ''}
+          ${c && !has && st.pos.acc <= GOOD_GPS ? `<div class="small" style="color:var(--gr)"><span>This shop has no GPS yet. This spot will be saved as the shop's location, and its Google Maps link will point here.</span> <span class="muted">(±${st.pos.acc} m)</span></div>` : ''}
+          ${far ? `<div class="small" style="color:${strong ? 'var(--rd)' : 'var(--or)'}"><b>${strong ? '🚨 You are not at this shop.' : '⚠️ You are a bit far from this shop.'}</b> <span>${strong ? 'Your manager will get this check-in with the photo. Write why before checking in.' : 'Your manager will see it. Write why before checking in.'}</span></div>
+            <label class="f">Why are you far from the shop?<input class="inp" id="rsn" value="${esc(st.reason || '')}" placeholder="e.g. shop moved, met the owner at the market"></label>` : ''}`;
       }
       $('#gpsbox').innerHTML = inner;
       if ($('#retry')) $('#retry').onclick = locate;
-      if ($('#sl')) $('#sl').onchange = e => { st.saveLoc = e.target.checked; };
+      if ($('#retry2')) $('#retry2').onclick = locate;
+      if ($('#rsn')) $('#rsn').oninput = e => { st.reason = e.target.value; ready(); };
+      ready();
     };
     const locate = async () => { st.posErr = null; st.pos = null; drawGps(); try { st.pos = await getPosition(); } catch (e) { st.posErr = e.message; } if (current()) drawGps(); };
     drawShop(); locate();
@@ -5065,8 +5208,9 @@ Object.assign(window.KT_KM, { 'My map': 'ផែនទីរបស់ខ្ញុ
     $('#ci').onclick = async e => {
       await busy(e.currentTarget, async () => {
         const c = st.customer;
-        if (c.lat == null && st.pos && st.saveLoc) await api.setCustomerLocation(c.id, st.pos.lat, st.pos.lng).catch(() => {});   // no signal: the visit is still saved
-        st.res = await api.checkIn({ customer_id: c.id, lat: st.pos ? st.pos.lat : null, lng: st.pos ? st.pos.lng : null, distance_m: st.dist ?? null, photo: st.photo, notes: $('#nt').value.trim() });
+        const saveLoc = c.lat == null && st.pos && st.pos.acc <= GOOD_GPS;   // first visit: this spot becomes the shop's location (never changed by later visits)
+        if (saveLoc) await api.setCustomerLocation(c.id, st.pos.lat, st.pos.lng).catch(() => {});   // no signal: saved later together with the visit
+        st.res = await api.checkIn({ save_loc: !!saveLoc, reason: st.far ? (st.reason || '').trim() : null, customer_id: c.id, lat: st.pos ? st.pos.lat : null, lng: st.pos ? st.pos.lng : null, distance_m: st.dist ?? null, photo: st.photo, notes: $('#nt').value.trim() });
       });
       forget('customers'); if (st.res && st.res.queued) K.savedOffline(); else toast('Checked in at ' + st.customer.name); go('#/visits');
     };
@@ -6793,17 +6937,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       P.bind($('#hist'), st, draw);
     };
     main.innerHTML = `<div class="pad">
-      <div class="card" id="now">${!today ? `<b>Start work</b><div class="small muted">Take a selfie at your workplace. Your GPS location is saved too.</div>
+      <div class="card" id="now">${!today ? `<b>Start work</b><div class="small muted">Take a selfie at your workplace. Your GPS location is saved too.</div><div class="small muted">📍 <span>While you are at work, the app shares your location with the office every few minutes when it is open. It stops when you finish work.</span></div>
           <button class="photo-box" id="pbox" style="height:150px">${icon('camera', 30)}Take a selfie</button><input type="file" id="pf" accept="image/*" capture="user" class="hidden">
           <button class="btn green block" id="cin">${icon('check', 20)} Start work</button>`
         : !today.check_out_at ? `<div class="row"><div class="grow"><div class="small muted">Working since</div><div class="big">${hm(today.check_in_at)}</div></div>${K.isLate(today) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>'}</div>
+          <div class="small muted">📍 <span>Your location is shared with the office until you finish work.</span></div>
           <label class="f">Note (optional)<input class="inp" id="cnote" placeholder="e.g. visited 6 shops in Kandal"></label><button class="btn block" id="cout">${icon('logout', 20)} Finish work</button>`
         : `<div class="row"><div class="ic-av sq" style="background:var(--grs);color:var(--gr)">${icon('check')}</div><div class="grow"><b>Worked today</b><div class="small muted">${hm(today.check_in_at)} – ${hm(today.check_out_at)} · ${K.hoursOf(today).toFixed(1)} hours</div></div></div>`}</div>
       <a class="btn ghost block" href="#/leave">${icon('bed', 20)} Leave · ask for days off</a>
       <div class="sec">History</div><div id="hist" style="display:flex;flex-direction:column;gap:10px"></div></div>`;
     if ($('#pbox')) { $('#pbox').onclick = () => $('#pf').click(); $('#pf').onchange = e => { photo = e.target.files[0]; if (photo) $('#pbox').innerHTML = `<img src="${URL.createObjectURL(photo)}" alt="Selfie">`; }; }
     if ($('#cin')) $('#cin').onclick = async e => { if (!photo) return toast('Take a selfie first');
-      const r = await busy(e.currentTarget, async () => { const p = await pos(); return api.clockIn(p && p.lat, p && p.lng, photo); }); if (api.offline && api.offline.isQueued(r)) K.savedOffline(); else toast('Have a good day at work!'); K.render(); };
+      const r = await busy(e.currentTarget, async () => { const p = await pos(); return api.clockIn(p && p.lat, p && p.lng, photo); }); if (api.offline && api.offline.isQueued(r)) K.savedOffline(); else toast('Have a good day at work!'); if (K.livePingNow) K.livePingNow(); K.render(); };
     if ($('#cout')) $('#cout').onclick = async e => { const r = await busy(e.currentTarget, async () => { const p = await pos(); return api.clockOut(p && p.lat, p && p.lng, $('#cnote').value.trim()); }); if (r && r.queued) { K.savedOffline(); return K.render(); } toast('Work finished. Thank you!'); K.render(); };
     draw();
   });
@@ -7281,6 +7426,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       from = dest.ll; }
     return links; };
 
+  // ================= "Shop location may be wrong" (admin & managers) =================
+  const isBossRole = () => K.S.me && ['admin', 'manager'].includes(K.S.me.role);
+  const gm = (a, b) => `https://www.google.com/maps?q=${a},${b}`;
+  K.locFixHtml = f => `<div class="card lfix"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('pin', 20)}</div><div class="grow"><b>Shop location may be wrong</b>
+      <div class="small">${f.visits} check-ins were about <b>${f.dist_m} m</b> from the saved spot, at the same new place. If the shop is really there, use the new location.</div></div></div>
+      <div class="row small" style="gap:8px;flex-wrap:wrap"><a href="${gm(f.old_lat, f.old_lng)}" target="_blank" rel="noopener">Saved spot</a><span class="muted">·</span><a href="${gm(f.lat, f.lng)}" target="_blank" rel="noopener">New spot</a></div>
+      <div class="btns" style="margin:0"><button class="btn sm out" data-lfk="${f.customer_id}">Keep saved spot</button><button class="btn sm" data-lfu="${f.customer_id}">${icon('check', 16)} Use new location</button></div></div>`;
+  K.locFixBind = (el, done) => {
+    el.querySelectorAll('[data-lfu],[data-lfk]').forEach(b => b.onclick = async () => {
+      const use = b.hasAttribute('data-lfu'), id = +(b.dataset.lfu || b.dataset.lfk);
+      if (use && !(await K.confirmSheet('Use the new location?', 'The shop will move to the new spot on the map, and its Google Maps link will point there.', 'Use new location'))) return;
+      try { await api.locSuggestDo(id, use ? 'use' : 'keep'); toast(use ? 'Shop location updated' : 'Saved spot kept'); done && done(); } catch (e) { toast(e.message); }
+    });
+  };
+  K.locFixCard = async (el, customerId, done) => {
+    if (!el || !isBossRole() || !api.locSuggest) return;
+    let l = []; try { l = await api.locSuggest(customerId); } catch (e) { return; }
+    if (!l || !l.length) return;
+    el.innerHTML = K.locFixHtml(l[0]); K.locFixBind(el, done);
+  };
+
   // ================= Staff app: My map =================
   const KINDS = { owe: ['#E8710A', 'Owes money'], old: ['#D7141A', 'Not visited 30+ days'], week: ['#1E8E3E', 'Visited this week'], ok: ['#1D5FB8', 'Visited this month'] };
   const kindOf = c => { const lv = c.last_visit_at ? (Date.now() - new Date(c.last_visit_at)) / day : 999;
@@ -7350,7 +7516,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const COLORS = ['#D7141A', '#1D5FB8', '#1E8E3E', '#8E44AD', '#E8710A', '#00838F', '#6D4C41', '#C2185B'];
   route(/^\/routemap$/, async (_, q, current) => {
     const A = K.adm;
-    const main = A.shell('visits', 'Route map', '<a class="btn sm out" href="#/visits">List of visits</a>', 'Where each sales rep went, in order');
+    const main = A.shell('visits', 'Route map', '<a class="btn sm out" href="#/live">Live team</a><a class="btn sm out" href="#/visits">List of visits</a>', 'Where each sales rep went, in order');
     const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
     const st = { date: q.date || today.toISOString().slice(0, 10), rep: q.rep || '', shops: false };
     let staff = [], shops = [];
@@ -7362,7 +7528,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <label class="f">Sales rep<select class="inp" id="rr"><option value="">All reps</option>${reps.map(u => `<option value="${u.id}" ${u.id === st.rep ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label></div>
         <div class="row small" style="gap:6px;flex-wrap:wrap"><button class="btn sm out" id="rprev">← Day before</button><button class="btn sm out" id="rnext">Next day →</button>
           <label class="row small" style="gap:6px;margin-left:auto"><input type="checkbox" id="rs" style="width:16px;height:16px;accent-color:var(--p)">Shops not visited 30+ days</label></div>
-        <div id="rl">${K.loading}</div></div><div class="card rmapbox"><div id="rm" style="position:absolute;inset:0"></div></div></div>`;
+        <div id="rfix"></div><div id="rl">${K.loading}</div></div><div class="card rmapbox"><div id="rm" style="position:absolute;inset:0"></div></div></div>`;
     const m = newMap($('#rm')), layer = L.layerGroup().addTo(m);
     const hm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const draw = async () => {
@@ -7379,16 +7545,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const pts = list.map(v => { const c = v.customers || {}; const ll = v.lat != null ? [v.lat, v.lng] : c.lat != null ? [c.lat, c.lng] : null; return { v, c, ll }; }).filter(p => p.ll);
         let dist = 0; pts.forEach((p, i) => { if (i) dist += km(pts[i - 1].ll, p.ll); all.push(p.ll); });
         if (pts.length > 1) L.polyline(pts.map(p => p.ll), { color: col, weight: 4, opacity: .8 }).addTo(layer);
-        pts.forEach((p, i) => { const far = p.v.distance_m > 200, mins = p.v.check_out_at ? Math.max(1, Math.round((new Date(p.v.check_out_at) - new Date(p.v.check_in_at)) / 60000)) : null;
-          L.marker(p.ll, { icon: pin(col, i + 1, far ? '#E8710A' : null), zIndexOffset: 100 + i }).bindPopup(`<div class="mpop"><b>${i + 1}. ${esc(p.c.name || 'Shop')}</b><div class="small">${esc((p.v.profiles || {}).full_name || '')}</div>
+        pts.forEach((p, i) => { const far = p.v.distance_m > 100, strong = p.v.distance_m > 300, mins = p.v.check_out_at ? Math.max(1, Math.round((new Date(p.v.check_out_at) - new Date(p.v.check_in_at)) / 60000)) : null;
+          L.marker(p.ll, { vid: p.v.id, icon: pin(col, i + 1, strong ? '#D7141A' : far ? '#E8710A' : null), zIndexOffset: 100 + i }).bindPopup(`<div class="mpop"><b>${i + 1}. ${esc(p.c.name || 'Shop')}</b><div class="small">${esc((p.v.profiles || {}).full_name || '')}</div>
             <div class="small">${hm(p.v.check_in_at)}${p.v.check_out_at ? ' – ' + hm(p.v.check_out_at) + ' · ' + mins + ' min' : ' · still there'}</div>
-            ${p.v.distance_m != null ? `<div class="small" style="color:${far ? '#E8710A' : 'inherit'}">${far ? '⚠️ ' + p.v.distance_m + ' m from the shop' : 'At the shop · ' + p.v.distance_m + ' m'}</div>` : '<div class="small muted">No GPS at check-in (shop location shown)</div>'}
+            ${p.v.distance_m != null ? `<div class="small" style="color:${strong ? '#D7141A' : far ? '#E8710A' : 'inherit'}">${far ? (strong ? '🚨 ' : '⚠️ ') + p.v.distance_m + ' m from the shop' : 'At the shop · ' + p.v.distance_m + ' m'}</div>${far ? `<div class="small"><b>${p.v.reason ? 'Reason: ' + esc(p.v.reason) : 'No reason given'}</b></div>` : ''}` : '<div class="small muted">No GPS at check-in (shop location shown)</div>'}
             ${p.v.notes ? `<div class="small">“${esc(p.v.notes)}”</div>` : ''}</div>`).addTo(layer); });
-        const first = list[0], last = list[list.length - 1], farN = list.filter(v => v.distance_m > 200).length;
+        const first = list[0], last = list[list.length - 1], farN = list.filter(v => v.distance_m > 100).length;
         return `<div class="rrep"><div class="row"><i class="rdot" style="background:${col}"></i><b class="grow">${esc((first.profiles || {}).full_name || 'Staff')}</b><span class="small muted">${list.length} shop${list.length > 1 ? 's' : ''} · ~${dist.toFixed(1)} km</span></div>
           <div class="small muted">${hm(first.check_in_at)} → ${hm(last.check_out_at || last.check_in_at)}${farN ? ` · <b style="color:#E8710A">${farN} far check-in${farN > 1 ? 's' : ''}</b>` : ''}</div>
           <ol class="rlist">${list.map(v => { const mins = v.check_out_at ? Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) : null;
-            return `<li data-rv="${v.id}"><b>${hm(v.check_in_at)}</b> ${esc((v.customers || {}).name || '')}<span class="muted">${mins ? ' · ' + mins + ' min' : ''}${v.distance_m > 200 ? ' · <b style="color:#E8710A">' + v.distance_m + ' m away</b>' : ''}</span></li>`; }).join('')}</ol></div>`;
+            return `<li data-rv="${v.id}"><b>${hm(v.check_in_at)}</b> ${esc((v.customers || {}).name || '')}<span class="muted">${mins ? ' · ' + mins + ' min' : ''}${v.distance_m > 100 ? ' · <b style="color:' + (v.distance_m > 300 ? '#D7141A' : '#E8710A') + '">' + v.distance_m + ' m away</b>' : ''}</span></li>`; }).join('')}</ol></div>`;
       });
       if (st.shops) shops.filter(c => c.lat != null && (!st.rep || c.assigned_to === st.rep) && (!c.last_visit_at || Date.now() - new Date(c.last_visit_at) > 30 * day)).forEach(c => {
         L.marker([c.lat, c.lng], { icon: pin('#9A9AA6', null) }).bindPopup(`<div class="mpop"><b>${esc(c.name)}</b><div class="small">${esc(c.rep_name || 'no rep')}</div><div class="small">Last visit: <b>${c.last_visit_at ? esc(K.when(c.last_visit_at)) : 'never'}</b></div></div>`).addTo(layer); all.push([c.lat, c.lng]); });
@@ -7396,13 +7562,123 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-rv]').forEach(li => li.onclick = () => { layer.eachLayer(l => { if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).includes('>' + li.querySelector('b').textContent)) { m.setView(l.getLatLng(), 16); l.openPopup(); } }); });
       if (all.length) m.fitBounds(all, { padding: [40, 40], maxZoom: 16 }); else m.setView(KH, 7);
     };
+    const fixes = async () => { if (!isBossRole() || !api.locSuggest) return; let l = []; try { l = await api.locSuggest(null); } catch (e) {} if (!current()) return;
+      $('#rfix').innerHTML = l.length ? `<details class="rfix" ${l.length <= 2 ? 'open' : ''}><summary><b style="color:var(--or)">📌 ${l.length} shop location${l.length > 1 ? 's' : ''} may be wrong</b></summary>${l.map(f => `<div class="small muted" style="margin-top:8px"><b style="color:var(--ink)">${esc(f.name)}</b> · ${esc(f.rep_name || '')}</div>` + K.locFixHtml(f)).join('')}</details>` : '';
+      K.locFixBind($('#rfix'), () => { K.forget('customers'); fixes(); draw(); }); };
     const move = d => { const x = new Date(st.date + 'T12:00:00'); x.setDate(x.getDate() + d); st.date = x.toISOString().slice(0, 10); $('#rd').value = st.date; draw(); };
     $('#rd').onchange = e => { st.date = e.target.value; draw(); };
     $('#rr').onchange = e => { st.rep = e.target.value; draw(); };
     $('#rs').onchange = e => { st.shops = e.target.checked; draw(); };
     $('#rprev').onclick = () => move(-1); $('#rnext').onclick = () => move(1);
-    draw();
+    await draw(); fixes();
+    if (q.v) layer.eachLayer(l => { if (l.options && l.options.vid === +q.v) { m.setView(l.getLatLng(), 16); l.openPopup(); } });
   });
+  // ================= Live team map (admin & managers) =================
+  const ago = t => { if (!t) return 'no location yet'; const m = Math.round((Date.now() - new Date(t)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min ago'; };
+  const fresh = p => p.out_at ? 'done' : !p.seen_at ? 'none' : Date.now() - new Date(p.seen_at) <= 10 * 60000 ? 'live' : Date.now() - new Date(p.seen_at) <= 60 * 60000 ? 'late' : 'old';
+  const FC = { live: '#1E8E3E', late: '#E8710A', old: '#9A9AA6', none: '#9A9AA6', done: '#1D5FB8' };
+  const FL = { live: 'Live', late: 'Not updated', old: 'No update for 1 h+', none: 'No location yet', done: 'Finished work' };
+  const ini = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+  route(/^\/live$/, async (_, q, current) => {
+    const A = K.adm;
+    const main = A.shell('visits', 'Live team map', '<a class="btn sm out" href="#/routemap">Route map</a>', 'Where your team is now · only during work hours');
+    if (!isBossRole()) { main.innerHTML = K.emptyBox('lock', 'Only the admin or a manager can see the live map.'); return; }
+    const today = (() => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); })();
+    const st = { sel: q.staff || null, day: today, team: [] };
+    main.innerHTML = `<div class="rmap"><div class="rside card"><div id="lvtop" class="small muted"></div><div id="lvl">${K.loading}</div><div id="lvtr"></div></div>
+      <div class="card rmapbox"><div id="lvm" style="position:absolute;inset:0"></div></div></div>`;
+    const m = newMap($('#lvm')), layer = L.layerGroup().addTo(m), trail = L.layerGroup().addTo(m);
+    const hm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const who = (p, big) => L.divIcon({ className: 'kpin', iconSize: big ? [38, 38] : [34, 34], iconAnchor: big ? [19, 19] : [17, 17], popupAnchor: [0, -16],
+      html: `<span style="width:${big ? 38 : 34}px;height:${big ? 38 : 34}px;background:${FC[fresh(p)]};font-size:12px">${esc(ini(p.name))}</span>` });
+    let first = true;
+    const drawTeam = async () => {
+      let team = []; try { team = await api.liveTeam(); } catch (e) { $('#lvl').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+      if (!current()) return; st.team = team; layer.clearLayers();
+      $('#lvtop').innerHTML = `Updated ${hm(new Date())} · refreshes every minute`;
+      const order = { live: 0, late: 1, old: 2, none: 3, done: 4 };
+      $('#lvl').innerHTML = team.length ? team.slice().sort((a, b) => order[fresh(a)] - order[fresh(b)] || a.name.localeCompare(b.name)).map(p => { const f = fresh(p);
+        return `<button class="lvrow ${st.sel === p.id ? 'on' : ''}" data-lv="${esc(p.id)}"><i class="rdot" style="background:${FC[f]}"></i><div class="grow"><b>${esc(p.name)}</b>
+          <div class="small muted">${f === 'done' ? 'Finished work ' + hm(p.out_at) : `<span>${FL[f]}</span> · ${esc(ago(p.seen_at))}`}${p.shop ? ` · <b style="color:var(--ink)">at ${esc(p.shop)}</b>` : ''}</div>
+          <div class="small muted">Started ${hm(p.in_at)} · ${p.pings} update${p.pings === 1 ? "" : "s"}</div></div></button>`; }).join('')
+        : '<div class="empty">Nobody has started work today yet.</div>';
+      const pts = [];
+      team.forEach(p => { if (p.lat == null) return; pts.push([p.lat, p.lng]);
+        L.marker([p.lat, p.lng], { icon: who(p, st.sel === p.id), zIndexOffset: st.sel === p.id ? 2000 : 500 }).bindPopup(`<div class="mpop"><b>${esc(p.name)}</b>
+          <div class="small">${fresh(p) === 'done' ? 'Finished work ' + hm(p.out_at) : FL[fresh(p)] + ' · ' + esc(ago(p.seen_at))}</div>${p.shop ? `<div class="small">In shop: <b>${esc(p.shop)}</b></div>` : ''}
+          <div class="mpbtns"><button class="btn sm" data-lvt="${esc(p.id)}">Today's trail</button><a class="btn sm out" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${p.lat},${p.lng}">Google Maps</a></div></div>`).addTo(layer); });
+      $$('[data-lv]').forEach(b => b.onclick = () => pick(b.dataset.lv));
+      if (first) { first = false; if (st.sel) pick(st.sel); else if (pts.length) m.fitBounds(pts, { padding: [50, 50], maxZoom: 15 }); }
+    };
+    m.on('popupopen', e => { const b = e.popup.getElement().querySelector('[data-lvt]'); if (b) b.onclick = () => { m.closePopup(); pick(b.dataset.lvt); }; });
+    const pick = async (id, day) => {
+      st.sel = id; if (day) st.day = day;
+      $$('[data-lv]').forEach(b => b.classList.toggle('on', b.dataset.lv === id));
+      const p = st.team.find(x => x.id === id) || { name: 'Staff' };
+      $('#lvtr').innerHTML = K.loading;
+      let tr = []; try { tr = await api.liveTrail(id, st.day); } catch (e) { $('#lvtr').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+      if (!current() || st.sel !== id) return;
+      trail.clearLayers();
+      const ll = tr.filter(x => x.lat != null).map(x => [x.lat, x.lng]);
+      if (ll.length > 1) L.polyline(ll, { color: '#131316', weight: 3, opacity: .7 }).addTo(trail);
+      let km = 0; ll.forEach((x, i) => { if (i) km += K.distanceM(ll[i - 1][0], ll[i - 1][1], x[0], x[1]) / 1000; });
+      let shopN = 0;
+      tr.forEach(x => { if (x.lat == null) return;
+        if (x.kind === 'ping') L.circleMarker([x.lat, x.lng], { radius: 4, color: '#131316', weight: 1, fillColor: '#fff', fillOpacity: 1 }).bindTooltip(hm(x.at)).addTo(trail);
+        else L.marker([x.lat, x.lng], { icon: pin(x.kind === 'shop' ? (x.dist > 300 ? '#D7141A' : x.dist > 100 ? '#E8710A' : '#1D5FB8') : x.kind === 'in' ? '#1E8E3E' : '#131316', x.kind === 'shop' ? ++shopN : x.kind === 'in' ? '▶' : '■'), zIndexOffset: 900 })
+          .bindPopup(`<div class="mpop"><b>${x.kind === 'shop' ? esc(x.name) : x.kind === 'in' ? 'Started work' : 'Finished work'}</b><div class="small">${hm(x.at)}${x.kind === 'shop' && x.dist != null ? ' · ' + x.dist + ' m from the shop' : ''}</div></div>`).addTo(trail); });
+      // gaps: the app was closed or the phone had no signal
+      const rows = []; tr.forEach((x, i) => { const prev = tr[i - 1];
+        if (prev && new Date(x.at) - new Date(prev.at) > 20 * 60000) rows.push(`<li class="gap"><span>No update for</span> ${Math.round((new Date(x.at) - new Date(prev.at)) / 60000)} min</li>`);
+        if (x.kind !== 'ping') rows.push(`<li><b>${hm(x.at)}</b> ${x.kind === 'shop' ? esc(x.name) + (x.dist > 100 ? ` <b style="color:${x.dist > 300 ? '#D7141A' : '#E8710A'}">${x.dist} m away</b>` : '') : x.kind === 'in' ? '<span>Started work</span>' : '<span>Finished work</span>'}</li>`); });
+      $('#lvtr').innerHTML = `<div class="rrep"><div class="row"><b class="grow">${esc(p.name)}</b><button class="btn sm out" id="lvx">Close</button></div>
+        <label class="f" style="font-size:12px;font-weight:700;color:var(--mu)">Day<input class="inp" type="date" id="lvd" value="${st.day}" max="${today}"></label>
+        <div class="small muted">${tr.length ? `~${km.toFixed(1)} km · ${tr.filter(x => x.kind === 'ping').length} location updates · ${shopN} shops` : 'No locations on this day.'}</div>
+        <ol class="rlist lvlist">${rows.join('')}</ol></div>`;
+      $('#lvx').onclick = () => { st.sel = null; st.day = today; trail.clearLayers(); $('#lvtr').innerHTML = ''; $$('[data-lv]').forEach(b => b.classList.remove('on')); };
+      $('#lvd').onchange = e => pick(id, e.target.value || today);
+      if (ll.length) m.fitBounds(ll, { padding: [50, 50], maxZoom: 16 });
+    };
+    await drawTeam();
+    const iv = setInterval(() => { if (!current() || !document.body.contains($('#lvm') || document.createElement('i'))) return clearInterval(iv); if (!document.hidden) drawTeam(); }, 60000);
+  });
+
+  // admin web: a notification "Far check-in" opens that day on the Route map
+  if (K.adm && !K.adm.phone) route(/^\/visits\/(\d+)$/, async ([id]) => {
+    const v = await api.getVisit(+id); if (!v) return go('#/visits');
+    const d = new Date(v.check_in_at); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    location.replace('#/routemap?date=' + d.toISOString().slice(0, 10) + '&rep=' + v.staff_id + '&v=' + v.id);
+  });
+})();
+
+// Live location while at work: when the staff member has started work today (and not finished),
+// and the app is open on the screen, the phone sends its location every few minutes.
+(function () {
+  const K = window.KT;
+  const { api, S } = K;
+  if (!api.livePing || (window.KT_CONFIG || {}).ADMIN) return;
+  const EVERY = 3 * 60000, IDLE = 10 * 60000;
+  let timer = null, busy = false, last = 0;
+  const pos = () => new Promise(res => { if (!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(p => res(p.coords), () => res(null), { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }); });
+  async function tick() {
+    clearTimeout(timer); timer = null;
+    if (!S.me || !S.me.active || S.me.role === 'guest') return;
+    let wait = EVERY;
+    if (!document.hidden && navigator.onLine !== false && !busy && !window.__ktOffline) {
+      busy = true;
+      try {
+        const a = await api.todayAttendance();
+        if (!a || a.check_out_at || a.queued) wait = IDLE;              // not at work now
+        else { const c = await pos(); if (c) { const on = await api.livePing(c.latitude, c.longitude, c.accuracy); last = Date.now(); if (on === false) wait = IDLE; } }
+      } catch (e) { wait = IDLE; }
+      busy = false;
+    }
+    timer = setTimeout(tick, wait);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - last > 60000) { clearTimeout(timer); timer = setTimeout(tick, 1500); } });
+  K.loginHooks.push(() => { clearTimeout(timer); timer = setTimeout(tick, 4000); });
+  K.livePingNow = () => { clearTimeout(timer); timer = setTimeout(tick, 500); };
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
