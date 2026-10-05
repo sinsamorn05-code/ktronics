@@ -1473,6 +1473,7 @@ window.makeSupabaseApi = function (cfg) {
     reportStock: (from, to) => all(() => sb.rpc('report_stock', { p_from: from, p_to: to })),
     reportShops: (from, to) => all(() => sb.rpc('report_shops', { p_from: from, p_to: to })),
     reportMoney: (from, to) => q(sb.rpc('report_money', { p_from: from, p_to: to })),
+    reportOpex: (from, to) => q(sb.rpc('report_opex', { p_from: from, p_to: to })),
     // Telegram alerts (admin). The bot token can be saved but never read back.
     tgStatus: () => q(sb.rpc('tg_status')),
     tgSendRepsNow: id => q(sb.rpc('tg_send_reps_now', { p_rule: id })),
@@ -1537,6 +1538,10 @@ window.makeSupabaseApi = function (cfg) {
     officeRecurringSave: (id, p) => q(sb.rpc('office_recurring_save', { p_id: id || null, p })),
     officeRecurringStop: id => q(sb.rpc('office_recurring_stop', { p_id: id })),
     officeDue: () => q(sb.rpc('office_due')),
+    // owner's account (admin only)
+    listOwner: () => q(sb.from('owner_account').select('*').order('day', { ascending: false }).order('id', { ascending: false }).limit(2000)),
+    ownerSave: (id, p) => q(sb.rpc('owner_save', { p_id: id || null, p })),
+    ownerDelete: id => q(sb.rpc('owner_delete', { p_id: id })),
     // payroll
     payrollGet: (month, fresh) => q(sb.rpc('payroll_get', { p_month: month, p_fresh: !!fresh })),
     payrollSave: (month, lines) => q(sb.rpc('payroll_save', { p_month: month, p_lines: lines })),
@@ -2754,6 +2759,18 @@ window.makeDemoApi = function () {
       D.holidays = D.holidays.filter(h => h.day !== day).concat([{ day, name: name.trim() }]); save(); return wait(null); },
     async holidayDelete(day) { if (!allow('hr.manage')) fail('You are not allowed to change holidays'); api._pay(); D.holidays = D.holidays.filter(h => h.day !== day); save(); return wait(null); },
 
+    // owner's account (demo)
+    _owner() { if (!D.owner) { const t = new Date(), d = (dd, back) => localDay0(new Date(t.getFullYear(), t.getMonth() - (back || 0), dd));
+        D.owner = [{ id: 1, kind: 'take', day: d(6, 1), amount: 300, currency: 'USD', amount_usd: 300, method: 'cash', note: 'Family' }, { id: 2, kind: 'take', day: d(19, 1), amount: 820000, currency: 'KHR', amount_usd: 200, method: 'aba', note: 'School fee' },
+          { id: 3, kind: 'return', day: d(28, 1), amount: 500, currency: 'USD', amount_usd: 500, method: 'bank', note: '' }, { id: 4, kind: 'take', day: d(2), amount: 150, currency: 'USD', amount_usd: 150, method: 'cash', note: '' }]; D.ownerSeq = 4; } return D.owner; },
+    async listOwner() { if (!hasRole('admin')) return wait([]); return wait(clone(api._owner()).sort((a, b) => b.day.localeCompare(a.day) || b.id - a.id)); },
+    async ownerSave(id, p) { if (!hasRole('admin')) fail('Only the owner (admin) can use the owner\'s account'); api._owner();
+      if (!['take', 'return'].includes(p.kind)) fail('Choose: took money or put money back'); if (!(+p.amount > 0)) fail('Enter the amount');
+      const cur = p.currency || 'USD', row = { kind: p.kind, day: p.day || localDay0(new Date()), amount: +p.amount, currency: cur, amount_usd: +(cur === 'KHR' ? +p.amount / (D.khr || 4100) : +p.amount).toFixed(2), method: p.method || 'cash', note: (p.note || '').trim() };
+      if (id) { const x = D.owner.find(o => o.id === id); if (!x) fail('This line was deleted'); Object.assign(x, row); } else D.owner.push(Object.assign({ id: ++D.ownerSeq }, row));
+      save(); return wait(id || D.ownerSeq); },
+    async ownerDelete(id) { if (!hasRole('admin')) fail('Only the owner (admin) can use the owner\'s account'); api._owner(); D.owner = D.owner.filter(x => x.id !== id); save(); return wait(null); },
+
     async listPayments() {
       if (!role()) return [];
       return wait(D.payments.filter(p => allow('payments.confirm') || p.received_by === me.id || canSeeOrder(D.orders.find(o => o.id === p.order_id)))
@@ -2863,6 +2880,18 @@ window.makeDemoApi = function () {
           overdue: +D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < today && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0)).reduce((a, o) => a + o.total - (o.paid_amount || 0), 0).toFixed(2),
           last_visit: vs[vs.length - 1] || null, visits: vs.filter(d => d >= from && d <= to).length }; }).sort((a, b) => b.sales - a.sales || a.name.localeCompare(b.name)));
     },
+    async reportOpex(from, to) {
+      if (!allow('reports.view') || !allow('purchases.manage')) fail('You are not allowed to see profit');
+      api._office(); api._pay(); const inR = d => d >= from && d <= to, r2 = n => +(+n).toFixed(2);
+      const grpT = list => { const m = {}; list.forEach(e => { m[e.category] = m[e.category] || { type: e.category, amount: 0, count: 0 }; m[e.category].amount += +e.amount_usd; m[e.category].count++; });
+        return Object.values(m).map(x => Object.assign(x, { amount: r2(x.amount) })).sort((a, b) => b.amount - a.amount); };
+      const sx = grpT(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on))), ox = grpT(D.office.filter(e => inR(e.spent_on)));
+      const ms = []; for (let d = new Date(from.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= to; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= from && m1 <= to) ms.push(m0); }
+      const pl = D.payLines.filter(l => ms.includes(l.month)), S = k => r2(pl.reduce((a, l) => a + (+l[k] || 0), 0));
+      return wait({ staff: r2(sx.reduce((a, x) => a + x.amount, 0)), office: r2(ox.reduce((a, x) => a + x.amount, 0)), salaries: S('gross'), staff_types: sx, office_types: ox,
+        salary_parts: { base: S('base'), allowance: S('allowance'), commission: S('commission'), overtime: S('ot_pay'), sunday: S('sunday_pay'), holiday: S('holiday_pay'), bonus: S('bonus'), people: new Set(pl.map(l => l.user_id)).size },
+        salary_months: ms.filter(m => pl.some(l => l.month === m)), salary_missing: ms.filter(m => !pl.some(l => l.month === m)) });
+    },
     async reportMoney(from, to) {
       if (!allow('reports.view')) fail('You are not allowed to see reports');
       const inR = d => d >= from && d <= to, profit = allow('purchases.manage'), today = localDay(new Date().toISOString());
@@ -2884,6 +2913,9 @@ window.makeDemoApi = function () {
         months: months.map(m => { const os = sold.filter(o => localDay(o.created_at).slice(0, 7) === m), ids = new Set(os.map(o => o.id));
           return { month: m + '-01', sales: sum(os, o => o.total), cogs: profit ? sum(D.items.filter(i => ids.has(i.order_id)), i => i.qty * (i.cost || 0)) : null,
             expenses: sum(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && e.spent_on.slice(0, 7) === m), e => e.amount_usd),
+            office: profit ? (api._office(), sum(D.office.filter(e => e.spent_on.slice(0, 7) === m), e => e.amount_usd)) : null,
+            salaries: profit ? (api._pay(), sum(D.payLines.filter(l => l.month.slice(0, 7) === m), l => +l.gross)) : null,
+            payroll_saved: profit ? D.payLines.some(l => l.month.slice(0, 7) === m) : null,
             collected: sum(D.payments.filter(p => p.status === 'confirmed' && localDay(p.received_at).slice(0, 7) === m), p => p.amount_usd),
             refunded: sum(D.orders.filter(o => o.status === 'returned' && o.returned_at && localDay(o.returned_at).slice(0, 7) === m), o => o.refunded_amount || 0) }; }),
         aging: { d0_7: sum(open.filter(x => x.age <= 7), x => x.owed), d8_30: sum(open.filter(x => x.age >= 8 && x.age <= 30), x => x.owed), d31_60: sum(open.filter(x => x.age >= 31 && x.age <= 60), x => x.owed),
@@ -3250,7 +3282,7 @@ window.makeDemoApi = function () {
 
   // ---------- small helpers ----------
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = n => { const v = Number(n) || 0; return (v < -0.004 ? '−$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const $ = (sel, el) => (el || root).querySelector(sel);
   const $$ = (sel, el) => Array.from((el || root).querySelectorAll(sel));
   const initials = n => { const p = String(n || '?').replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); };
@@ -3808,6 +3840,22 @@ Object.assign(window.KT_KM, {
   'Holidays worked': 'ថ្ងៃបុណ្យដែលបានធ្វើការ',
   'Unpaid leave days': 'ថ្ងៃច្បាប់គ្មានប្រាក់ខែ',
   'Bank': 'ធនាគារ' });
+Object.assign(window.KT_KM, {
+  'Owner\'s account': 'គណនីម្ចាស់',
+  'Money I take and put back': 'ប្រាក់ដែលខ្ញុំដក និងដាក់ត្រឡប់វិញ',
+  'Money you take and put back': 'ប្រាក់ដែលអ្នកដក និងដាក់ត្រឡប់វិញ',
+  'I took money': 'ខ្ញុំបានដកប្រាក់',
+  'I put money back': 'ខ្ញុំបានដាក់ប្រាក់ត្រឡប់វិញ',
+  'You owe the company now': 'អ្នកជំពាក់ក្រុមហ៊ុនឥឡូវនេះ',
+  'All paid back': 'បានសងគ្រប់',
+  'Taken this month': 'បានដកខែនេះ',
+  'Put back this month': 'បានដាក់ត្រឡប់ខែនេះ',
+  'By month': 'តាមខែ',
+  'Took money': 'បានដកប្រាក់',
+  'Put money back': 'បានដាក់ប្រាក់ត្រឡប់វិញ',
+  'You owe at month end': 'ជំពាក់នៅចុងខែ',
+  'Operating expenses': 'ចំណាយប្រតិបត្តិការ',
+  'Open payroll': 'បើកប្រាក់ខែ' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -4245,6 +4293,79 @@ Object.assign(window.KT_KM, {
     if ($('#obills')) $('#obills').onclick = () => K.officeBillsSheet(reload);
     if ($('#otypes')) $('#otypes').onclick = () => K.officeTypesSheet(reload);
     draw();
+  });
+})();
+
+// Owner's account (Accounting & Finance): money the owner takes from the business and puts back.
+// It is a loan to the owner, not an expense, so it is never counted in profit. Only the admin sees it.
+(function () {
+  const K = window.KT;
+  const { api, esc, money, $, $$, icon, route, go, busy, toast } = K;
+  const METHODS = { cash: 'Cash', aba: 'ABA', bank: 'Bank', other: 'Other' };
+  const isOwner = () => K.S.me && K.S.me.role === 'admin';
+  K.canOwnerAccount = isOwner;
+  // tabs on top of Accounting & Finance (admin web)
+  K.accTabs = act => isOwner() && K.adm && !K.adm.phone ? `<div class="crmtabs"><a class="chip ${act === 'payments' ? 'on' : ''}" href="#/payments">Money from shops</a><a class="chip ${act === 'owner' ? 'on' : ''}" href="#/owner">Owner's account</a></div>` : '';
+  const amt = x => x.currency === 'KHR' ? (+x.amount).toLocaleString('en-US') + ' ៛' : money(x.amount);
+  const dateName = d => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const monName = m => new Date(m + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  K.ownerSheet = function (x0, onDone) {
+    const x = Object.assign({ kind: 'take', day: K.period.today(), currency: 'USD', method: 'cash' }, x0 || {});
+    let kind = x.kind, cur = x.currency, meth = x.method;
+    const s = K.sheet(x.id ? 'Edit' : kind === 'take' ? 'I took money' : 'I put money back', `
+      <div class="seg" id="wk">${[['take', 'I took money'], ['return', 'I put money back']].map(([k, l]) => `<button data-k="${k}" class="${kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="btns"><label class="f">Date<input class="inp" id="wd" type="date" value="${esc(x.day)}" max="${K.period.today()}"></label>
+        <label class="f">Amount<input class="inp" id="wa" type="number" step="0.01" inputmode="decimal" value="${x.amount ?? ''}" placeholder="0"></label></div>
+      <div class="f"><span>Currency</span><div class="seg" id="wc">${['USD', 'KHR'].map(c => `<button data-c="${c}" class="${cur === c ? 'on' : ''}">${c === 'USD' ? '$ Dollar' : '៛ Riel'}</button>`).join('')}</div></div>
+      <div class="f"><span>Cash or bank</span><div class="seg" id="wm">${Object.entries(METHODS).map(([k, l]) => `<button data-m="${k}" class="${meth === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <label class="f">Note (optional)<input class="inp" id="wn" value="${esc(x.note || '')}" placeholder="e.g. school fee, family"></label>
+      <div class="small muted">This is a loan to you, not a company expense. It is not counted in profit.</div>
+      <div class="btns">${x.id ? '<button class="btn out red" id="wdel">Delete</button>' : ''}<button class="btn" id="wok">${icon('check', 18)}Save</button></div>`);
+    const el = s.el;
+    $$('#wk [data-k]', el).forEach(b => b.onclick = () => { kind = b.dataset.k; $$('#wk [data-k]', el).forEach(y => y.classList.toggle('on', y === b)); });
+    $$('#wc [data-c]', el).forEach(b => b.onclick = () => { cur = b.dataset.c; $$('#wc [data-c]', el).forEach(y => y.classList.toggle('on', y === b)); });
+    $$('#wm [data-m]', el).forEach(b => b.onclick = () => { meth = b.dataset.m; $$('#wm [data-m]', el).forEach(y => y.classList.toggle('on', y === b)); });
+    $('#wok', el).onclick = async e => {
+      const p = { kind, day: $('#wd', el).value, amount: +$('#wa', el).value, currency: cur, method: meth, note: $('#wn', el).value.trim() };
+      if (!(p.amount > 0)) return toast('Enter the amount');
+      await busy(e.currentTarget, () => api.ownerSave(x.id || null, p)); s.close(); toast(kind === 'take' ? 'Saved · money taken' : 'Saved · money put back'); onDone && onDone();
+    };
+    if ($('#wdel', el)) $('#wdel', el).onclick = async () => { if (!(await K.confirmSheet('Delete this line?', 'Use this if it was written by mistake.', 'Delete', true))) return;
+      await api.ownerDelete(x.id); s.close(); toast('Deleted'); onDone && onDone(); };
+  };
+
+  route(/^\/owner$/, async (_, q, current) => {
+    if (!isOwner()) return go('#/home');
+    const A = K.adm, admin = A && !A.phone;
+    const acts = `<button class="btn sm out" id="wret">${icon('minus', 18)}<span class="hide-sm">I put money</span> back</button><button class="btn sm" id="wtake">${icon('plus', 18)}<span class="hide-sm">I took</span> money</button>`;
+    const main = admin ? A.shell('payments', 'Accounting & Finance', acts, "Owner's account · money you take and put back")
+      : K.page({ title: "Owner's account", sub: 'Money you take and put back', back: '#/more' });
+    const reload = () => K.render();
+    const list = await api.listOwner();
+    if (!current()) return;
+    const usd = x => +x.amount_usd, sign = x => x.kind === 'take' ? usd(x) : -usd(x);
+    const bal = list.reduce((a, x) => a + sign(x), 0), mk = K.period.today().slice(0, 7);
+    const thisM = list.filter(x => x.day.slice(0, 7) === mk);
+    const tookM = thisM.filter(x => x.kind === 'take').reduce((a, x) => a + usd(x), 0), backM = thisM.filter(x => x.kind === 'return').reduce((a, x) => a + usd(x), 0);
+    // month by month, oldest first, so the balance at the end of each month can be shown
+    const months = [...new Set(list.map(x => x.day.slice(0, 7)))].sort();
+    let run = 0; const rows = months.map(m => { const l = list.filter(x => x.day.slice(0, 7) === m), t = l.filter(x => x.kind === 'take').reduce((a, x) => a + usd(x), 0), r = l.filter(x => x.kind === 'return').reduce((a, x) => a + usd(x), 0); run += t - r; return { m, t, r, end: run }; }).reverse();
+    const kp = (v, l, c) => A && A.kpi ? A.kpi(v, l, c) : `<div class="stat"><b style="${c ? 'color:' + c : ''}">${v}</b><span>${l}</span></div>`;
+    main.innerHTML = (admin ? K.accTabs('owner') : '') + `<div class="${admin ? 'apad' : 'pad'}" style="display:flex;flex-direction:column;gap:14px">
+      <div class="kpis">${kp(bal > 0.004 ? money(bal) : '$0.00', bal > 0.004 ? 'You owe the company now' : bal < -0.004 ? 'The company owes you ' + money(-bal) : 'All paid back', bal > 0.004 ? 'var(--rd)' : 'var(--gr)')}
+        ${kp(money(tookM), 'Taken this month')}${kp(money(backM), 'Put back this month', backM ? 'var(--gr)' : null)}</div>
+      ${admin ? '' : `<div class="btns"><button class="btn out" id="wret">${icon('minus', 18)}I put money back</button><button class="btn" id="wtake">${icon('plus', 18)}I took money</button></div>`}
+      <div class="card small muted" style="line-height:1.5"><div>Write down money you take from the business for yourself, and when you put it back. It is a loan to you, <b>not an expense</b>, so it does not change the profit. Only you can see this page. On the last day of each month you get a reminder if money is still owed.</div></div>
+      ${rows.length ? `<div class="card"><b>By month</b><div class="tbl"><table><thead><tr><th style="text-align:left">Month</th><th style="text-align:right">Taken</th><th style="text-align:right">Put back</th><th style="text-align:right">You owe at month end</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td><b>${esc(monName(r.m))}</b></td><td style="text-align:right">${money(r.t)}</td><td style="text-align:right">${money(r.r)}</td><td style="text-align:right;font-weight:800;color:${r.end > 0.004 ? 'var(--rd)' : 'var(--gr)'}">${r.end > 0.004 ? money(r.end) : r.end < -0.004 ? 'Company owes you ' + money(-r.end) : '$0.00'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      <div class="card flush">${list.length ? list.map(x => `<button class="list-item" data-w="${x.id}" style="width:100%;text-align:left"><div class="ic-av sq" style="background:${x.kind === 'take' ? 'var(--ps)' : 'var(--grs)'};color:${x.kind === 'take' ? 'var(--p)' : 'var(--gr)'}">${icon(x.kind === 'take' ? 'minus' : 'plus', 20)}</div>
+          <div class="grow"><div class="tt" style="font-size:15px">${x.kind === 'take' ? 'Took money' : 'Put money back'}</div><div class="st">${esc(dateName(x.day))} · ${esc(METHODS[x.method] || x.method)}${x.note ? ' · ' + esc(x.note) : ''}</div></div>
+          <div style="text-align:right"><b style="color:${x.kind === 'take' ? 'var(--rd)' : 'var(--gr)'}">${x.kind === 'take' ? '−' : '+'}${amt(x)}</b>${x.currency === 'KHR' ? `<div class="small muted">${money(x.amount_usd)}</div>` : ''}</div></button>`).join('')
+        : K.emptyBox('cash', 'Nothing written yet. Tap "I took money" when you take money from the business.')}</div></div>`;
+    $('#wtake').onclick = () => K.ownerSheet({ kind: 'take' }, reload);
+    $('#wret').onclick = () => K.ownerSheet({ kind: 'return', amount: bal > 0.004 ? +bal.toFixed(2) : undefined }, reload);
+    $$('[data-w]', main).forEach(b => b.onclick = () => K.ownerSheet(list.find(x => x.id === +b.dataset.w), reload));
   });
 })();
 
@@ -5473,7 +5594,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['expenses', 'receipt', 'Expense Management'], ['announce', 'mega', 'Announcements'],
     ['chats', 'chat', 'Chats Control'], ['reports', 'list', 'Reports'], ['permissions', 'shield', 'User Login & Permissions'], ['settings', 'pen', 'Settings']];
   const NAV_OK = { banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
-    expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), payments: () => K.canCollect(), purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view'), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') || K.isBoss() };
+    expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), payments: () => K.canCollect() || S.me.role === 'admin', purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view'), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') || K.isBoss() };
   const NEXT_PERM = { approved: 'orders.approve', delivered: 'orders.deliver', paid: 'orders.paid' };
   const nextFor = o => { const n = NEXT[o.status]; return n && K.allow(NEXT_PERM[n[0]]) ? n : null; };
   let counts = { pending: 0, staffPending: 0, expPending: 0, custPending: 0, payPending: 0 };
@@ -5741,7 +5862,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-o]', s.el).forEach(b => b.onclick = () => { s.close(); orderSheet(+b.dataset.o); });
       $$('[data-pay]', s.el).forEach(b => b.onclick = async () => { const o = await busy(b, () => api.getOrder(+b.dataset.pay)); s.close(); K.paymentSheet(o, () => { forget('payments'); K.render(); }); });
     }
-    main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad"><div class="kpis" id="kp"></div>
+    main.innerHTML = (K.accTabs ? K.accTabs('payments') : '') + `<div class="chips" id="tabs"></div><div class="apad"><div class="kpis" id="kp"></div>
       <div class="filters"><div class="search grow">${icon('search', 18)}<input id="qs" placeholder="Search shop, order or staff" aria-label="Search"></div>
         <select class="inp" id="rf" aria-label="Sales rep" style="width:auto;min-width:150px">${K.repOptions(staff, '', 'All sales reps')}</select></div>
       <div id="pbody"></div></div>`;
@@ -6024,7 +6145,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const byStaff = group(o => o.sales_rep_id || o.created_by, o => K.repName(o)), byShop = group(o => o.customer_id, o => o.customers.name);
       const prod = {}; items.filter(i => ids.has(i.order_id)).forEach(i => { prod[i.product_id] = prod[i.product_id] || { name: i.products.name, qty: 0, total: 0, cost: 0 }; prod[i.product_id].qty += i.qty; prod[i.product_id].total += i.qty * i.price; prod[i.product_id].cost += i.qty * costOf(i); });
       const cogs = Object.values(prod).reduce((s, x) => s + x.cost, 0), gross = total - cogs;
-      const expT = exps.filter(e => ['approved', 'paid'].includes(e.status) && P.day(e.spent_on, st)).reduce((s, e) => s + +e.amount_usd, 0), net = gross - expT;
+      const [pf, pt] = P.range(st.p, st.from, st.to);
+      const ox = showProfit ? await api.reportOpex(pf, pt).catch(() => null) : null; if (my !== seq || !current()) return;
+      const expT = ox ? K.opexTotal(ox) : exps.filter(e => ['approved', 'paid'].includes(e.status) && P.day(e.spent_on, st)).reduce((s, e) => s + +e.amount_usd, 0), net = gross - expT;
       const byProd = Object.values(prod).sort((x, y) => y.total - x.total);
       rows = [['Order', 'Date', 'Shop', 'Staff', 'Status', 'Payment', 'Total']].concat(sold.map(o => [o.order_no, new Date(o.created_at).toISOString().slice(0, 10), o.customers.name, K.repName(o), o.status, K.payLabel(o), (+o.total).toFixed(2)]));
       $('#rep').innerHTML = `<div class="kpis">${kpi(money(total), 'Sales')}${kpi(sold.length, 'Orders')}${kpi(money(sold.length ? total / sold.length : 0), 'Average order')}${kpi(money(total - paid), 'Not paid yet', total - paid ? 'var(--rd)' : null)}</div>
@@ -6032,8 +6155,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${table('Top products', ['Product', 'Pcs', 'Sales'], byProd.slice(0, 15).map(r => [esc(r.name), r.qty, money(r.total)]))}
         ${table('Sales by shop', ['Shop', 'Orders', 'Sales'], byShop.slice(0, 15).map(r => [esc(r.name), r.n, money(r.total)]))}</div>
         ${areaTable(sold)}
-        ${showProfit ? `<div class="card"><b>Profit</b><div class="small muted">Sales minus the cost price of the goods sold (includes shipping and tax from purchases), then minus approved staff expenses.</div>
-          <div class="kpis">${kpi(money(total), 'Sales')}${kpi(money(cogs), 'Cost of goods sold')}${kpi(money(gross), 'Gross profit · ' + (total ? Math.round(gross / total * 100) : 0) + '%', gross >= 0 ? 'var(--gr)' : 'var(--rd)')}${kpi(money(expT), 'Staff expenses')}${kpi(money(net), 'Net profit', net >= 0 ? 'var(--gr)' : 'var(--rd)')}</div></div>
+        ${showProfit ? `<div class="card"><b>Profit</b><div class="small muted">Sales minus the cost price of the goods sold (includes shipping and tax from purchases), then minus operating expenses: salaries, staff expenses and office expenses. Tap Operating expenses to see the details.${ox && (ox.salary_missing || []).length ? ' <b style="color:var(--or)">Payroll not saved yet for some months, so their salaries are not counted.</b>' : ox && !(ox.salary_months || []).length ? ' Salaries count only for whole months inside the dates.' : ''}</div>
+          <div class="kpis">${kpi(money(total), 'Sales')}${kpi(money(cogs), 'Cost of goods sold')}${kpi(money(gross), 'Gross profit · ' + (total ? Math.round(gross / total * 100) : 0) + '%', gross >= 0 ? 'var(--gr)' : 'var(--rd)')}${(ox ? `<button class="stat" id="opxs" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b>${money(expT)}</b><span>Operating expenses ›</span></button>` : kpi(money(expT), 'Staff expenses'))}${kpi(money(net), 'Net profit', net >= 0 ? 'var(--gr)' : 'var(--rd)')}</div></div>
         ${table('Profit by product', ['Product', 'Pcs', 'Sales', 'Cost', 'Profit', 'Margin'], Object.values(prod).map(r => Object.assign({ pr: r.total - r.cost }, r)).sort((x, y) => y.pr - x.pr).slice(0, 20).map(r => [esc(r.name), r.qty, money(r.total), money(r.cost), `<b style="color:${r.pr >= 0 ? 'var(--gr)' : 'var(--rd)'}">${money(r.pr)}</b>`, (r.total ? Math.round(r.pr / r.total * 100) : 0) + '%']))}` : ''}`;
     };
     // ---- sales by area: province, then its districts ----
@@ -6058,6 +6181,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="tbl"><table><thead><tr><th style="text-align:left">Area</th><th style="text-align:right">Shops</th><th style="text-align:right">Shops that bought</th><th style="text-align:right">Orders</th><th style="text-align:right">Sales</th><th style="text-align:right">Owed now</th><th style="text-align:right">Not visited 30 days</th></tr></thead>
         <tbody>${body || '<tr><td colspan="7" class="muted">No shops yet</td></tr>'}</tbody></table></div></div>`;
     }
+    $('#main').addEventListener('click', e => { if (e.target.closest('#opxs')) { const [f, t] = P.range(st.p, st.from, st.to); K.opexSheet(f, t, 'Operating expenses · ' + P.label(st)); } });
     $('#main').addEventListener('click', e => { const b = e.target.closest('[data-prov]'); if (!b) return; openProv = openProv === b.dataset.prov ? '' : b.dataset.prov; draw(); });
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad"><div id="cust" style="display:flex;flex-direction:column;gap:10px"></div>
       <div class="small muted" id="salesnote">Counts approved, delivered and paid orders. Waiting and cancelled orders are not included.</div><div id="rep" style="display:flex;flex-direction:column;gap:14px"></div></div>`;
@@ -6322,22 +6446,45 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         r.first_order || '', r.last_order || '', (+r.owed).toFixed(2), (+r.overdue).toFixed(2), r.last_visit || '', r.visits])) };
   };
 
+  // ---------- Operating expenses = staff expenses + office expenses + salaries ----------
+  const officeName = k => ((K.officeTypes ? K.officeTypes() : []).find(t => t.k === k) || {}).name || (k || '').replace(/_/g, ' ');
+  const monName = d => new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  K.opexTotal = d => +d.staff + +d.office + +d.salaries;
+  K.opexHtml = d => {
+    const sp = d.salary_parts || {}, line = (l, v, sub) => `<div class="row small"><span class="grow">${l}${sub ? ` <span class="muted">${sub}</span>` : ''}</span><b>${money(v)}</b></div>`;
+    const grp = (title, v, href, link, body) => `<div class="card" style="background:var(--bg);gap:6px"><div class="row"><b class="grow">${title}</b><b style="font-size:16px">${money(v)}</b></div>${body}<a href="${href}" class="small" style="font-weight:700">${link} ›</a></div>`;
+    const miss = (d.salary_missing || []).length ? `<div class="small" style="color:var(--or);font-weight:700">Payroll not saved yet for ${d.salary_missing.map(monName).join(', ')}: salaries for ${d.salary_missing.length > 1 ? 'those months are' : 'that month are'} not counted.</div>` : '';
+    return `<div class="row" style="font-size:17px"><b class="grow">Operating expenses</b><b>${money(K.opexTotal(d))}</b></div>
+      ${grp('Salaries', d.salaries, '#/hr?t=payroll', 'Open payroll', (+d.salaries ? [['Base salary', sp.base], ['Allowance', sp.allowance], ['Commission', sp.commission], ['Overtime', sp.overtime], ['Sunday work', sp.sunday], ['Holiday work', sp.holiday], ['Bonus', sp.bonus]]
+          .filter(x => +x[1]).map(x => line(x[0], x[1])).join('') + `<div class="small muted">${sp.people || 0} staff · ${(d.salary_months || []).map(monName).join(', ')}</div>` : (d.salary_months || []).length || (d.salary_missing || []).length ? '' : '<div class="small muted">Salaries are counted for whole months inside the dates.</div>') + miss)}
+      ${grp('Staff expenses', d.staff, '#/expenses', 'Open staff expenses', (d.staff_types || []).map(x => line(esc(K.expName ? K.expName(x.type) : x.type), x.amount, '· ' + x.count)).join('') || '<div class="small muted">None</div>')}
+      ${grp('Office expenses', d.office, '#/office', 'Open office expenses', (d.office_types || []).map(x => line(esc(officeName(x.type)), x.amount, '· ' + x.count)).join('') || '<div class="small muted">None</div>')}
+      <div class="small muted">Salaries = total pay in the saved payroll (salary is a cost of the month worked). Salary advances are already inside that pay, so they are not counted twice.</div>`;
+  };
+  K.opexSheet = async (from, to, title) => {
+    const s = K.sheet(title || 'Operating expenses', K.loading);
+    try { const d = await K.api.reportOpex(from, to); K.$('.sb', s.el).innerHTML = K.opexHtml(d); }
+    catch (e) { K.$('.sb', s.el).innerHTML = `<div style="color:var(--rd)">${esc(e.message || e)}</div>`; }
+  };
+  const monthEnd = m => { const d = new Date(m.slice(0, 10) + 'T00:00:00'); return K.period.dstr(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+
   // ---------- Money ----------
   K.reports.money = async (el, from, to) => {
     const m = await K.api.reportMoney(from, to);
     const P = m.profit_allowed, mon = d => new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
-    const months = (m.months || []).map(x => { const g = +x.sales - +(x.cogs || 0); return Object.assign({ gross: g, net: g - +x.expenses }, x); });
+    const months = (m.months || []).map(x => { const g = +x.sales - +(x.cogs || 0), opex = +x.expenses + +(x.office || 0) + +(x.salaries || 0); return Object.assign({ gross: g, opex, net: g - (P ? opex : +x.expenses) }, x); });
+    const opBtn = (v, attr, warn) => `<button ${attr} style="border:0;background:none;padding:0;font:inherit;color:var(--p);font-weight:700;cursor:pointer;text-decoration:underline dotted">${money(v)}</button>${warn ? '<div class="small" style="color:var(--or);font-weight:700">payroll not saved</div>' : ''}`;
     const tot = k => months.reduce((a, x) => a + +(x[k] || 0), 0);
     const maxDay = Math.max(1, ...(m.by_day || []).map(d => +d.amount)), A = m.aging || {}, maxAge = Math.max(1, +A.d0_7, +A.d8_30, +A.d31_60, +A.d61);
     const typeName = t => K.expName ? K.expName(t) : t;
     el.innerHTML = `<div class="kpis">${kpi(money(m.collected_total), 'Money collected')}${kpi(money(m.collected_waiting), 'Collected, waiting check', +m.collected_waiting ? 'var(--or)' : null)}
         ${kpi(money(A.total), 'Shops owe now · ' + (A.shops || 0) + ' shops', +A.total ? 'var(--rd)' : null)}${kpi(money(m.overdue.amount), 'Overdue credit · ' + m.overdue.count + ' orders', +m.overdue.amount ? 'var(--rd)' : null)}
         ${m.owed_suppliers != null ? kpi(money(m.owed_suppliers), 'We owe suppliers', +m.owed_suppliers ? 'var(--or)' : null) : ''}</div>
-      ${table(P ? 'Profit and loss by month' : 'Sales and costs by month', P ? 'Gross = sales − cost of the goods sold. Net = gross − approved staff expenses. Months cover the whole month.' : 'Months cover the whole month.',
-        [['Month', 'l'], ['Sales', 'r']].concat(P ? [['Cost of goods', 'r'], ['Gross profit', 'r']] : []).concat([['Expenses', 'r']]).concat(P ? [['Net profit', 'r']] : []).concat([['Collected', 'r'], ['Refunded', 'r']]),
-        months.map(x => [`<b>${mon(x.month)}</b>`, money(x.sales)].concat(P ? [money(x.cogs), `<b>${money(x.gross)}</b>`] : []).concat([money(x.expenses)])
+      ${table(P ? 'Profit and loss by month' : 'Sales and costs by month', P ? 'Gross profit = sales − cost of the goods sold. Operating expenses = salaries + staff expenses + office expenses (tap an amount to see the details). Net profit = gross profit − operating expenses. Months cover the whole month.' : 'Months cover the whole month.',
+        [['Month', 'l'], ['Sales', 'r']].concat(P ? [['Cost of goods', 'r'], ['Gross profit', 'r'], ['Operating expenses', 'r']] : [['Staff expenses', 'r']]).concat(P ? [['Net profit', 'r']] : []).concat([['Collected', 'r'], ['Refunded', 'r']]),
+        months.map(x => [`<b>${mon(x.month)}</b>`, money(x.sales)].concat(P ? [money(x.cogs), `<b>${money(x.gross)}</b>`, opBtn(x.opex, `data-opx="${x.month.slice(0, 10)}"`, !x.payroll_saved && x.month.slice(0, 7) < K.period.today().slice(0, 7))] : [money(x.expenses)])
           .concat(P ? [`<b style="color:${x.net >= 0 ? 'var(--gr)' : 'var(--rd)'}">${money(x.net)}</b>`] : []).concat([money(x.collected), +x.refunded ? money(x.refunded) : '—']))
-        .concat(months.length > 1 ? [[`<b>Total</b>`, `<b>${money(tot('sales'))}</b>`].concat(P ? [`<b>${money(tot('cogs'))}</b>`, `<b>${money(tot('gross'))}</b>`] : []).concat([`<b>${money(tot('expenses'))}</b>`])
+        .concat(months.length > 1 ? [[`<b>Total</b>`, `<b>${money(tot('sales'))}</b>`].concat(P ? [`<b>${money(tot('cogs'))}</b>`, `<b>${money(tot('gross'))}</b>`, opBtn(tot('opex'), 'data-opxall')] : [`<b>${money(tot('expenses'))}</b>`])
           .concat(P ? [`<b style="color:${tot('net') >= 0 ? 'var(--gr)' : 'var(--rd)'}">${money(tot('net'))}</b>`] : []).concat([`<b>${money(tot('collected'))}</b>`, `<b>${money(tot('refunded'))}</b>`])] : []))}
       <div class="agrid">
       <div class="card"><b>Who owes money · by age</b><div class="small muted">Days since the goods were delivered, for everything not paid yet.</div>
@@ -6345,14 +6492,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           .map(([l, v, c]) => `<div><div class="row small"><span class="grow">${l}</span><b style="color:${+v ? c : 'inherit'}">${money(v)}</b></div>${bar(+v, maxAge, c)}</div>`).join('')}</div>
       ${table('Money collected by method', '', [['Method', 'l'], ['Payments', 'r'], ['Amount', 'r']], (m.by_method || []).map(x => [`<b>${esc((K.PAY_METHODS || {})[x.method] || x.method)}</b>`, x.count, money(x.amount)]))}
       ${table('Money collected by staff', '', [['Staff', 'l'], ['Payments', 'r'], ['Amount', 'r']], (m.by_staff || []).map(x => [`<b>${esc(x.name)}</b>`, x.count, money(x.amount)]))}
-      ${table('Expenses by type', 'Approved and paid-back expenses.', [['Type', 'l'], ['Expenses', 'r'], ['Amount', 'r']], (m.expense_types || []).map(x => [`<b>${esc(typeName(x.type))}</b>`, x.count, money(x.amount)]))}
+      ${P ? '<div class="card" id="opxcard" style="gap:10px"><div class="muted small">Loading operating expenses…</div></div>' : table('Staff expenses by type', 'Approved and paid-back expenses.', [['Type', 'l'], ['Expenses', 'r'], ['Amount', 'r']], (m.expense_types || []).map(x => [`<b>${esc(typeName(x.type))}</b>`, x.count, money(x.amount)]))}
       ${m.purchases ? `<div class="card"><b>Buying from suppliers</b><div class="small muted">Purchases ordered in these dates.</div>
         <div class="row small"><span class="grow">Purchases</span><b>${m.purchases.count}</b></div><div class="row small"><span class="grow">Total</span><b>${money(m.purchases.total)}</b></div>
         <div class="row small"><span class="grow">Paid</span><b>${money(m.purchases.paid)}</b></div><div class="row small"><span class="grow">Still to pay</span><b style="color:var(--or)">${money(+m.purchases.total - +m.purchases.paid)}</b></div></div>` : ''}
       </div>
       <div class="card"><b>Money collected by day</b>${(m.by_day || []).length ? (m.by_day || []).slice().reverse().map(d => `<div><div class="row small"><span class="grow">${fmtD(d.day)} · ${d.count} payment${d.count === 1 ? '' : 's'}</span><b>${money(d.amount)}</b></div>${bar(+d.amount, maxDay, 'var(--gr)')}</div>`).join('') : '<div class="muted small">No money collected in these dates</div>'}</div>`;
-    return { name: 'money', rows: [['Month', 'Sales'].concat(P ? ['Cost of goods', 'Gross profit'] : []).concat(['Expenses']).concat(P ? ['Net profit'] : []).concat(['Collected', 'Refunded'])]
-      .concat(months.map(x => [x.month.slice(0, 7), (+x.sales).toFixed(2)].concat(P ? [(+x.cogs).toFixed(2), x.gross.toFixed(2)] : []).concat([(+x.expenses).toFixed(2)]).concat(P ? [x.net.toFixed(2)] : []).concat([(+x.collected).toFixed(2), (+x.refunded).toFixed(2)])))
+    K.$$('[data-opx]', el).forEach(b => b.onclick = () => K.opexSheet(b.dataset.opx, monthEnd(b.dataset.opx), 'Operating expenses · ' + monName(b.dataset.opx)));
+    K.$$('[data-opxall]', el).forEach(b => b.onclick = () => K.opexSheet(months[0].month.slice(0, 10), monthEnd(months[months.length - 1].month), 'Operating expenses · ' + mon(months[0].month) + ' – ' + mon(months[months.length - 1].month)));
+    if (P) K.api.reportOpex(from, to).then(d => { const c = K.$('#opxcard', el); if (c) c.innerHTML = K.opexHtml(d) + `<div class="small muted">For the dates above. Salaries count only for whole months inside the dates.</div>`; })
+      .catch(e => { const c = K.$('#opxcard', el); if (c) c.innerHTML = `<div style="color:var(--rd)">${esc(e.message || e)}</div>`; });
+    return { name: 'money', rows: [['Month', 'Sales'].concat(P ? ['Cost of goods', 'Gross profit', 'Salaries', 'Staff expenses', 'Office expenses', 'Operating expenses', 'Net profit', 'Payroll saved'] : ['Staff expenses']).concat(['Collected', 'Refunded'])]
+      .concat(months.map(x => [x.month.slice(0, 7), (+x.sales).toFixed(2)].concat(P ? [(+x.cogs).toFixed(2), x.gross.toFixed(2), (+x.salaries || 0).toFixed(2), (+x.expenses).toFixed(2), (+x.office || 0).toFixed(2), x.opex.toFixed(2), x.net.toFixed(2), x.payroll_saved ? 'yes' : 'no'] : [(+x.expenses).toFixed(2)]).concat([(+x.collected).toFixed(2), (+x.refunded).toFixed(2)])))
       .concat([[], ['Day', 'Payments', 'Collected']]).concat((m.by_day || []).map(d => [d.day, d.count, (+d.amount).toFixed(2)])) };
   };
 })();
@@ -7838,6 +7989,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${K.guideTopics ? item('#/guide', 'book', 'How to use the app', 'Short guides with pictures', 'var(--bls)', 'var(--bl)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
         ${item('#/payslips', 'cash', 'My payslips', 'My salary each month, advances', 'var(--grs)', 'var(--gr)')}
+        ${K.canOwnerAccount && K.canOwnerAccount() ? item('#/owner', 'cash', 'Owner\'s account', 'Money I take and put back', 'var(--ps)', 'var(--p)') : ''}
         ${K.canOffice && K.canOffice() ? item('#/office', 'receipt', 'Office expenses', 'Rent, bills and other company costs', 'var(--bls)', 'var(--bl)') : ''}
         <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">${S.me.role === 'sales' ? 'Get my daily report in Telegram' : 'Daily report and low-stock alerts in Telegram'}</div></div></button>
         ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view')
