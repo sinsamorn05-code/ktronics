@@ -1259,6 +1259,7 @@ window.makeSupabaseApi = function (cfg) {
     },
     listNameHistory: () => q(sb.from('staff_name_history').select('*').order('changed_at')),
     setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
+    setStaffUsername: (id, username) => q(sb.rpc('admin_set_username', { p_id: id, p_username: username })),
     async changeMyPassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw new Error(/different from the old/i.test(error.message) ? 'The new password must be different from the old one' : error.message); },
     async setAvatar(id, file) { const url = file ? await api.uploadPhoto(file, 'avatars') : null; await q(sb.rpc('set_avatar', { p_id: id, p_url: url })); if (me && id === me.id) me.avatar_url = url; return url; },
     me: () => me,
@@ -2060,6 +2061,10 @@ window.makeDemoApi = function () {
     resetDemo() { try { localStorage.removeItem(KEY); localStorage.removeItem(KEY + ':me'); } catch (e) {} D = seed(); me = null; },
 
     async listStaff() { return wait(D.users.filter(u => role() && role() !== 'guest' && u.role !== 'guest').map(publicUser).sort((a, b) => (a.active - b.active) || a.full_name.localeCompare(b.full_name))); },
+    async setStaffUsername(id, username) { if (!hasRole('admin')) fail('Only the admin can change usernames');
+      const v = String(username || '').trim().replace(/^@/, '').toLowerCase(); if (!/^[a-z0-9._]{3,24}$/.test(v)) fail('Username: 3–24 letters or numbers, no spaces');
+      const u = D.users.find(x => x.id === id); if (!u) fail('Staff not found'); if (u.username === v) return wait(v);
+      if (D.users.some(x => x.username === v)) fail('The username "' + v + '" is already used'); u.username = v; if (me && me.id === id) me.username = v; save(); return wait(v); },
     async updateStaff(id, r, active, fullName, phone) {
       if (!hasRole('admin')) fail('Only the admin can manage staff');
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
@@ -3040,7 +3045,7 @@ window.makeDemoApi = function () {
     },
 
     // ---------- settings ----------
-    async getSettings() { return wait(Object.assign({}, D.settings || {}, { khr_per_usd: String(D.khr) })); },
+    async getSettings() { return wait(Object.assign({}, D.settings || {}, { khr_per_usd: String(D.khr), payroll_rules: JSON.stringify(D.payRules || {}) })); },
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     // ---------- commission ----------
     async commissionReport(month) {
@@ -6581,7 +6586,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     payment_l:     { name: '"Payment" label', edit: 'text' },
     payment_v:     { name: 'Payment', data: 'Paid / partly paid, or cash / credit / bank of the order', get: (o, c) => payName(o, c) },
     rep_l:         { name: '"Sales rep" label', edit: 'text' },
-    rep_v:         { name: 'Sales rep name', data: 'The sales rep of the order', get: o => K.repName(o) },
+    rep_v:         { name: 'Sales rep name', data: 'The sales rep of the order (current name)', get: o => (o.rep && o.rep.full_name) || (o.creator && o.creator.full_name) || '' },
     paynote:       { name: 'Payment details', edit: 'co.payNote', get: (o, c, CO) => CO.payNote },
     thanks:        { name: 'Thank-you line', edit: 'co.footer', get: (o, c, CO) => CO.footer || 'Thank you for your business!' },
     printed:       { name: '"Printed" line', edit: 'text', get: (o, c, CO, el) => (el.text || 'Printed') + ' ' + fmtDate(new Date()) + ' · ' + CO.name }
@@ -6691,7 +6696,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const str = def.edit === 'text' && !def.get ? (el.text || '') : def.get ? def.get(o, c, CO, el) : '';
       if (!String(str || '').trim()) return;
       const size = +el.size || 22, y = el.y + (el.bottom ? shift : 0);
-      const w = t(str, el.x, y + size * 0.9, size, el.bold ? 700 : 400, COL[el.color] || C.ink, el.align, 1000);
+      // a value on the right never runs over its label on the left (e.g. a long sales rep name)
+      let max = 1000; const lk = key.replace(/_v$/, '_l'), lab = lk !== key && L.els[lk];
+      if (el.align === 'right' && lab && lab.show && lab.align !== 'right' && Math.abs((+lab.y || 0) - (+el.y || 0)) < 30 && lab.x < el.x) {
+        ctx.font = `${lab.bold ? 700 : 400} ${+lab.size || 22}px ${FONT}`; const lw = ctx.measureText(lab.text || '').width; max = Math.max(120, el.x - (lab.x + lw + 18)); }
+      const w = t(str, el.x, y + size * 0.9, size, el.bold ? 700 : 400, COL[el.color] || C.ink, el.align, max);
       box('el:' + key, el.align === 'right' ? el.x - w : el.x, y, Math.max(w, 40), size * 1.2);
     });
     // items table
@@ -7195,7 +7204,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const K = window.KT;
   const { api, S, esc, $, $$, icon, page, route, go, emptyBox, busy, toast } = K;
   const hm = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  K.isLate = a => { const [h, m] = String((K.SETTINGS || {}).work_start || '08:00').split(':').map(Number); const t = new Date(a.check_in_at); return t.getHours() * 60 + t.getMinutes() > h * 60 + m + 5; };
+  K.lateGrace = () => { try { const g = JSON.parse((K.SETTINGS || {}).payroll_rules || '{}').late_grace; return g != null && g !== '' ? +g : 5; } catch (e) { return 5; } };
+  K.isLate = a => { const [h, m] = String((K.SETTINGS || {}).work_start || '08:00').split(':').map(Number); const t = new Date(a.check_in_at);
+    if (a.work_date && (new Date(a.work_date + 'T00:00:00').getDay() === 0 || (K.HOLIDAYS || []).some(x => x.day === a.work_date))) return false;   // Sunday / holiday: never late
+    return t.getHours() * 60 + t.getMinutes() > h * 60 + m + K.lateGrace(); };
   K.hoursOf = a => a.check_out_at ? (new Date(a.check_out_at) - new Date(a.check_in_at)) / 3600000 : 0;
   const pos = () => new Promise(res => { if (!navigator.geolocation) return res(null); setTimeout(() => res(null), 12000);
     navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude }), () => res(null), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }); });
@@ -7211,7 +7223,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   route(/^\/attendance$/, async (_, __, current) => {
     const main = page({ title: 'My attendance', sub: 'Work starts ' + ((K.SETTINGS || {}).work_start || '08:00'), back: '#/home' });
     const P = K.period, st = P.fresh('month');
-    const [today, list] = await Promise.all([api.todayAttendance(), api.listAttendance(P.range('last')[0], P.today())]);
+    const [today, list] = await Promise.all([api.todayAttendance(), api.listAttendance(P.range('last')[0], P.today()), K.HOLIDAYS ? null : api.listHolidays().then(h => { K.HOLIDAYS = h; }).catch(() => {})]);
     if (!current()) return;
     let photo = null;
     const draw = () => {
@@ -7304,7 +7316,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       let role = u.role, gender = hh.gender || '';
       const inp = (id, label, v, type = 'text', ph = '', extra = '') => `<label class="f">${label}<input class="inp" id="${id}" type="${type}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" ${extra}></label>`;
       const s = K.sheet(u.active ? u.full_name : 'Approve staff', `<div class="row">${avatar(u.full_name, 'lg', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)} · login name</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill or">Waiting</span>'}</div>
-        ${boss ? `<div class="btns"><button class="btn sm out" id="sph">${icon('camera', 16)}${u.avatar_url ? 'Change photo' : 'Add photo'}</button>${u.avatar_url ? '<button class="btn sm out" id="sphx">Remove photo</button>' : ''}<button class="btn sm out" id="srp">${icon('lock', 16)}Reset password</button></div><input type="file" id="sphf" accept="image/*" class="hidden">` : ''}
+        ${boss ? `<div class="btns"><button class="btn sm out" id="sph">${icon('camera', 16)}${u.avatar_url ? 'Change photo' : 'Add photo'}</button>${u.avatar_url ? '<button class="btn sm out" id="sphx">Remove photo</button>' : ''}<button class="btn sm out" id="srp">${icon('lock', 16)}Reset password</button><button class="btn sm out" id="sun">${icon('user', 16)}Change username</button></div><input type="file" id="sphf" accept="image/*" class="hidden">` : ''}
         ${K.namesOf(u.id).length ? `<div class="card" style="background:var(--bg);gap:4px"><b style="font-size:13px">Name history (who used this login before)</b>${K.namesOf(u.id).map(h => `<div class="small">${esc(h.old_name)} <span class="muted">→ ${esc(h.new_name)} on ${esc(K.poDate ? K.poDate(h.changed_at.slice(0, 10)) : h.changed_at.slice(0, 10))}</span></div>`).join('')}<div class="small muted">Orders and visits made before a change show the old name as "(then …)".</div></div>` : ''}
         <div class="sec" style="margin:4px 0 0">Account</div>
         <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
@@ -7340,7 +7352,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (K.$('#sph', s.el)) { K.$('#sph', s.el).onclick = () => K.$('#sphf', s.el).click();
         K.$('#sphf', s.el).onchange = async e => { const f = e.target.files[0]; if (!f) return; await busy(K.$('#sph', s.el), () => api.setAvatar(u.id, f)); s.close(); toast('Photo saved'); K.forget('staff'); K.render(); };
         if (K.$('#sphx', s.el)) K.$('#sphx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setAvatar(u.id, null)); s.close(); toast('Photo removed'); K.forget('staff'); K.render(); };
-        K.$('#srp', s.el).onclick = () => K.resetPasswordSheet(u); }
+        K.$('#srp', s.el).onclick = () => K.resetPasswordSheet(u);
+        K.$('#sun', s.el).onclick = () => K.usernameSheet(u, () => { s.close(); K.forget('staff'); return K.render(); }); }
       if (K.$('#dis', s.el)) K.$('#dis', s.el).onclick = async e => { const b = e.currentTarget;
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
@@ -7367,6 +7380,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <button class="btn block" id="cp">Copy login details</button>`);
         K.$('#cp', ok.el).onclick = async () => { const t = `K-TRONiCS app\n${location.href.replace(/admin\.html.*$/, '')}\nUsername: ${x.username}\nPassword: ${x.password}`; try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (err) { toast(t); } };
       };
+    }
+  // the admin changes someone's login name; the password, orders, chats and history stay the same
+  K.usernameSheet = function usernameSheet(u, onDone) {
+      const s = K.sheet('Change username · ' + u.full_name, `<div class="small muted" style="line-height:1.5">The username is the name ${esc(u.full_name)} types to log in. After the change they log in with the <b>new username</b> and the <b>same password</b>. Their orders, chats and history stay.</div>
+        <label class="f">New username<input class="inp" id="un1" autocapitalize="none" autocorrect="off" value="${esc(u.username)}" placeholder="e.g. rong"></label>
+        <div class="small muted">3–24 letters or numbers (a–z, 0–9, dot or _), no spaces.</div>
+        <button class="btn block" id="unok">Change username</button>`);
+      const inp = K.$('#un1', s.el); inp.oninput = () => { inp.value = inp.value.toLowerCase().replace(/\s/g, ''); };
+      K.$('#unok', s.el).onclick = async e => { const v = inp.value.trim().replace(/^@/, '').toLowerCase();
+        if (!/^[a-z0-9._]{3,24}$/.test(v)) return toast('Username: 3–24 letters or numbers, no spaces');
+        if (v === u.username) { s.close(); return; }
+        try { await busy(e.currentTarget, () => api.setStaffUsername(u.id, v)); } catch (err) { return; } s.close();
+        const me = K.S.me && K.S.me.id === u.id; if (me) K.S.me.username = v;
+        try { if (onDone) await onDone(); } catch (err) {}
+        const ok = K.sheet('Username changed', `<div class="card" style="background:var(--grs)"><b>${esc(u.full_name)}</b><div>New username: <b>${esc(v)}</b></div><div class="small muted">Password: the same as before</div></div>
+          <div class="small muted">${me ? 'Next time you log in, use the new username.' : 'Tell ' + esc(u.full_name) + ' to log in with the new username next time (same password).'}</div>
+          <button class="btn block" id="unc">Copy message</button>`);
+        K.$('#unc', ok.el).onclick = async () => { const t = `K-TRONiCS app\nYour new username: ${v}\nPassword: the same as before`; try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (err) { toast(t); } }; };
     }
   K.resetPasswordSheet = function resetPasswordSheet(u) {
       const s = K.sheet('New password · ' + u.full_name, `<div class="small muted">Use this when ${esc(u.full_name)} forgot their password. Give them the new one; they can change it later in More → My profile.</div>
@@ -7404,6 +7435,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const A = K.adm, hr = K.allow('hr.manage'), boss = K.S.me.role === 'admin', att = hr || K.allow('attendance.view');
     if (!(att || boss)) return go('#/dashboard');
     await A.refreshCounts();
+    if (!K.HOLIDAYS) K.HOLIDAYS = await api.listHolidays().catch(() => []);
     const main = A.shell('hr', 'HR & Payroll', `<button class="btn sm out" id="myleave">${icon('bed', 18)}<span class="hide-sm">Ask for leave</span></button>`);
     $('#myleave').onclick = () => K.leaveSheet(() => K.render());
     const P = K.period, since = P.range('custom')[0] < P.range('last')[0] ? P.range('custom')[0] : P.range('last')[0];
@@ -7420,6 +7452,42 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const active = staff.filter(u => u.active);
     const hrOf = id => hrs.find(h => h.user_id === id) || {};
     const onLeave = (id, day) => leave.find(l => l.staff_id === id && l.status === 'approved' && l.from_date <= day && l.to_date >= day);
+    let who = q.who || '', hols = null;
+    // one person: every day in the dates (worked, late, absent, leave, Sunday, holiday) + all their leave
+    const personAtt = (u, a, b) => {
+      const today = P.today(), end = b < today ? b : today, hh = hrOf(u.id), start = hh.start_date || '';
+      const byDay = {}; att_.filter(x => x.staff_id === u.id).forEach(x => { byDay[x.work_date] = x; });
+      const lvOn = d => leave.find(l => l.staff_id === u.id && l.status === 'approved' && l.from_date <= d && l.to_date >= d);
+      const holOn = d => (hols || []).find(x => x.day === d);
+      const pill = (t, c) => `<span class="pill ${c}">${esc(t)}</span>`;
+      const rows = [], c = { worked: 0, late: 0, hours: 0, sun: 0, hol: 0, leave: 0, absent: 0 };
+      for (let d = new Date(end + 'T00:00:00'); P.dstr(d) >= a; d.setDate(d.getDate() - 1)) {
+        const day = P.dstr(d), dow = d.getDay(), x = byDay[day], l = lvOn(day), H = holOn(day);
+        let st;
+        if (x) { c.worked++; c.hours += K.hoursOf(x);
+          if (dow === 0) { c.sun++; st = pill('Sunday work', 'bl'); } else if (H) { c.hol++; st = pill('Holiday work', 'bl'); } else if (K.isLate(x)) { c.late++; st = pill('Late', 'or'); } else st = pill('On time', 'gr'); }
+        else if (l) { if (dow !== 0 && !H) c.leave++; st = pill(K.LEAVE_KIND[l.kind] || 'Leave', 'bl'); }
+        else if (dow === 0) st = '<span class="muted small">Sunday · day off</span>';
+        else if (H) st = `<span class="muted small">Holiday · ${esc(H.name)}</span>`;
+        else if (start && day < start) st = '<span class="muted small">Before start date</span>';
+        else if (day === today) st = pill('Not in yet', 'gy');
+        else { c.absent++; st = pill('Absent', 'rd'); }
+        rows.push(`<tr style="${x || l ? '' : 'background:var(--bg)'}"><td style="white-space:nowrap"><b>${esc(d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</b></td><td>${st}</td>
+          <td style="text-align:right">${x ? hm(x.check_in_at) : ''}</td><td style="text-align:right">${x ? (x.check_out_at ? hm(x.check_out_at) : '<span class="muted">no finish</span>') : ''}</td>
+          <td style="text-align:right">${x && x.check_out_at ? K.hoursOf(x).toFixed(1) : ''}</td>
+          <td>${x && x.photo_url ? `<a href="${esc(x.photo_url)}" target="_blank" rel="noopener"><img src="${esc(x.photo_url)}" alt="Start photo" style="width:34px;height:34px;border-radius:8px;object-fit:cover;vertical-align:middle"></a>` : ''}${x && x.in_lat ? ` <a href="https://www.google.com/maps/search/?api=1&query=${x.in_lat},${x.in_lng}" target="_blank" rel="noopener" class="small">map</a>` : ''}</td>
+          <td class="small">${x && x.note ? esc(x.note) : l && l.reason ? esc(l.reason) : ''}</td></tr>`);
+      }
+      const yr = today.slice(0, 4), allow = +(hh.annual_leave_days ?? 18), used = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.kind === 'annual' && l.from_date.startsWith(yr)).reduce((s, l) => s + +l.days, 0);
+      const mine = leave.filter(l => l.staff_id === u.id);
+      return `<div class="card"><div class="row">${avatar(u.full_name, '', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">${esc([hh.position || K.ROLE_LABEL[u.role], u.phone, start ? 'started ' + (K.poDate ? K.poDate(start) : start) : ''].filter(Boolean).join(' · '))}</div></div></div>
+          <div class="kpis">${A.kpi(c.worked, 'Days at work', 'var(--gr)')}${A.kpi(c.late, 'Late', c.late ? 'var(--or)' : null)}${A.kpi(c.absent, 'Absent (no leave)', c.absent ? 'var(--rd)' : null)}${A.kpi(c.leave, 'Leave days')}${A.kpi(c.hours.toFixed(1) + ' h', 'Hours worked')}${A.kpi(c.sun + ' / ' + c.hol, 'Sundays / holidays worked')}</div>
+          <div class="small muted">Work starts ${esc((K.SETTINGS || {}).work_start || '08:00')} · finishes ${esc((K.SETTINGS || {}).work_end || '17:30')}. "Absent" = a working day (Monday – Saturday, not a holiday) with no start of work and no approved leave.</div></div>
+        <div class="card"><b>Day by day</b><div class="tbl"><table style="font-size:13px"><thead><tr><th style="text-align:left">Day</th><th style="text-align:left">Status</th><th style="text-align:right">Start</th><th style="text-align:right">Finish</th><th style="text-align:right">Hours</th><th style="text-align:left">Photo</th><th style="text-align:left">Note</th></tr></thead>
+          <tbody>${rows.join('') || '<tr><td colspan="7" class="muted">No days in these dates</td></tr>'}</tbody></table></div></div>
+        <div class="card"><div class="row"><b class="grow">Leave</b><span class="pill ${allow - used > 0 ? 'gr' : 'or'}">Annual leave ${yr}: ${used} used · ${allow - used} left of ${allow}</span></div></div>
+        <div class="card flush">${mine.map(l => K.leaveRow(l, false)).join('') || '<div class="empty">No leave requests</div>'}</div>`;
+    };
     const draw = async () => {
       const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active).length : 0;
       $('#tabs').innerHTML = tabs.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}${cnt(k) ? ` <span style="opacity:.8">${cnt(k)}</span>` : ''}</button>`).join('');
@@ -7458,7 +7526,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
             <div class="small muted">Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>`;
       } else if (tab === 'work') {
-        h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than 5 minutes after the start time are marked "Late" in Today and Attendance.</div>
+        h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
             <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>`;
       } else if (tab === 'today') {
         const t = P.today(), rows = active.map(u => ({ u, a: att_.find(x => x.staff_id === u.id && x.work_date === t), l: onLeave(u.id, t) }));
@@ -7470,11 +7538,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             ${a ? (K.isLate(a) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>') : l ? `<span class="pill bl">${esc(K.LEAVE_KIND[l.kind])}</span>` : '<span class="pill gy">Not in</span>'}</div>`).join('')}</div>`;
       } else if (tab === 'att') {
         const [a, b] = P.range(pst.p, pst.from, pst.to);
+        if (!hols) { hols = await api.listHolidays().catch(() => []); K.HOLIDAYS = hols; }
         const inP = att_.filter(x => x.work_date >= a && x.work_date <= b);
-        h = `<div id="per" style="display:flex;flex-direction:column;gap:10px">${P.html(pst.p, pst.from, pst.to)}<div class="small muted">${esc(P.label(pst))}</div></div>
-          <div class="card"><div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:right">Days worked</th><th style="text-align:right">Late</th><th style="text-align:right">Hours</th><th style="text-align:right">Leave days</th></tr></thead><tbody>
+        const pick = `<div class="row" style="gap:10px;flex-wrap:wrap">${who ? `<button class="btn sm out" id="attall">‹ All staff</button>` : ''}<label class="f" style="min-width:240px;max-width:340px;flex:1">Choose a person to see everything<select class="inp" id="attwho"><option value="">All staff</option>${active.map(u => `<option value="${esc(u.id)}" ${u.id === who ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label></div>`;
+        h = `<div id="per" style="display:flex;flex-direction:column;gap:10px">${P.html(pst.p, pst.from, pst.to)}<div class="small muted">${esc(P.label(pst))}</div></div>${pick}`;
+        const wu = who && active.find(u => u.id === who);
+        if (wu) h += personAtt(wu, a, b);
+        else h += `<div class="card"><div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:right">Days worked</th><th style="text-align:right">Late</th><th style="text-align:right">Hours</th><th style="text-align:right">Leave days</th><th></th></tr></thead><tbody>
           ${active.map(u => { const m = inP.filter(x => x.staff_id === u.id), lv = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.to_date >= a && l.from_date <= b).reduce((s, l) => s + +l.days, 0);
-            return `<tr><td><b>${esc(u.full_name)}</b></td><td style="text-align:right">${m.length}</td><td style="text-align:right;${m.filter(K.isLate).length ? 'color:var(--or);font-weight:800' : ''}">${m.filter(K.isLate).length}</td><td style="text-align:right">${m.reduce((s, x) => s + K.hoursOf(x), 0).toFixed(1)}</td><td style="text-align:right">${lv || '—'}</td></tr>`; }).join('')}</tbody></table></div></div>
+            return `<tr data-who="${esc(u.id)}" style="cursor:pointer"><td><b style="color:var(--p)">${esc(u.full_name)}</b></td><td style="text-align:right">${m.length}</td><td style="text-align:right;${m.filter(K.isLate).length ? 'color:var(--or);font-weight:800' : ''}">${m.filter(K.isLate).length}</td><td style="text-align:right">${m.reduce((s, x) => s + K.hoursOf(x), 0).toFixed(1)}</td><td style="text-align:right">${lv || '—'}</td><td style="text-align:right;color:var(--mu)">${icon('right', 16)}</td></tr>`; }).join('')}</tbody></table></div><div class="small muted">Tap a name to see all of that person's days and leave.</div></div>
           <div class="card flush">${inP.slice(0, 200).map(x => `<div class="list-item">${x.photo_url ? `<img src="${esc(x.photo_url)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : `<div class="ic-av sq">${icon('clock', 18)}</div>`}<div class="grow"><div class="tt" style="font-size:14px">${esc(x.profiles ? x.profiles.full_name : '')} · ${esc(K.poDate(x.work_date))}</div><div class="st">${hm(x.check_in_at)} – ${x.check_out_at ? hm(x.check_out_at) : 'no finish'}${x.note ? ' · ' + esc(x.note) : ''}</div></div>${K.isLate(x) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>'}</div>`).join('') || '<div class="empty">No attendance for these dates</div>'}</div>`;
       } else if (tab === 'payroll') {
         h = '<div id="payv"></div>';
@@ -7497,6 +7569,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       $('#body').innerHTML = h;
       if ($('#payv')) K.payrollView($('#payv'), { staff });
+      if ($('#attwho')) $('#attwho').onchange = e => { who = e.target.value; draw(); };
+      if ($('#attall')) $('#attall').onclick = () => { who = ''; draw(); };
+      $$('[data-who]').forEach(r => r.onclick = () => { who = r.dataset.who; draw(); const m = $('#main'); if (m) m.scrollTop = 0; });
       if ($('#per')) P.bind($('#per'), pst, draw);
       $$('[data-m]').forEach(b => b.onclick = () => { month = b.dataset.m; draw(); });
       $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr) K.leaveReview(l, () => K.render()); });
@@ -7546,6 +7621,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     o.net = r2(o.gross - o.deduct);
     return o;
   };
+  const ng = v => Math.abs(+v || 0) < 0.005 ? '$0.00' : '−' + money(v);   // amount taken off; never shows −$0.00
   const dz = (n, unit) => (+n ? (+n).toString().replace(/\.0+$/, '') + ' ' + unit : '');
 
   // the payslip itself (used on screen, for printing and in the staff app)
@@ -7612,7 +7688,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     $('#prok', s.el).onclick = async e => { const o = read();
       for (const [k, v] of Object.entries(o)) if (k !== 'deduct_absent' && !/^\d+(\.\d+)?$/.test(v)) return toast('Enter a number in every box');
       if (!(+o.workdays > 0) || !(+o.hours > 0)) return toast('Work days and hours must be more than 0');
-      await busy(e.currentTarget, () => api.payrollRulesSave(o)); s.close(); toast('Payroll rules saved'); if (onDone) onDone(); };
+      await busy(e.currentTarget, () => api.payrollRulesSave(o)); try { await K.loadSettings(); } catch (er) {} s.close(); toast('Payroll rules saved'); if (onDone) onDone(); };
   };
 
   // ---------- Public holidays ----------
@@ -7775,11 +7851,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <td style="text-align:right">${c(l.bonus)}</td><td style="text-align:right">${c(l.late_deduct, l.late_days, 'day(s)', 1)}${!num(l.late_deduct) && num(l.late_days) ? `<span class="small muted">${dz(l.late_days, 'day(s)')}</span>` : ''}</td>
             <td style="text-align:right">${c(l.unpaid_deduct, l.unpaid_days, 'day(s)', 1)}</td><td style="text-align:right">${num(l.absent_deduct) ? c(l.absent_deduct, l.absent_days, 'day(s)', 1) : num(l.absent_days) ? `<span class="small muted">${dz(l.absent_days, 'day(s)')}</span>` : '<span class="muted">—</span>'}</td>
             <td style="text-align:right">${c(l.saved || l.status === 'paid' ? l.advances : l.advances_now, 0, '', 1)}</td><td style="text-align:right">${c(l.tax, 0, '', 1)}</td><td style="text-align:right">${c(l.other_deduct, 0, '', 1)}</td></tr>`).join('') || '<tr><td colspan="16" class="muted">No staff yet. Add staff and their base salary in the Staff tab.</td></tr>'}
-          <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right;white-space:nowrap"><b>${money(tot('net'))}</b></td><td></td><td style="text-align:right"><b>${money(tot('base'))}</b></td><td style="text-align:right">${money(tot('allowance'))}</td><td style="text-align:right">${money(tot('commission'))}</td><td style="text-align:right">${money(tot('ot_pay'))}</td><td style="text-align:right">${money(tot('sunday_pay'))}</td><td style="text-align:right">${money(tot('holiday_pay'))}</td><td style="text-align:right">${money(tot('bonus'))}</td><td style="text-align:right;white-space:nowrap">−${money(tot('late_deduct'))}</td><td style="text-align:right;white-space:nowrap">−${money(tot('unpaid_deduct'))}</td><td style="text-align:right;white-space:nowrap">−${money(tot('absent_deduct'))}</td><td style="text-align:right;white-space:nowrap">−${money(L.reduce((a, l) => a + num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), 0))}</td><td style="text-align:right;white-space:nowrap">−${money(tot('tax'))}</td><td style="text-align:right;white-space:nowrap">−${money(tot('other_deduct'))}</td></tr></tbody></table></div>
+          <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right;white-space:nowrap"><b>${money(tot('net'))}</b></td><td></td><td style="text-align:right"><b>${money(tot('base'))}</b></td><td style="text-align:right">${money(tot('allowance'))}</td><td style="text-align:right">${money(tot('commission'))}</td><td style="text-align:right">${money(tot('ot_pay'))}</td><td style="text-align:right">${money(tot('sunday_pay'))}</td><td style="text-align:right">${money(tot('holiday_pay'))}</td><td style="text-align:right">${money(tot('bonus'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('late_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('unpaid_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('absent_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(L.reduce((a, l) => a + num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), 0))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('tax'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('other_deduct'))}</td></tr></tbody></table></div>
           <div class="small muted">Tap a person to see the payslip, change numbers, add a bonus or NSSF/tax.</div></div>
         <div class="card"><b>How the payroll is counted</b><div class="small" style="line-height:1.7">
           • Daily pay = base salary ÷ ${+r.workdays} days · hourly pay = daily pay ÷ ${+r.hours} hours<br>
-          • <b>Late</b>: start work more than ${+r.late_grace} min after ${esc((K.SETTINGS || {}).work_start || '08:00')} (Monday – Saturday) = −${money(r.late_amount)} per day<br>
+          • <b>Late</b>: start work more than ${+r.late_grace} min after ${esc((K.SETTINGS || {}).work_start || '08:00')} (Monday – Saturday) = ${+r.late_amount ? '−' + money(r.late_amount) + ' per day' : 'shown, but no money taken'}<br>
           • <b>Overtime</b>: finish ${+r.ot_min} min or more after ${esc((K.SETTINGS || {}).work_end || '17:30')} (Monday – Saturday) = hourly pay × ${+r.ot_rate}<br>
           • <b>Sunday</b> work = daily pay × ${+r.sunday_rate} · <b>public holiday</b> work = daily pay × ${+r.holiday_rate} (extra, on top of salary)<br>
           • <b>Unpaid leave</b> (approved) = − daily pay per day${r.deduct_absent === true ? ' · <b>absent</b> without leave = − daily pay per day' : ' · absent days are shown but not taken'}<br>
