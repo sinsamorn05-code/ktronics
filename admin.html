@@ -5337,22 +5337,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const url = URL.createObjectURL(png);
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File([png], 'x.png', { type: 'image/png' })] }));
     K.$('.sb', s.el).innerHTML = `<div id="itg"></div><div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff"><img src="${url}" alt="Invoice ${esc(invNo(o))}" style="width:100%;display:block"></div>
-      ${canShare ? `<button class="btn block" id="ishare">${icon('send', 20)} Share (Telegram, …)</button>` : ''}
-      <button class="btn ${canShare ? 'out' : ''} block" id="iprint">${icon('receipt', 18)} Print (A5)</button>
+      <button class="btn out block" id="iprint">${icon('receipt', 18)} Print (A5)</button>
       <div class="btns"><button class="btn out" id="ipng">${icon('image', 18)} Save image</button><button class="btn out" id="ipdf">${icon('receipt', 18)} Save PDF</button></div>
-      <div class="small muted">${canShare ? 'Share opens your phone\'s share menu. Choose Telegram and pick the shop\'s chat.' : 'Save the image or PDF, then send it to the shop in Telegram.'}</div>`;
+      <div class="small muted">To send it to the shop, use <b>Copy invoice</b> and <b>Open chat</b> at the top. You can also save the image or PDF.</div>`;
     const note = () => { if (!K.live) K.toast('In the demo the file may not download. In the real app it saves to your phone or computer.'); };
     // ----- send to this shop on Telegram -----
     const cu = o.customers || {};
     const canCopy = !!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem);
+    // the owner's message (Settings → Company) goes into the chat box together with the invoice
+    const msg = String((K.SETTINGS || {}).invoice_message || '').trim()
+      .replace(/\{shop\}/gi, cu.name || '').replace(/\{invoice\}/gi, invNo(o)).replace(/\{total\}/gi, money(o.total))
+      .replace(/\{balance\}/gi, money(Math.max(0, +o.total - (+o.paid_amount || 0))));
+    const withMsg = u => msg ? u + (u.includes('?') ? '&' : '?') + 'text=' + encodeURIComponent(msg) : u;
     const drawTg = () => {
-      const tg = K.tgLink(cu.telegram, cu.phone), shop = esc(cu.name || 'the shop');
+      const tg0 = K.tgLink(cu.telegram, cu.phone), tg = tg0 && Object.assign({}, tg0, { url: withMsg(tg0.url) }), shop = esc(cu.name || 'the shop');
       const who = tg ? (tg.saved ? `Telegram: <b>${esc(tg.label)}</b>` : `No Telegram saved. Using the shop's phone <b>${esc(tg.label)}</b>`) : 'No Telegram or phone number saved for this shop yet.';
       K.$('#itg', s.el).innerHTML = `<div class="card" style="gap:10px;border-color:#BCD7F5">
         <div class="row"><div class="ic-av sq" style="background:#229ED9;color:#fff">${icon('send', 20)}</div><div class="grow"><b>Send to ${shop} on Telegram</b><div class="small muted">${who}</div></div></div>
         ${tg ? (canCopy
           ? `<div class="btns"><button class="btn" id="tgc">${icon('image', 18)}1. Copy invoice</button><a class="btn out" id="tgo" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}2. Open chat</a></div>
-             <div class="small muted">Tap <b>Copy invoice</b>, then <b>Open chat</b>. In the chat, long-press the message box → <b>Paste</b> → Send.</div>`
+             <div class="small muted">Tap <b>Copy invoice</b>, then <b>Open chat</b>. In the chat, long-press the message box → <b>Paste</b> → Send.${msg ? ' Your message is already in the chat box.' : ''}</div>${msg ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:8px 10px;white-space:pre-wrap">${esc(msg)}</div>` : ''}`
           : `<div class="btns">${canShare ? `<button class="btn" id="tgs">${icon('send', 18)}Share picture</button>` : ''}<a class="btn out" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}Open chat</a></div>
              <div class="small muted">${canShare ? `Tap <b>Share picture</b> → Telegram → find <b>${esc(tg.label)}</b>.` : 'Save the image below, open the chat, then attach the picture.'}</div>`) : ''}
         <details ${tg && tg.saved ? '' : 'open'}><summary class="small" style="cursor:pointer;font-weight:700">${tg && tg.saved ? 'Change Telegram' : 'Add the shop\'s Telegram'}</summary>
@@ -5366,7 +5370,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         K.toast('Invoice copied. Now tap Open chat and paste it.');
       };
       if (K.$('#tgs', s.el)) K.$('#tgs', s.el).onclick = async () => {
-        try { await navigator.share({ files: [new File([png], name + '.png', { type: 'image/png' })], title: invNo(o), text: `${K.COMPANY.name} ${invNo(o)} · ${money(o.total)}` }); }
+        try { await navigator.share({ files: [new File([png], name + '.png', { type: 'image/png' })], title: invNo(o), text: msg || `${K.COMPANY.name} ${invNo(o)} · ${money(o.total)}` }); }
         catch (e) { if (e && e.name !== 'AbortError') K.toast('Could not open share. Use Save image instead.'); }
       };
       K.$('#tgsv', s.el).onclick = async e => {
@@ -7514,6 +7518,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ${field('company_name', 'Company name (for file names and the "Printed" line — the logo shows the name on the invoice)', 'K-TRONiCS')}
           ${field('invoice_note', 'Payment details (printed on every invoice)', 'ABA: 000 123 456 · K-TRONiCS CO., LTD')}${field('invoice_footer', 'Thank-you line', 'Thank you for your business!')}
           <button class="btn" data-save="company">Save company details</button></div>
+          <div class="card"><b>Message sent with the invoice (Telegram)</b><div class="small muted">When staff tap <b>Open chat</b> to send an invoice, this message is already written in the chat box. Leave it empty for no message. You can use these words and the app fills them in: <b>{shop}</b> shop name · <b>{invoice}</b> invoice number · <b>{total}</b> invoice total · <b>{balance}</b> still to pay.</div>
+            <label class="f">Message<textarea class="inp" data-k="invoice_message" rows="4" placeholder="e.g. Thank you for your order, {shop}! Here is invoice {invoice}.">${esc(st.invoice_message || '')}</textarea></label>
+            <button class="btn" data-save="invmsg">Save message</button></div>
           <div class="card"><b>Logo</b><div class="small muted">Printed at the top of every invoice. Without a picture here, the invoice uses the K-TRONiCS logo. A wide logo (like the K-TRONiCS one) works best.</div>
             <div id="lg" style="width:120px;height:120px;border-radius:18px;border:1px dashed var(--line);display:grid;place-items:center;overflow:hidden;background:var(--bg)">${logo ? `<img src="${esc(logo)}" alt="Logo" style="width:100%;height:100%;object-fit:contain">` : icon('image', 30)}</div>
             <div class="btns"><button class="btn out" id="lgb">${icon('camera', 18)}Choose picture</button>${logo ? '<button class="btn out" id="lgx">Remove</button>' : ''}</div><input type="file" id="lgf" accept="image/*" class="hidden">
