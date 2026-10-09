@@ -881,7 +881,7 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .ahdr { height: 64px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--card); border-bottom: 1px solid var(--line); }
 .ahdr .t { flex: 1; min-width: 0; }
 .ahdr .t b { display: block; font-size: 19px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ahdr .t small { display: block; font-size: 12px; color: var(--mu); }
+.ahdr .t small { display: block; font-size: 12px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ahdr .menu { display: none; margin-left: -8px; }
 .apad { padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 1280px; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
@@ -1526,9 +1526,15 @@ window.makeSupabaseApi = function (cfg) {
       const row = { spent_on: e.spent_on, category: e.category, amount: +e.amount, currency: e.currency, note: e.note || null, receipt_url };
       if (e.staff_id) row.staff_id = e.staff_id;          // admins/managers can record for any staff member
       if (e.status) row.status = e.status;
+      if (e.id && Array.isArray(e.changed)) {            // a change: send only what was changed, so an old screen never writes old values back
+        const part = {}; e.changed.forEach(k => { if (k in row) part[k] = row[k]; }); if (e.photo) part.receipt_url = receipt_url;
+        if (!Object.keys(part).length) return q(sb.from('expenses').select('*').eq('id', e.id).single());
+        return q(sb.from('expenses').update(part).eq('id', e.id).select().single());
+      }
       if (e.id) return q(sb.from('expenses').update(row).eq('id', e.id).select().single());
       return q(sb.from('expenses').insert(Object.assign({ staff_id: me.id, created_by: me.id }, row)).select().single());
     },
+    getExpense: id => q(sb.from('expenses').select('*, staff:profiles!expenses_staff_id_fkey(full_name), creator:profiles!expenses_created_by_fkey(full_name)').eq('id', id).maybeSingle()),
     deleteExpense: id => q(sb.from('expenses').delete().eq('id', id)),
     reviewExpense: (id, status, note) => q(sb.rpc('review_expense', { p_id: id, p_status: status, p_note: note || null })),
     // office expenses (company costs)
@@ -1543,6 +1549,9 @@ window.makeSupabaseApi = function (cfg) {
     listOwner: () => q(sb.from('owner_account').select('*').order('day', { ascending: false }).order('id', { ascending: false }).limit(2000)),
     ownerSave: (id, p) => q(sb.rpc('owner_save', { p_id: id || null, p })),
     ownerDelete: id => q(sb.rpc('owner_delete', { p_id: id })),
+    dashboardCash: () => q(sb.rpc('dashboard_cash')),
+    dashboardPeriod: (from, to) => q(sb.rpc('dashboard_period', { p_from: from, p_to: to })),
+    cashOpeningSave: (day, cash, bank) => q(sb.rpc('cash_opening_save', { p_day: day, p_cash: cash, p_bank: bank })),
     // payroll
     payrollGet: (month, fresh) => q(sb.rpc('payroll_get', { p_month: month, p_fresh: !!fresh })),
     payrollSave: (month, lines) => q(sb.rpc('payroll_save', { p_month: month, p_lines: lines })),
@@ -2612,6 +2621,7 @@ window.makeDemoApi = function () {
       return wait(D.expenses.filter(e => e.staff_id === me.id || allow('expenses.approve') || allow('expenses.record_others')).sort((a, b) => b.spent_on.localeCompare(a.spent_on) || b.id - a.id)
         .map(e => Object.assign(clone(e), { staff: { full_name: user(e.staff_id).full_name }, creator: { full_name: (user(e.created_by || e.staff_id) || {}).full_name } })));
     },
+    async getExpense(id) { const x = D.expenses.find(e => e.id === id); return wait(x ? Object.assign(clone(x), { staff: { full_name: (user(x.staff_id) || {}).full_name }, creator: { full_name: (user(x.created_by) || {}).full_name } }) : null); },
     async saveExpense(e) {
       if (!role()) fail('Your account is not active');
       if (!(+e.amount > 0)) fail('Enter the amount');
@@ -2624,7 +2634,8 @@ window.makeDemoApi = function () {
       if (e.staff_id) row.staff_id = e.staff_id;
       if (e.status) row.status = e.status;
       let out;
-      if (e.id) { out = D.expenses.find(x => x.id === e.id && (boss || x.staff_id === me.id)); if (!out || (!boss && out.status !== 'pending')) fail('This expense was already checked and cannot be changed'); Object.assign(out, row); }
+      if (e.id) { out = D.expenses.find(x => x.id === e.id && (boss || x.staff_id === me.id)); if (!out || (!boss && out.status !== 'pending')) fail('This expense was already checked and cannot be changed');
+        if (Array.isArray(e.changed)) { const part = {}; e.changed.forEach(k => { if (k in row) part[k] = row[k]; }); if (e.photo) part.receipt_url = receipt_url; if ('amount' in part || 'currency' in part) part.amount_usd = usd; Object.assign(out, part); } else Object.assign(out, row); }
       else { out = Object.assign({ id: ++D.seq.expense, staff_id: me.id, created_by: me.id, status: 'pending', reviewed_by: boss && row.status ? me.id : null, reviewed_at: null, review_note: null, created_at: now() }, row); D.expenses.push(out); }
       save(); return wait(clone(out));
     },
@@ -2774,6 +2785,35 @@ window.makeDemoApi = function () {
       const cur = p.currency || 'USD', row = { kind: p.kind, day: p.day || localDay0(new Date()), amount: +p.amount, currency: cur, amount_usd: +(cur === 'KHR' ? +p.amount / (D.khr || 4100) : +p.amount).toFixed(2), method: p.method || 'cash', note: (p.note || '').trim() };
       if (id) { const x = D.owner.find(o => o.id === id); if (!x) fail('This line was deleted'); Object.assign(x, row); } else D.owner.push(Object.assign({ id: ++D.ownerSeq }, row));
       save(); return wait(id || D.ownerSeq); },
+    _cashMoves(a, b) { api._owner(); api._office(); api._pay(); const inR = d => d && d >= a && d <= b, r2 = n => +(+n).toFixed(2), sum = (l, f) => r2(l.reduce((x, y) => x + (+f(y) || 0), 0));
+      return { collected: sum(D.payments.filter(p => p.status === 'confirmed' && inR(localDay(p.received_at))), p => p.amount_usd),
+        waiting: sum(D.payments.filter(p => p.status === 'pending' && inR(localDay(p.received_at))), p => p.amount_usd),
+        owner_back: sum(D.owner.filter(x => x.kind === 'return' && inR(x.day)), x => x.amount_usd), supplier_refunds: sum((D.spays || []).filter(x => x.kind === 'refund' && inR(x.paid_on)), x => x.amount),
+        shop_refunds: sum(D.orders.filter(o => o.status === 'returned' && o.returned_at && inR(localDay(o.returned_at))), o => o.refunded_amount),
+        staff_paid: sum(D.expenses.filter(e => e.status === 'paid' && inR(localDay(e.reviewed_at || e.created_at || now()))), e => e.amount_usd),
+        office: sum(D.office.filter(e => inR(e.spent_on)), e => e.amount_usd), owner_took: sum(D.owner.filter(x => x.kind === 'take' && inR(x.day)), x => x.amount_usd),
+        suppliers_paid: sum((D.spays || []).filter(x => x.kind !== 'refund' && inR(x.paid_on)), x => x.amount),
+        salaries_paid: sum(D.payLines.filter(l => l.status === 'paid' && l.paid_at && inR(localDay(l.paid_at))), l => l.net), advances: sum(D.advances.filter(x => inR(x.given_on)), x => x.amount) }; },
+    _cashNet(m) { return +(m.collected + m.owner_back + m.supplier_refunds - m.shop_refunds - m.staff_paid - m.office - m.owner_took - m.suppliers_paid - m.salaries_paid - m.advances).toFixed(2); },
+    async dashboardPeriod(from, to) { if (!allow('dashboard.view')) fail('You are not allowed to see the dashboard'); api._office();
+      const a = from < to ? from : to, b = from < to ? to : from, inR = d => d && d >= a && d <= b, r2 = n => +(+n).toFixed(2);
+      const sold = D.orders.filter(o => !['pending', 'cancelled', 'returned'].includes(o.status) && !o.is_opening);
+      const days = []; const start = a === b ? new Date(new Date(b + 'T00:00:00').getTime() - 6 * 86400000) : new Date(Math.max(new Date(a + 'T00:00:00'), new Date(b + 'T00:00:00') - 61 * 86400000));
+      for (let d = new Date(start); localDay0(d) <= b; d.setDate(d.getDate() + 1)) { const k = localDay0(d); days.push({ day: k, total: r2(sold.filter(o => localDay(o.created_at) === k).reduce((x, o) => x + +o.total, 0)) }); }
+      return wait({ from: a, to: b, sales: r2(sold.filter(o => inR(localDay(o.created_at))).reduce((x, o) => x + +o.total, 0)),
+        orders: D.orders.filter(o => !['cancelled', 'returned'].includes(o.status) && !o.is_opening && inR(localDay(o.created_at))).length,
+        collected: r2(D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at))).reduce((x, p) => x + +p.amount_usd, 0)),
+        visits: D.visits.filter(v => inR(localDay(v.check_in_at))).length, new_shops: D.customers.filter(c => c.created_by && c.created_at && inR(localDay(c.created_at))).length,
+        staff_exp: r2(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on)).reduce((x, e) => x + +e.amount_usd, 0)),
+        office: hasRole('admin') || allow('expenses.office') ? r2(D.office.filter(e => inR(e.spent_on)).reduce((x, e) => x + +e.amount_usd, 0)) : null, days }); },
+    async dashboardCash() { if (!hasRole('admin')) fail('Only the admin can see cash on hand'); api._owner();
+      const t = localDay0(new Date()), m0 = t.slice(0, 8) + '01', o = D.cashOpening || null, month = api._cashMoves(m0, t), since = o ? api._cashMoves(o.day, t) : null;
+      return wait({ today: t, month_from: m0, month, month_net: api._cashNet(month), opening_set: !!o, opening_day: o && o.day, opening_cash: o && o.cash, opening_bank: o && o.bank,
+        since, balance: o ? +(o.cash + o.bank + api._cashNet(since)).toFixed(2) : null,
+        staff_spent: +D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && e.spent_on >= m0 && e.spent_on <= t).reduce((a, e) => a + +e.amount_usd, 0).toFixed(2),
+        office: month.office, owner_took: month.owner_took, owner_owes: +D.owner.reduce((a, x) => a + (x.kind === 'take' ? x.amount_usd : -x.amount_usd), 0).toFixed(2) }); },
+    async cashOpeningSave(day, cash, bank) { if (!hasRole('admin')) fail('Only the admin can set the starting money'); if (!day || day > localDay0(new Date())) fail('Choose a start date (today or before)');
+      if (cash == null || bank == null || isNaN(+cash) || isNaN(+bank)) fail('Enter both amounts (0 if none)'); D.cashOpening = { day, cash: +(+cash).toFixed(2), bank: +(+bank).toFixed(2) }; save(); return wait(null); },
     async ownerDelete(id) { if (!hasRole('admin')) fail('Only the owner (admin) can use the owner\'s account'); api._owner(); D.owner = D.owner.filter(x => x.id !== id); save(); return wait(null); },
 
     async listPayments() {
@@ -2901,7 +2941,7 @@ window.makeDemoApi = function () {
       if (!allow('reports.view')) fail('You are not allowed to see reports');
       const inR = d => d >= from && d <= to, profit = allow('purchases.manage'), today = localDay(new Date().toISOString());
       const returned = new Set(D.orders.filter(o => o.status === 'returned').map(o => o.id));
-      const ok = D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at)) && !returned.has(p.order_id));
+      const ok = D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at)));
       const grp = (list, key) => { const m = {}; list.forEach(p => { const k = key(p); m[k] = m[k] || { amount: 0, count: 0 }; m[k].amount += p.amount_usd; m[k].count++; }); return m; };
       const byDay = grp(ok, p => localDay(p.received_at)), byM = grp(ok, p => p.method), byS = grp(ok, p => (user(p.received_by) || {}).full_name || '—');
       const months = []; for (let d = new Date(from.slice(0, 7) + '-01T00:00:00'); d <= new Date(to + 'T00:00:00') && months.length < 36; d.setMonth(d.getMonth() + 1)) months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
@@ -2921,7 +2961,7 @@ window.makeDemoApi = function () {
             office: profit ? (api._office(), sum(D.office.filter(e => e.spent_on.slice(0, 7) === m), e => e.amount_usd)) : null,
             salaries: profit ? (api._pay(), sum(D.payLines.filter(l => l.month.slice(0, 7) === m), l => +l.gross)) : null,
             payroll_saved: profit ? D.payLines.some(l => l.month.slice(0, 7) === m) : null,
-            collected: sum(D.payments.filter(p => p.status === 'confirmed' && localDay(p.received_at).slice(0, 7) === m), p => p.amount_usd),
+            collected: sum(D.payments.filter(p => p.status !== 'rejected' && localDay(p.received_at).slice(0, 7) === m), p => p.amount_usd),
             refunded: sum(D.orders.filter(o => o.status === 'returned' && o.returned_at && localDay(o.returned_at).slice(0, 7) === m), o => o.refunded_amount || 0) }; }),
         aging: { d0_7: sum(open.filter(x => x.age <= 7), x => x.owed), d8_30: sum(open.filter(x => x.age >= 8 && x.age <= 30), x => x.owed), d31_60: sum(open.filter(x => x.age >= 31 && x.age <= 60), x => x.owed),
           d61: sum(open.filter(x => x.age > 60), x => x.owed), shops: new Set(open.map(x => x.c)).size, total: sum(open, x => x.owed) },
@@ -4486,7 +4526,7 @@ Object.assign(window.KT_KM, {
   route(/^\/dashboard$/, async (_, __, current) => {
     if (!K.allow('dashboard.view')) return go('#/home');
     const main = page({ title: 'Dashboard', sub: 'Today · all branches', back: '#/more' });
-    const [d, team] = await Promise.all([api.dashboard(), api.teamSales(K.monthKey())]); d.team = team;
+    const [d, team, cash] = await Promise.all([api.dashboard(), api.teamSales(K.monthKey()), S.me.role === 'admin' && api.dashboardCash ? api.dashboardCash().catch(() => null) : null]); d.team = team;
     if (!current()) return;
     const tile = (v, l, color, href) => `<a class="stat" href="${href || '#/dashboard'}" style="text-decoration:none;color:inherit"><b style="${color ? 'color:' + color : ''}">${v}</b><span>${l}</span></a>`;
     const max = Math.max(1, ...d.last7.map(x => +x.total));
@@ -4494,7 +4534,8 @@ Object.assign(window.KT_KM, {
       <div class="stats">${tile(money(d.sales_today), 'Sales today', null, '#/orders?p=today')}${tile(d.orders_today, 'Orders today', null, '#/orders?p=today')}
         ${tile(d.pending_orders, 'Waiting approval', d.pending_orders ? 'var(--or)' : null, '#/orders?f=pending')}${tile(money(d.owed_total), 'Still owed by shops', d.owed_total ? 'var(--rd)' : null, '#/payments')}
         ${tile(money(d.collected_today || 0), 'Collected today', d.collected_today ? 'var(--gr)' : null, '#/payments?t=history')}${tile(d.payments_pending || 0, 'Payments to check', d.payments_pending ? 'var(--or)' : null, '#/payments?t=check')}
-        ${tile(d.visits_today, 'Shop visits today', null, '#/visits')}${tile(d.low_stock, 'Low stock items', d.low_stock ? 'var(--or)' : null, '#/stock?low=1')}</div>
+        ${tile(d.visits_today, 'Shop visits today', null, '#/visits')}${tile(d.low_stock, 'Low stock items', d.low_stock ? 'var(--or)' : null, '#/stock?low=1')}
+        ${cash ? tile(money(+cash.staff_spent + +cash.office), 'Expenses this month (staff + office)', null, '#/expenses') + K.cashBoxes(cash, tile) : ''}</div>
       <div class="card"><div class="row"><b class="grow">Sales, last 7 days</b></div>
         <div style="display:flex;align-items:flex-end;gap:10px;height:150px;border-bottom:1px solid var(--line)">${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="${money(x.total)}"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:34px;height:${Math.max(2, (+x.total / max) * 120)}px;border-radius:6px 6px 0 0;background:${i === 6 ? 'var(--p)' : 'var(--bar)'}"></div></div>`).join('')}</div>
         <div style="display:flex;gap:10px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div></div>
@@ -4502,6 +4543,7 @@ Object.assign(window.KT_KM, {
       <div class="card"><b>Top sales staff (30 days)</b>${d.top_staff.length ? d.top_staff.map(t => `<div class="row">${avatar(t.name, 'sm')}<div class="grow tt" style="font-size:14px">${esc(t.name)}</div><b>${money(t.total)}</b></div>`).join('') : '<div class="muted small">No sales yet</div>'}</div>
       <a class="card" href="#/staff" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('users', 20)}</div><div class="grow"><div class="tt">${d.staff_active} active staff</div><div class="st">${d.staff_pending ? d.staff_pending + ' waiting for approval' : 'No one waiting'}</div></div>${icon('right', 18)}</div></a></div>`;
     $('#tg').onclick = () => K.targetsSheet(() => K.render());
+    if ($('#cashbox') && cash) $('#cashbox').onclick = () => K.cashSheet(cash, () => K.render());
   });
 })();
 
@@ -5492,6 +5534,9 @@ Object.assign(window.KT_KM, {
   // save it as already approved or paid back, and check other people's expenses.
   K.expenseSheet = async function (e, onSaved) {
     e = e || {};
+    // always start from the newest copy in the database (a list on screen may be a little old)
+    if (e.id && K.api.getExpense) { try { const f = await K.api.getExpense(e.id); if (f === null) { K.toast('This expense was deleted'); onSaved && onSaved(); return; } if (f) e = Object.assign({}, e, f); } catch (err) {} }
+    const orig = { spent_on: e.spent_on, category: e.category, amount: e.amount, currency: e.currency, note: e.note || '', staff_id: e.staff_id };
     const me = K.S.me, rec = K.allow('expenses.record_others'), appr = K.allow('expenses.approve'), boss = rec;
     const editable = !e.id || rec || appr || (e.status === 'pending' && e.staff_id === me.id);
     let cat = e.category || (Object.entries(K.EXP_CATS).find(([, c]) => !c[4]) || ['other'])[0], cur = e.currency || 'USD', photo = null, forStaff = e.staff_id || me.id, newStatus = 'approved';
@@ -5534,6 +5579,15 @@ Object.assign(window.KT_KM, {
       if (!(amount > 0)) return K.toast('Enter the amount');
       const row = { id: e.id, spent_on: K.$('#dt', s.el).value || today(), category: cat, amount, currency: cur, note: K.$('#nt', s.el).value.trim(), photo, receipt_url: e.receipt_url };
       if (boss) { row.staff_id = forStaff; if (!e.id) row.status = newStatus; }
+      if (e.id) {   // only what was changed is saved
+        row.changed = [];
+        if (row.spent_on !== orig.spent_on) row.changed.push('spent_on');
+        if (row.category !== orig.category) row.changed.push('category');
+        if (+row.amount !== +orig.amount || row.currency !== orig.currency) row.changed.push('amount', 'currency');
+        if ((row.note || '') !== (orig.note || '')) row.changed.push('note');
+        if (boss && row.staff_id !== orig.staff_id) row.changed.push('staff_id');
+        if (!row.changed.length && !photo) { s.close(); K.toast('No changes'); return; }
+      }
       const saved = await K.busy(ev.currentTarget, () => K.api.saveExpense(row));
       if (saved && saved.queued) { s.close(); K.savedOffline(); onSaved && onSaved(); return; }
       s.close(); K.toast(boss && forStaff !== me.id ? 'Saved for ' + who(forStaff) : 'Expense saved'); onSaved && onSaved();
@@ -5714,7 +5768,7 @@ Object.assign(window.KT_KM, {
     if (!K.canOffice()) return go(K.adm && !K.adm.phone ? '#/expenses' : '#/more');
     const A = K.adm, admin = A && !A.phone;
     const acts = `${K.S.me.role === 'admin' ? `<button class="btn sm out" id="otypes">${icon('pen', 18)}<span class="hide-sm">Types</span></button>` : ''}<button class="btn sm out" id="obills">${icon('clock', 18)}<span class="hide-sm">Monthly bills</span></button>${admin ? `<button class="btn sm out" id="ocsv">${icon('list', 18)}<span class="hide-sm">Download</span> CSV</button>` : ''}<button class="btn sm" id="onew">${icon('plus', 18)}<span class="hide-sm">Office expense</span></button>`;
-    const main = admin ? A.shell('expenses', 'Expense Management', acts, 'Office expenses · company costs')
+    const main = admin ? A.shell('expenses', 'Expense Management', acts)
       : K.page({ title: 'Office expenses', sub: 'Rent, bills and other company costs', back: '#/more', right: `<button class="ib" id="onew" aria-label="New office expense">${icon('plus')}</button>` });
     const reload = () => K.render();
     const [list, due] = await Promise.all([api.listOfficeExpenses(), api.officeDue().catch(() => [])]);
@@ -5793,6 +5847,50 @@ Object.assign(window.KT_KM, {
       await api.ownerDelete(x.id); s.close(); toast('Deleted'); onDone && onDone(); };
   };
 
+  // ---------- Dashboard boxes (admin): cash & bank now + owner's account ----------
+  // Cash & bank now = starting money + all money in − all money out since the start day (cash basis).
+  K.cashBoxes = (c, kpi) => {
+    const owes = +c.owner_owes;
+    const cashBox = c.opening_set
+      ? `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b><span>Cash & bank now ›</span></button>`
+      : `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit;border-style:dashed"><b style="color:var(--p)">Set up</b><span>Cash & bank: enter your starting money ›</span></button>`;
+    return kpi(owes > 0.004 ? money(owes) : '$0.00', owes > 0.004 ? 'Owner owes the company · took ' + money(c.owner_took) + ' this month' : 'Owner\'s account · all paid back', owes > 0.004 ? 'var(--rd)' : 'var(--gr)', '#/owner');
+  };
+  const dLong = d => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const movesHtml = m => {
+    const ln = (l, v, sign, href) => `<div class="row small" style="padding:3px 0"><span class="grow">${href ? `<a href="${href}">${l}</a>` : l}</span><b style="color:${sign === '+' && +v ? 'var(--gr)' : sign === '-' && +v ? 'var(--rd)' : 'inherit'}">${+v ? (sign === '-' ? '−' : '+') : ''}${money(Math.abs(+v))}</b></div>`;
+    return `<div class="small muted" style="font-weight:700;margin-top:4px">Money in</div>
+      ${ln('Payments from shops (confirmed)', m.collected, '+', '#/payments?t=all')}${+m.owner_back ? ln('Owner put money back', m.owner_back, '+', '#/owner') : ''}${+m.supplier_refunds ? ln('Money back from suppliers', m.supplier_refunds, '+', '#/purchases') : ''}
+      <div class="small muted" style="font-weight:700;margin-top:6px">Money out</div>
+      ${ln('Paid to suppliers', m.suppliers_paid, '-', '#/purchases')}${ln('Salaries paid', m.salaries_paid, '-', '#/hr?t=payroll')}${ln('Salary advances given', m.advances, '-', '#/hr?t=payroll')}
+      ${ln('Staff expenses paid back', m.staff_paid, '-', '#/expenses')}${ln('Office expenses', m.office, '-', '#/office')}${ln('Owner took', m.owner_took, '-', '#/owner')}${+m.shop_refunds ? ln('Refunded to shops (returned orders)', m.shop_refunds, '-', '#/orders') : ''}`;
+  };
+  K.cashOpeningSheet = (c, onDone) => {
+    const s = K.sheet('Starting money', `<div class="small muted" style="line-height:1.5">Choose a day and write how much money the business had at the <b>start of that day</b>: count the cash in the box and look at the ABA / bank balance. From that day the app adds every payment in and takes away every payment out, so the number stays right. Only you can see this.</div>
+      <label class="f">Start day<input class="inp" id="cod" type="date" value="${esc(c.opening_day || c.month_from)}" max="${esc(c.today)}"></label>
+      <div class="btns"><label class="f">Cash in the box ($)<input class="inp" id="coc" type="number" step="0.01" inputmode="decimal" value="${c.opening_set ? +c.opening_cash : ''}" placeholder="0"></label>
+        <label class="f">ABA / bank ($)<input class="inp" id="cob" type="number" step="0.01" inputmode="decimal" value="${c.opening_set ? +c.opening_bank : ''}" placeholder="0"></label></div>
+      <div class="small muted">Write dollars. For riel, divide by your riel rate (for example 410,000 ៛ ÷ 4,100 = $100). Write 0 if none.</div>
+      <button class="btn block" id="cook">Save starting money</button>`);
+    K.$('#cook', s.el).onclick = async e => { const d = K.$('#cod', s.el).value, ca = K.$('#coc', s.el).value.trim(), ba = K.$('#cob', s.el).value.trim();
+      if (!d) return toast('Choose the start day'); if (ca === '' || ba === '') return toast('Write both amounts (0 if none)');
+      await busy(e.currentTarget, () => api.cashOpeningSave(d, +ca, +ba)); s.close(); toast('Starting money saved'); onDone && onDone(); };
+  };
+  K.cashSheet = (c, onDone) => {
+    if (!c.opening_set) return K.cashOpeningSheet(c, onDone);
+    const s = K.sheet('Cash & bank now', `<div class="small muted">Cash + ABA + bank together · counted from ${esc(dLong(c.opening_day))} to today</div>
+      <div class="card" style="gap:2px">
+        <div class="row small" style="padding:3px 0"><span class="grow">Starting money on ${esc(dLong(c.opening_day))} <span class="muted">(cash ${money(c.opening_cash)} · bank ${money(c.opening_bank)})</span></span><b>${money(+c.opening_cash + +c.opening_bank)}</b></div>
+        ${movesHtml(c.since)}
+        <div class="row" style="border-top:1px solid var(--line);padding-top:8px;margin-top:4px;font-size:17px"><b class="grow">Cash & bank now</b><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b></div></div>
+      ${+c.since.waiting ? `<div class="card" style="background:var(--ors)"><div class="small"><b>${money(c.since.waiting)}</b> collected by staff is still <b>waiting for a manager to check</b>. It is added when it is confirmed.</div></div>` : ''}
+      <div class="card" style="gap:2px"><b style="font-size:14px">This month only (${esc(dLong(c.month_from))} – today)</b>${movesHtml(c.month)}
+        <div class="row small" style="border-top:1px solid var(--line);padding-top:6px;margin-top:4px"><b class="grow">Money in − money out this month</b><b style="color:${+c.month_net < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.month_net)}</b></div></div>
+      <div class="small muted" style="line-height:1.5">Only real money movements are counted (cash basis): payments from shops when confirmed, staff expenses when paid back, salaries when paid. Sales not paid yet and money owed to suppliers are not cash, so they are not here. If this does not match your real cash box + ABA, a payment may be missing in the app, or check the starting money.</div>
+      <button class="btn out block" id="cochg">Change starting money</button>`);
+    K.$('#cochg', s.el).onclick = () => { s.close(); K.cashOpeningSheet(c, onDone); };
+  };
+
   route(/^\/owner$/, async (_, q, current) => {
     if (!isOwner()) return go('#/home');
     const A = K.adm, admin = A && !A.phone;
@@ -5869,6 +5967,7 @@ Object.assign(window.KT_KM, {
   const ago = n => dstr(new Date(Date.now() - n * 86400000));
   const P = {
     LIST: [['today', 'Today'], ['week', 'Last 7 days'], ['month', 'This month'], ['last', 'Last month'], ['custom', 'Custom']],
+    DASH: [['today', 'Today'], ['wk', 'This week'], ['month', 'This month'], ['custom', 'Custom']],
     QUICK: [['y', 'Yesterday'], ['d30', 'Last 30 days'], ['d90', 'Last 90 days'], ['yr', 'This year']],
     dstr, today,
     // [from, to] as YYYY-MM-DD, both days included
@@ -5876,6 +5975,7 @@ Object.assign(window.KT_KM, {
       const t = today(), n = new Date();
       if (p === 'today') return [t, t];
       if (p === 'week') return [ago(6), t];
+      if (p === 'wk') { const d = new Date(); const back = (d.getDay() + 6) % 7; return [ago(back), t]; }   // this week: Monday to today
       if (p === 'month') return [t.slice(0, 8) + '01', t];
       if (p === 'last') return [dstr(new Date(n.getFullYear(), n.getMonth() - 1, 1)), dstr(new Date(n.getFullYear(), n.getMonth(), 0))];
       return [from || ago(29), to || t];
@@ -5885,9 +5985,9 @@ Object.assign(window.KT_KM, {
     fresh: p => { const st = { p: p || 'month', from: '', to: today() }; st.from = P.range('custom')[0]; return st; },
     has: (o, p, from, to) => { const [a, b] = P.range(p, from, to), d = dstr(o.created_at); return d >= a && d <= b; },
     // chips + (for Custom) From/To boxes and quick buttons
-    html(p, from, to) {
+    html(p, from, to, list) {
       const t = today();
-      return `<div class="pchips">${P.LIST.map(([k, l]) => `<button class="chip ${k === p ? 'on' : ''}" data-per="${k}">${k === 'custom' ? K.icon('clock', 15) + ' ' : ''}${l}</button>`).join('')}</div>
+      return `<div class="pchips">${(list || P.LIST).map(([k, l]) => `<button class="chip ${k === p ? 'on' : ''}" data-per="${k}">${k === 'custom' ? K.icon('clock', 15) + ' ' : ''}${l}</button>`).join('')}</div>
         ${p === 'custom' ? `<div class="card pcustom"><div class="btns"><label class="f">From<input class="inp" type="date" data-pf value="${from}" max="${t}"></label><label class="f">To<input class="inp" type="date" data-pt value="${to}" max="${t}"></label></div>
           <div class="row" style="gap:6px;flex-wrap:wrap">${P.QUICK.map(([k, l]) => `<button class="chip" data-pq="${k}" style="height:32px">${l}</button>`).join('')}</div></div>` : ''}`;
     },
