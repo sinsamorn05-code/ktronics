@@ -1133,8 +1133,7 @@ window.KT_PERMS = [
     ['orders.deliver', 'Mark orders delivered'],
     ['orders.paid', 'Mark orders paid'],
     ['orders.cancel', 'Cancel approved orders', 'Goods go back into stock'],
-    ['orders.edit_any', 'Edit or delete other people\'s waiting orders'],
-    ['orders.catalog', 'Order from the product list (no stock shown)', 'For sales reps who sell from the main stock: all products and prices, no quantities. Only products switched On. Goods come from the main warehouse after approval.']] },
+    ['orders.edit_any', 'Edit or delete other people\'s waiting orders']] },
   { group: 'Payments / debt', items: [
     ['payments.collect', 'Staff can collect payments from shops', 'Off by default. Waits for confirmation'],
     ['payments.confirm', 'Confirm payments', 'Also: their own payments count straight away']] },
@@ -1146,7 +1145,10 @@ window.KT_PERMS = [
     ['customers.delete', 'Delete shops']] },
   { group: 'Stock', items: [
     ['stock.manage', 'Stock in/out, products and prices'],
-    ['stock.view_main', 'See the main warehouse stock and sell from it', 'Without this, a sales rep sees and sells only their own stock (the goods they carry)']] },
+    ['stock.view_main', 'See the main warehouse stock and sell from it', 'Without this, a sales rep sees and sells only their own stock (the goods they carry)'],
+    ['stock.move', 'Move stock between stocks', 'Give goods to reps, take them back, move between warehouses (people with "Stock in/out" can too)'],
+    ['stock.warehouses', 'Create, rename and delete stocks (warehouses)'],
+    ['stock.access', 'Choose which staff can order from which stock', 'Sensitive: decides who sells from which goods']] },
   { group: 'Suppliers & purchases', items: [
     ['purchases.manage', 'Suppliers, purchases and paying suppliers', 'Also sees cost prices and profit'],
     ['purchases.receive', 'Receive goods from suppliers', 'Adds the goods into stock']] },
@@ -1225,6 +1227,7 @@ window.makeSupabaseApi = function (cfg) {
   async function loadProfile(userId) {
     me = await q(sb.from('profiles').select('*').eq('id', userId).maybeSingle());
     if (me) me.perms = me.active ? await q(sb.rpc('my_permissions')) : [];
+    if (me && me.active) { try { me.access = ((await q(sb.from('stock_access').select('warehouse_id').eq('user_id', userId))) || []).map(a => a.warehouse_id); } catch (e) { me.access = []; } }
     if (me && me.active) { try { me.heads = ((await q(sb.from('departments').select('id').eq('head_id', userId))) || []).map(d => d.id); } catch (e) { me.heads = []; } }
     return me;
   }
@@ -1302,7 +1305,12 @@ window.makeSupabaseApi = function (cfg) {
     updateStaff: (id, role, active, fullName, phone) => q(sb.rpc('admin_update_staff', { p_id: id, p_role: role, p_active: active, p_full_name: fullName || null, p_phone: phone === undefined ? null : (phone || '') })),
 
     // stock
-    listWarehouses: () => q(sb.from('warehouses').select('*').order('id')),
+    listStockAccess: () => q(sb.from('stock_access').select('user_id, warehouse_id')),
+    setStockAccess: (uid, ids) => q(sb.rpc('set_stock_access', { p_user: uid, p_whs: ids || [] })),
+    setStockUsers: (wid, uids) => q(sb.rpc('set_stock_users', { p_wh: wid, p_users: uids || [] })),
+    saveWarehouse: (id, name) => q(sb.rpc('save_warehouse', { p_id: id || null, p_name: name })),
+    deleteWarehouse: id => q(sb.rpc('delete_warehouse', { p_id: id })),
+    listWarehouses: () => q(sb.from('warehouses').select('*, rep:profiles!warehouses_rep_id_fkey(full_name, active, role)').order('id')),
     deleteProduct: id => q(sb.rpc('delete_product', { p_id: id })),
     async listProducts() {
       const [products, stock] = await Promise.all([
@@ -1948,6 +1956,13 @@ window.makeDemoApi = function () {
   try { D = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { D = null; }
   if (!D) D = seed();
 
+  // 14 Oct: "Sales rep (main stock)" becomes Sales with the main warehouse ticked
+  if (D && D.users && D.users.some(u => u.role === 'agent')) {
+    const mainId = Math.min(...D.warehouses.filter(w => !w.rep_id).map(w => w.id)); D.stockAccess = D.stockAccess || [];
+    D.users.filter(u => u.role === 'agent').forEach(u => { u.role = 'sales'; if (u.full_name.includes('(main-stock rep)')) u.full_name = u.full_name.replace('(main-stock rep)', '(sales, main stock)');
+      if (!D.stockAccess.some(a => a.user_id === u.id && a.warehouse_id === mainId)) D.stockAccess.push({ user_id: u.id, warehouse_id: mainId }); ensureRepStock(u); });
+  }
+
   // 14 Oct: Staff Check-in Alerts channel (all staff), office location for the demo, today's check-ins as sample alerts
   if (D && D.convs && !D.convs.some(c => c.slug === 'attendance_alerts')) {
     D.settings = Object.assign({ office_lat: '11.5602', office_lng: '104.9205' }, D.settings || {});
@@ -1969,7 +1984,7 @@ window.makeDemoApi = function () {
   const orderSubs = [];
 
   const user = id => D.users.find(u => u.id === id);
-  const publicUser = u => { ensureDepts(); const x = clone(u); delete x.password; if (me && u.id === me.id) { x.perms = permsOf(); x.heads = headsOf(u.id); } return x; };
+  const publicUser = u => { ensureDepts(); const x = clone(u); delete x.password; if (me && u.id === me.id) { x.perms = permsOf(); x.heads = headsOf(u.id); x.access = (D.stockAccess || []).filter(a => a.user_id === u.id).map(a => a.warehouse_id); } return x; };
   const role = () => (me && me.active ? me.role : null);
   const hasRole = (...r) => r.includes(role());
   const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; } };
@@ -2054,6 +2069,12 @@ window.makeDemoApi = function () {
     const p = D.products.find(x => x.id === pid);
     if (after <= p.min_stock && before > p.min_stock) alert('Low stock: ' + p.name + ' — ' + after + ' left', { product_id: pid }, 'stock');
   }
+
+  // stocks a person may sell from / see (same rule as the database): own stock, ticked stocks, main warehouses for people allowed
+  const hasAccess = (uid, wid) => (D.stockAccess || []).some(a => a.user_id === uid && a.warehouse_id === wid);
+  const canSellWh = w => !!w && !!me && (w.rep_id === me.id || hasAccess(me.id, w.id) || allow('stock.manage') || (!w.rep_id && allow('stock.view_main')));
+  const offCheck = (wh, items) => { if (!wh || allow('stock.manage') || allow('stock.view_main') || wh.rep_id === me.id) return;
+    items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); }); };
   function ensureRepStock(u) {
     if (u.active && u.role === 'sales' && !D.warehouses.some(w => w.rep_id === u.id)) {
       D.warehouses.push({ id: Math.max(...D.warehouses.map(w => w.id)) + 1, name: 'Rep stock · ' + u.full_name, rep_id: u.id });
@@ -2163,7 +2184,7 @@ window.makeDemoApi = function () {
       if (!hasRole('admin')) fail('Only the admin can manage staff');
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
       const u = user(id); const wasActive = u.active; u.role = r; u.active = active;
-      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
+      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; D.warehouses.filter(w => w.rep_id === u.id).forEach(w => { w.name = 'Rep stock · ' + fullName; }); } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
     },
 
     async setProductsOrderable(ids, on) { if (!allow('stock.manage')) fail('You are not allowed to change products'); let n = 0; D.products.forEach(p => { if (ids.includes(p.id)) { p.staff_orderable = !!on; n++; } }); save(); return wait(n); },
@@ -2197,7 +2218,24 @@ window.makeDemoApi = function () {
 
       user(id).supervisor_id = sup || null; save(); return wait(null);
     },
-    async listWarehouses() { return wait(clone(D.warehouses)); },
+    // ---------- stocks and who may order from them ----------
+    async listStockAccess() { return wait(clone((D.stockAccess || []).filter(a => a.user_id === me.id || allow('stock.access') || allow('stock.warehouses') || allow('stock.manage')))); },
+    async setStockAccess(uid, ids) { if (!allow('stock.access')) fail('You are not allowed to choose who orders from which stock');
+      D.stockAccess = (D.stockAccess || []).filter(a => a.user_id !== uid).concat([...new Set(ids)].filter(id => D.warehouses.some(w => w.id === id && w.rep_id !== uid)).map(id => ({ user_id: uid, warehouse_id: id }))); save(); return wait(null); },
+    async setStockUsers(wid, uids) { if (!allow('stock.access')) fail('You are not allowed to choose who orders from which stock'); const w = D.warehouses.find(x => x.id === wid); if (!w) fail('Stock not found');
+      D.stockAccess = (D.stockAccess || []).filter(a => a.warehouse_id !== wid).concat([...new Set(uids)].filter(u => u !== w.rep_id).map(u => ({ user_id: u, warehouse_id: wid }))); save(); return wait(null); },
+    async saveWarehouse(id, name) { if (!allow('stock.warehouses')) fail('You are not allowed to create or change stocks'); const nm = String(name || '').trim();
+      if (nm.length < 2 || nm.length > 60) fail('Give the stock a name (2 to 60 letters)'); if (/^rep stock · /i.test(nm)) fail('This name is kept for sales reps\' own stock. Choose another name.');
+      if (D.warehouses.some(w => w.name.toLowerCase() === nm.toLowerCase() && w.id !== id)) fail('A stock with this name already exists');
+      if (!id) { const w = { id: Math.max(...D.warehouses.map(w => w.id)) + 1, name: nm, rep_id: null }; D.warehouses.push(w); save(); return wait(w.id); }
+      const w = D.warehouses.find(x => x.id === id); if (!w) fail('Stock not found'); if (w.rep_id) fail('A rep\'s own stock is named after the rep. Change the person\'s name instead.'); w.name = nm; save(); return wait(id); },
+    async deleteWarehouse(id) { if (!allow('stock.warehouses')) fail('You are not allowed to create or change stocks');
+      if (id === Math.min(...D.warehouses.filter(w => !w.rep_id).map(w => w.id))) fail('The main warehouse cannot be deleted');
+      const w = D.warehouses.find(x => x.id === id); if (!w) fail('Stock not found'); if (w.rep_id) fail('A rep\'s own stock cannot be deleted. Move the goods back and switch the person off instead.');
+      if (Object.entries(D.stock).some(([k, q]) => k.endsWith(':' + id) && q)) fail('This stock still has goods. Move them to another stock first.');
+      if (D.orders.some(o => o.warehouse_id === id) || D.moves.some(m => m.warehouse_id === id) || (D.purchases || []).some(p => p.warehouse_id === id)) fail('This stock has history (orders or stock moves), so it is kept. You can rename it.');
+      D.warehouses.splice(D.warehouses.indexOf(w), 1); D.stockAccess = (D.stockAccess || []).filter(a => a.warehouse_id !== id); save(); return wait(null); },
+    async listWarehouses() { return wait(clone(D.warehouses).map(w => { const u = w.rep_id && user(w.rep_id); return Object.assign(w, { rep: u ? { full_name: u.full_name, active: u.active, role: u.role } : null }); })); },
     async deleteProduct(id) {
       if (!allow('stock.manage')) fail('You are not allowed to delete products');
       const p = D.products.find(x => x.id === id); if (!p) fail('Product not found');
@@ -2206,7 +2244,7 @@ window.makeDemoApi = function () {
     },
     async listProducts() {
       if (!role()) return [];
-      const vis = w => allow('stock.manage') || allow('stock.view_main') || w.rep_id === me.id;
+      const vis = w => allow('stock.manage') || allow('stock.view_main') || allow('stock.move') || allow('stock.warehouses') || allow('stock.access') || w.rep_id === me.id || hasAccess(me.id, w.id);
       return wait(D.products.filter(p => p.active).sort((a, b) => a.name.localeCompare(b.name)).map(p => {
         const stock = {}; let total = 0; D.warehouses.filter(vis).forEach(w => { const q = qty(p.id, w.id); if (D.stock[p.id + ':' + w.id] !== undefined) stock[w.id] = q; total += q; });
         return Object.assign(clone(p), { stock, total_qty: total });
@@ -2233,7 +2271,7 @@ window.makeDemoApi = function () {
       checkLow(pid, before, after); save(); return wait(after);
     },
     async transferStock(pid, from, to, q) {
-      if (!allow('stock.manage')) fail('You are not allowed to move stock');
+      if (!(allow('stock.manage') || allow('stock.move'))) fail('You are not allowed to move stock');
       if (q <= 0 || from === to) fail('Check the quantity and warehouses');
       if (qty(pid, from) < q) fail('Not enough stock to transfer');
       setQty(pid, from, qty(pid, from) - q); setQty(pid, to, qty(pid, to) + q);
@@ -2435,7 +2473,7 @@ window.makeDemoApi = function () {
       if (ord.status !== 'pending') fail('This order is already approved and cannot be changed');
       if (!(ord.created_by === me.id || allow('orders.edit_any'))) fail('You cannot change this order');
       if (!o.items.length) fail('Add at least one product');
-      { const wh = D.warehouses.find(w => w.id === ord.warehouse_id); if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); }); }
+      offCheck(D.warehouses.find(w => w.id === ord.warehouse_id), o.items);
       D.items = D.items.filter(i => i.order_id !== id);
       let total = 0; o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id), pr = priceFor(p, it); D.items.push({ id: ++D.seq.item, order_id: id, product_id: p.id, qty: it.qty, price: pr, cost: p.cost }); total += pr * it.qty; });
       checkCredit(ord.customer_id, total, id);
@@ -2489,9 +2527,8 @@ window.makeDemoApi = function () {
       if ((D.customers.find(c => c.id === o.customer_id) || {}).status !== 'approved') fail('This shop is waiting for admin approval. You can order after it is approved.');
       if (!o.items || !o.items.length) fail('Add at least one product');
       const wh = D.warehouses.find(w => w.id === o.warehouse_id);
-      if (wh && wh.rep_id && wh.rep_id !== me.id && !allow('stock.manage')) fail('You can only sell from your own stock');
-      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main') || (allow('orders.catalog') && wh.id === Math.min(...D.warehouses.filter(w => !w.rep_id && !w.route_id).map(w => w.id))))) fail('You can only sell from your own stock (the goods you carry)');
-      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); });
+      if (wh && !canSellWh(wh)) fail('You cannot sell from this stock. Ask the admin to give you this stock.');
+      offCheck(wh, o.items);
       let pre = 0; o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p) pre += priceFor(p, it) * it.qty; });
       checkCredit(o.customer_id, pre, null);
       const autoOk = allow('orders.approve');
@@ -3513,7 +3550,7 @@ window.makeDemoApi = function () {
   const provinceOptions = (sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + PROVINCES.map(p => `<option ${p === sel ? 'selected' : ''}>${p}</option>`).join('');
   const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', supervisor: 'Sales supervisor', sales: 'Sales', agent: 'Sales rep (main stock)', accountant: 'Accountant', cashier: 'Cashier', hr: 'HR officer', purchasing: 'Purchasing', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user' };
   const SELLERS = ['sales', 'supervisor', 'agent', 'manager', 'admin'];   // people who can look after shops
-  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
+  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops. Sells from their own stock, plus the stocks you tick below.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
     accountant: 'Money from shops, payments, reports, staff and office expenses, paying suppliers. No payroll.', cashier: 'Receives and confirms payments, sees what shops owe.',
     hr: 'Staff details, attendance, leave, payroll and payslips. No sales money.', purchasing: 'Suppliers, purchase orders and receiving goods.',
     warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
@@ -3612,7 +3649,7 @@ window.makeDemoApi = function () {
   const can = (...roles) => !!S.me && roles.includes(S.me.role);
   const allow = p => !!S.me && S.me.active && (S.me.role === 'admin' || (S.me.perms || []).includes(p));
   // the admin web: the dashboard permission, or office work (HR, purchasing, money, reports)
-  const canAdminWeb = () => ['dashboard.view', 'hr.manage', 'attendance.view', 'purchases.manage', 'purchases.receive', 'payments.confirm', 'expenses.approve', 'expenses.office', 'reports.view'].some(allow) || isDeptHead();
+  const canAdminWeb = () => ['dashboard.view', 'hr.manage', 'attendance.view', 'purchases.manage', 'purchases.receive', 'payments.confirm', 'expenses.approve', 'expenses.office', 'reports.view', 'stock.warehouses', 'stock.access'].some(allow) || isDeptHead();
   const repOptions = (staff, sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + staff.filter(u => u.active && SELLERS.includes(u.role))
     .sort((a, b) => (a.role !== 'sales') - (b.role !== 'sales') || a.full_name.localeCompare(b.full_name))
     .map(u => `<option value="${esc(u.id)}" ${u.id === sel ? 'selected' : ''}>${esc(u.full_name)}${u.role !== 'sales' ? ' (' + ROLE_LABEL[u.role] + ')' : ''}</option>`).join('');
@@ -4109,6 +4146,9 @@ Object.assign(window.KT_KM, { 'Commission seller': 'អ្នកលក់យក�
   'Main-stock reps can order': 'អ្នកលក់ស្តុកធំអាចកុម្ម៉ង់', 'Main-stock reps cannot order': 'អ្នកលក់ស្តុកធំមិនអាចកុម្ម៉ង់', 'Main-stock reps will be able to order these products.': 'អ្នកលក់ស្តុកធំនឹងអាចកុម្ម៉ង់ទំនិញទាំងនេះ។', 'Switch all shown On': 'បើកទាំងអស់ដែលបង្ហាញ', 'Switch all shown Off': 'បិទទាំងអស់ដែលបង្ហាញ' });
 // staff check-in alerts (14 Oct)
 Object.assign(window.KT_KM, { 'Staff Check-in Alerts': 'ការជូនដំណឹងចូល/ចេញធ្វើការ', 'Staff check-in': 'ការចូលធ្វើការ', 'Started work, late, finished work': 'ចូលធ្វើការ មកយឺត ចេញពីការងារ', 'Office location': 'ទីតាំងការិយាល័យ', 'Save office location': 'រក្សាទុកទីតាំងការិយាល័យ', 'Latitude': 'រយៈទទឹង', 'Longitude': 'រយៈបណ្តោយ', 'Use my location now (stand in the office)': 'ប្រើទីតាំងខ្ញុំឥឡូវ (ឈរក្នុងការិយាល័យ)', 'Check on the map ›': 'មើលលើផែនទី ›' });
+// stocks and who may order (14 Oct)
+Object.assign(window.KT_KM, { 'Stocks': 'ស្តុក', 'New stock': 'ស្តុកថ្មី', 'Move stock': 'ផ្ទេរស្តុក', 'Who can order': 'អ្នកដែលអាចកុម្ម៉ង់', 'Can order from these stocks': 'អាចកុម្ម៉ង់ពីស្តុកទាំងនេះ', 'Their own stock': 'ស្តុកផ្ទាល់ខ្លួន', 'Reps can order': 'អ្នកលក់អាចកុម្ម៉ង់', 'Reps cannot order': 'អ្នកលក់មិនអាចកុម្ម៉ង់', 'Sales (main stock)': 'អ្នកលក់ (ស្តុកធំ)', 'Move stock (to a rep, back, or between stocks)': 'ផ្ទេរស្តុក (ទៅអ្នកលក់ ត្រឡប់មកវិញ ឬរវាងស្តុក)', 'Add stock': 'បន្ថែមស្តុក', 'Stock name': 'ឈ្មោះស្តុក', 'Rename stock': 'ប្តូរឈ្មោះស្តុក' });
+Object.assign(window.KT_KM, { 'Move stock between stocks': 'ផ្ទេរស្តុករវាងស្តុក', 'Create, rename and delete stocks (warehouses)': 'បង្កើត ប្តូរឈ្មោះ និងលុបស្តុក (ឃ្លាំង)', 'Choose which staff can order from which stock': 'ជ្រើសបុគ្គលិកដែលអាចកុម្ម៉ង់ពីស្តុកណា' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -5020,8 +5060,9 @@ Object.assign(window.KT_KM, { 'Staff Check-in Alerts': 'ការជូនដំ
     const P = id => products.find(p => p.id === id) || { name: '?', sku: '', price: 0, stock: {}, min_stock: 0 };
     lines.forEach(l => { if (l.price == null || l.price === '') l.price = P(l.pid).price; });
     const inOrder = id => lines.filter(l => l.pid === id).reduce((a, l) => a + l.qty, 0);
-    const cat = () => K.isCatalogWh && K.isCatalogWh(wh()), blocked = p => cat() && p.staff_orderable === false;
+    const cat = () => K.isCatalogWh && K.isCatalogWh(wh()), shared = () => K.isSharedWh && K.isSharedWh(wh()), blocked = p => (cat() || shared()) && p.staff_orderable === false;
     const stockTxt = p => { if (cat()) return blocked(p) ? '<span style="color:var(--rd);font-weight:700">Not available to order</span>' : '<span style="color:var(--gr);font-weight:700">Can order</span>';
+      if (blocked(p)) return '<span style="color:var(--rd);font-weight:700">Not available to order</span>';
       const have = (p.stock || {})[wh()] || 0, want = inOrder(p.id);
       return `<span style="color:${have <= 0 || want > have ? 'var(--rd)' : have <= p.min_stock ? 'var(--or)' : 'var(--gr)'};font-weight:700">${have <= 0 ? 'Out of stock' : have + ' in stock'}</span>`; };
     const lineHtml = (l, i) => { const p = P(l.pid), twice = lines.filter(x => x.pid === l.pid).length > 1, changed = r2(+l.price) !== r2(+p.price);
@@ -5211,14 +5252,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.payAmount = p => p.currency === 'KHR' ? `${K.riel(p.amount)} <span class="muted small">≈ ${money(p.amount_usd)}</span>` : money(p.amount);
 
   // warehouses: a sales rep's own stock is called "My stock"
-  K.whLabel = w => w.rep_id ? (K.S.me && w.rep_id === K.S.me.id ? 'My stock' : 'Rep: ' + (w.name.split(' · ')[1] || w.name)) : w.name.split(' · ')[0];
-  // which stock a person may see and sell from: their own rep stock, plus the main warehouse(s) if allowed
+  // a rep's own stock stops being offered when the person left or no longer keeps stock (e.g. moved to an office job);
+  // it still shows on the stock pages (marked) so the goods can be moved back to the main warehouse
+  K.oldRepWh = w => !!(w && w.rep_id && w.rep && (w.rep.active === false || !['sales', 'supervisor', 'manager', 'admin'].includes(w.rep.role)));
+  K.repWhName = w => (w.rep && w.rep.full_name) || w.name.split(' · ')[1] || w.name;   // the person's name now
+  K.whLabel = w => w.rep_id ? (K.S.me && w.rep_id === K.S.me.id ? 'My stock' : 'Rep: ' + K.repWhName(w) + (K.oldRepWh(w) ? (w.rep.active === false ? ' (left)' : ' (no own stock now)') : '')) : w.name.split(' · ')[0];
+  // which stock a person may see and sell from (same rule as the database, 14 Oct):
+  // their own rep stock + stocks the admin ticked for them + the main warehouses for people allowed to sell from them
   K.seesMain = () => K.allow('stock.manage') || K.allow('stock.view_main');
-  K.catalogMode = () => !K.seesMain() && K.allow('orders.catalog');   // commission seller: product list, no stock shown
+  K.catalogMode = () => !K.seesMain() && K.allow('orders.catalog');   // old role (no longer used): product list without quantities
   K.isCatalogWh = id => K.catalogMode() && (K.S.cache.warehouses || []).some(w => w.id === id && !w.rep_id);
-  K.catalogWh = list => (list || []).filter(w => !w.rep_id && !w.route_id).sort((a, b) => a.id - b.id)[0];   // the main warehouse
-  K.sellFrom = list => { if (K.allow('stock.manage')) return list; const cw = K.catalogMode() && K.catalogWh(list);
-    return list.filter(w => (w.rep_id && w.rep_id === K.S.me.id) || (!w.rep_id && K.seesMain()) || (cw && w.id === cw.id)); };
+  K.catalogWh = list => (list || []).filter(w => !w.rep_id).sort((a, b) => a.id - b.id)[0];   // the main warehouse
+  K.myAccess = () => (K.S.me && K.S.me.access) || [];
+  K.isSharedWh = id => !K.seesMain() && (K.S.cache.warehouses || []).some(w => w.id === id && w.rep_id !== (K.S.me || {}).id);   // switched-off products cannot come from here
+  // shop (optional): office staff making an order see only the main warehouses + the stock of that shop's rep (+ their own)
+  K.sellFrom = (list, shop) => { list = (list || []).filter(w => !K.oldRepWh(w)); const me = K.S.me || {}, acc = K.myAccess();
+    if (K.allow('stock.manage')) return shop === undefined ? list : list.filter(w => !w.rep_id || w.rep_id === me.id || (shop && w.rep_id === shop.assigned_to) || acc.includes(w.id));
+    const cw = K.catalogMode() && K.catalogWh(list);
+    return list.filter(w => (w.rep_id && w.rep_id === me.id) || acc.includes(w.id) || (!w.rep_id && K.seesMain()) || (cw && w.id === cw.id)); };
+  // which stock to pick first: office → the main warehouse; a rep → their own stock if it has goods, else the first stock with goods
+  K.firstWh = (whs, products) => { const me = K.S.me || {}, has = w => (products || []).some(p => ((p.stock || {})[w.id] || 0) > 0);
+    if (K.allow('stock.manage')) return whs.find(w => !w.rep_id) || whs[0];
+    return whs.find(w => w.rep_id === me.id && has(w)) || whs.find(has) || whs.find(w => w.rep_id === me.id) || whs[0]; };
   K.myRepWh = list => list.find(w => w.rep_id && K.S.me && w.rep_id === K.S.me.id);
 
   K.paymentRow = (p, opts = {}) => {
@@ -5284,33 +5339,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Load goods onto a sales rep's motorbike (or bring them back) — many products at once
   K.loadRepSheet = async function (onDone) {
     const [products, warehouses] = await Promise.all([K.data.products(true), K.data.warehouses(true)]);
-    const reps = warehouses.filter(w => w.rep_id), mains = warehouses.filter(w => !w.rep_id);
-    if (!reps.length) return K.toast('No sales rep stock yet. Make a staff member "Sales" first.');
-    let dir = 'out', rep = reps[0].id, main = mains[0].id; const lines = {};
-    const s = K.sheet('Rep stock', `
-      <div class="seg">${[['out', 'Give to rep'], ['back', 'Rep brings back']].map(([k, l]) => `<button data-d="${k}" class="${k === dir ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div class="btns"><label class="f">Sales rep<select class="inp" id="rp">${reps.map(w => `<option value="${w.id}">${esc(w.name.split(' · ')[1] || w.name)}</option>`).join('')}</select></label>
-        <label class="f">Warehouse<select class="inp" id="mw">${mains.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></label></div>
+    // move goods between any two stocks: Main warehouse, extra stocks, a rep's own stock (also an old rep's, to bring goods back)
+    const mains = warehouses.filter(w => !w.rep_id), all = mains.concat(warehouses.filter(w => w.rep_id));
+    if (all.length < 2) return K.toast('Add a second stock first (Inventory → Stocks → New stock) or a Sales staff member.');
+    let fromId = mains[0].id, toId = (all.find(w => w.id !== fromId) || {}).id; const lines = {};
+    const opt = sel => all.map(w => `<option value="${w.id}" ${w.id === sel ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('');
+    const s = K.sheet('Move stock', `
+      <div class="btns"><label class="f">From<select class="inp" id="mw">${opt(fromId)}</select></label>
+        <label class="f">To<select class="inp" id="rp">${opt(toId)}</select></label></div>
       <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product" aria-label="Search product"></div>
       <div class="card flush" id="pl" style="max-height:340px;overflow:auto"></div>
       <div class="small muted" id="sum"></div>
       <button class="btn block" id="ok">${icon('swap', 20)} Move stock</button>`);
-    const from = () => dir === 'out' ? main : rep, to = () => dir === 'out' ? rep : main;
+    const from = () => fromId, to = () => toId, short = id => K.whLabel(all.find(w => w.id === id) || {});
     const draw = () => {
       const t = K.$('#q', s.el).value.toLowerCase();
       K.$('#pl', s.el).innerHTML = products.filter(p => !t || p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)).map(p => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(p.name)}</div>
-        <div class="st">Warehouse ${p.stock[main] || 0} · Rep ${p.stock[rep] || 0}</div></div><input class="inp" data-q="${p.id}" type="number" inputmode="numeric" min="0" placeholder="0" value="${lines[p.id] || ''}" style="width:80px;text-align:center" aria-label="Quantity ${esc(p.name)}"></div>`).join('');
+        <div class="st">${esc(short(fromId))} ${p.stock[fromId] || 0} · ${esc(short(toId))} ${p.stock[toId] || 0}</div></div><input class="inp" data-q="${p.id}" type="number" inputmode="numeric" min="0" placeholder="0" value="${lines[p.id] || ''}" style="width:80px;text-align:center" aria-label="Quantity ${esc(p.name)}"></div>`).join('');
       K.$$('[data-q]', s.el).forEach(i => i.oninput = () => { const v = Math.max(0, Math.floor(+i.value || 0)); if (v) lines[i.dataset.q] = v; else delete lines[i.dataset.q]; sum(); });
       sum();
     };
     const sum = () => { const n = Object.values(lines).reduce((a, b) => a + b, 0); K.$('#sum', s.el).textContent = n ? Object.keys(lines).length + ' products · ' + n + ' pcs' : 'Type how many of each product'; };
-    K.$$('[data-d]', s.el).forEach(b => b.onclick = () => { dir = b.dataset.d; K.$$('[data-d]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
-    K.$('#rp', s.el).onchange = e => { rep = +e.target.value; draw(); };
-    K.$('#mw', s.el).onchange = e => { main = +e.target.value; draw(); };
+    K.$('#rp', s.el).onchange = e => { toId = +e.target.value; draw(); };
+    K.$('#mw', s.el).onchange = e => { fromId = +e.target.value; draw(); };
     K.$('#q', s.el).oninput = draw;
     draw();
     K.$('#ok', s.el).onclick = async ev => {
       const ids = Object.keys(lines); if (!ids.length) return K.toast('Type a quantity first');
+      if (fromId === toId) return K.toast('Choose two different stocks');
       const bad = ids.find(id => (products.find(p => p.id === +id).stock[from()] || 0) < lines[id]);
       if (bad) return K.toast('Not enough ' + products.find(p => p.id === +bad).name + ' to move');
       await K.busy(ev.currentTarget, async () => { for (const id of ids) await K.api.transferStock(+id, from(), to(), lines[id]); });
@@ -5942,7 +5998,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['customers', 'store', 'CRM / Customers'], ['purchases', 'truck', 'Purchasing'], ['hr', 'users', 'HR & Payroll'],
     ['expenses', 'receipt', 'Expense Management'], ['announce', 'mega', 'Announcements'],
     ['chats', 'chat', 'Chats Control'], ['reports', 'list', 'Reports'], ['permissions', 'shield', 'User Login & Permissions'], ['settings', 'pen', 'Settings']];
-  const NAV_OK = { dashboard: () => K.allow('dashboard.view'), orders: () => ['orders.view_all', 'orders.create', 'orders.approve', 'orders.deliver', 'orders.paid'].some(K.allow), products: () => ['stock.manage', 'stock.view_main', 'purchases.manage', 'purchases.receive'].some(K.allow), customers: () => ['customers.view_all', 'customers.create', 'customers.manage', 'visits.view_all'].some(K.allow), banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
+  const NAV_OK = { dashboard: () => K.allow('dashboard.view'), orders: () => ['orders.view_all', 'orders.create', 'orders.approve', 'orders.deliver', 'orders.paid'].some(K.allow), products: () => ['stock.manage', 'stock.view_main', 'stock.move', 'stock.warehouses', 'stock.access', 'purchases.manage', 'purchases.receive'].some(K.allow), customers: () => ['customers.view_all', 'customers.create', 'customers.manage', 'visits.view_all'].some(K.allow), banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
     expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), payments: () => K.canCollect() || S.me.role === 'admin', purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view') || K.isDeptHead(), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') || K.isBoss() };
   const NEXT_PERM = { approved: 'orders.approve', delivered: 'orders.deliver', paid: 'orders.paid' };
   const nextFor = o => { const n = NEXT[o.status]; return n && K.allow(NEXT_PERM[n[0]]) ? n : null; };
@@ -6105,9 +6161,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const [products, whsAll] = await Promise.all([data.products(true), data.warehouses()]);
     const whs = K.sellFrom(whsAll);
     if (!whs.length) return toast('No stock to sell from');
-    const d = { c: null, wh: (K.myRepWh(whsAll) || whs[0]).id, pay: 'pending', due: null, lines: [], notes: '' };
+    const d = { c: null, wh: K.firstWh(whs, products).id, pay: 'pending', due: null, lines: [], notes: '' };
+    const whsFor = () => K.sellFrom(whsAll, K.allow('stock.manage') ? (d.c || null) : undefined);
     const s = sheet('New order', `<div class="card" id="nc" style="background:var(--bg)"></div>
-      ${whs.length > 1 ? `<label class="f">Goods come from<select class="inp" id="nw">${whs.map(w => `<option value="${w.id}" ${w.id === d.wh ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>` : ''}
+      <div id="nwbox"></div>
       <div class="card" id="np" style="gap:0;padding-top:6px"></div>
       <div class="row" id="nt"></div>
       ${K.payPickHtml(d)}
@@ -6118,11 +6175,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="st">Counts for sales rep: <b style="color:var(--ink)">${esc(c.rep_name || 'no sales rep')}</b></div></div><button class="btn sm out" id="npick">Change</button></div>${K.overdueWarn(c)}`
         : `<button class="btn ghost block" id="npick">${icon('store', 20)} Choose a shop</button>`;
       $('#npick', s.el).onclick = pick; };
-    const pick = () => K.pickCustomer({ approvedOnly: true, noAdd: true }, c => { d.c = c; pp.shop(c); drawC(); drawP(); drawT(); });
+    const drawW = () => { const l = whsFor(); if (!l.some(w => w.id === d.wh) && l.length) d.wh = K.firstWh(l, products).id;
+      $('#nwbox', s.el).innerHTML = l.length > 1 ? `<label class="f">Goods come from<select class="inp" id="nw">${l.map(w => `<option value="${w.id}" ${w.id === d.wh ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>` : '';
+      if ($('#nw', s.el)) $('#nw', s.el).onchange = e => { d.wh = +e.target.value; drawP(); }; };
+    const pick = () => K.pickCustomer({ approvedOnly: true, noAdd: true }, c => { d.c = c; pp.shop(c); drawC(); drawW(); drawP(); drawT(); });
     const drawT = () => { const n = d.lines.reduce((a, l) => a + l.qty, 0); $('#nt', s.el).innerHTML = `<span class="grow muted">${d.lines.length} lines · ${n} pcs</span><b style="font-size:20px">${money(K.linesTotal(d.lines))}</b>`; };
     const ed = K.lineEditor({ el: $('#np', s.el), products, lines: d.lines, wh: () => d.wh, onChange: drawT, listHeight: 300 });
     const drawP = () => ed.draw();
-    if ($('#nw', s.el)) $('#nw', s.el).onchange = e => { d.wh = +e.target.value; drawP(); };
     const pp = K.bindPayPick(s.el, d, () => d.c);
     $('#ngo', s.el).onclick = async e => {
       if (!d.c) return toast('Choose a shop first');
@@ -6131,7 +6190,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const id = await busy(e.currentTarget, () => api.createOrder({ customer_id: d.c.id, warehouse_id: d.wh, payment_method: d.pay, due_date: d.pay === 'credit' ? d.due : null, notes: $('#nn', s.el).value.trim(), items: K.linesPayload(d.lines) }));
       s.close(); forget('orders', 'products', 'customers'); toast(K.allow('orders.approve') ? 'Order created and approved' : 'Order sent for approval'); go('#/orders?o=' + id);
     };
-    drawC(); drawT(); pick();
+    drawC(); drawW(); drawT(); pick();
   }
 
   async function orderSheet(id) {
@@ -6248,7 +6307,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------------- Products & stock ----------------
   route(/^\/products$/, async (_, q, current) => {
     await refreshCounts();
-    const main = shell('products', 'Inventory', (K.allow('stock.manage') ? `<button class="btn sm out" id="scount">${icon('check', 18)}<span class="hide-sm">Stock</span> count</button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Rep stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : ''));
+    const main = shell('products', 'Inventory', (K.allow('stock.manage') ? `<button class="btn sm out" id="scount">${icon('check', 18)}<span class="hide-sm">Stock</span> count</button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm out" id="rep">${icon('swap', 18)}<span class="hide-sm">Move stock</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : ''));
     if ($('#add')) $('#add').onclick = () => productSheet({});
     if ($('#rep')) $('#rep').onclick = () => K.loadRepSheet(() => K.render());
     const [products, warehouses, cats] = await Promise.all([data.products(true), data.warehouses(true), K.productCats(true)]);
@@ -6260,25 +6319,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let shownP = [];
     const draw = () => { const t = search.toLowerCase();
       const list = products.filter(p => (!t || [p.name, p.sku, p.category].some(x => x.toLowerCase().includes(t))) && (!onlyLow || p.total_qty <= p.min_stock) && (!catF || p.category === catF) && (!comF || (comF === 'on') === (p.staff_orderable !== false)));
-      shownP = list; if ($('#combar')) $('#combar').innerHTML = `<span class="grow small muted">${list.length} shown · main-stock reps can order ${list.filter(p => p.staff_orderable !== false).length}</span>${K.allow('stock.manage') && list.length ? `<button class="btn sm out" data-comall="1">Switch all shown On</button><button class="btn sm red" data-comall="0">Switch all shown Off</button>` : ''}`;
+      shownP = list; if ($('#combar')) $('#combar').innerHTML = `<span class="grow small muted">${list.length} shown · reps can order from shared stocks ${list.filter(p => p.staff_orderable !== false).length}</span>${K.allow('stock.manage') && list.length ? `<button class="btn sm out" data-comall="1">Switch all shown On</button><button class="btn sm red" data-comall="0">Switch all shown Off</button>` : ''}`;
       $('#plist').innerHTML = list.length ? list.map(p => { const cls = p.total_qty <= 0 ? 'rd' : p.total_qty <= p.min_stock ? 'or' : 'gr';
-        return `<button class="list-item" data-p="${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · price ${money(p.price)} · cost ${money(p.cost)} · ${p.staff_orderable === false ? '<b style="color:var(--rd)">commission: Off</b>' : '<span style="color:var(--gr);font-weight:700">commission: On</span>'}</div>
+        return `<button class="list-item" data-p="${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · price ${money(p.price)} · cost ${money(p.cost)} · ${p.staff_orderable === false ? '<b style="color:var(--rd)">reps: Off</b>' : '<span style="color:var(--gr);font-weight:700">reps: On</span>'}</div>
           <div class="st">${warehouses.filter(w => !w.rep_id || p.stock[w.id]).map(w => `${esc(K.whLabel(w))}: <b style="color:var(--ink)">${p.stock[w.id] || 0}</b>`).join(' · ')}</div></div>
           <div style="text-align:right"><div style="font-weight:800;font-size:18px">${p.total_qty}</div><span class="pill ${cls}">${cls === 'rd' ? 'Out' : cls === 'or' ? 'Low' : 'OK'}</span></div></button>`; }).join('') : emptyBox('box', 'No products found');
       $$('[data-p]').forEach(b => b.onclick = () => K.allow('stock.manage') ? productSheet(products.find(p => p.id === +b.dataset.p), warehouses) : toast('You can view stock only')); };
     main.innerHTML = `<div class="apad"><div class="kpis">${kpi(products.length, 'Products')}${kpi(products.reduce((s, p) => s + p.total_qty, 0), 'Pieces in stock')}${kpi(money(value), 'Stock value (cost)')}
       <button class="stat" id="lowb" style="text-align:left;${onlyLow ? 'background:var(--ors)' : ''}"><b style="color:var(--or)">${products.filter(p => p.total_qty <= p.min_stock).length}</b><span>Low or out · tap to filter</span></button></div>
       ${!warehouses.some(w => w.rep_id) && K.allow('stock.manage') ? `<div class="card small muted"><div style="line-height:1.5"><b style="color:var(--ink)">Stock with sales reps.</b> Every active <b>Sales</b> account gets its own stock automatically (the goods they carry). Add a Sales staff member in HR &amp; attendance → Staff, then use <b>Give / take back</b> here to load goods onto their motorbike. Reps see and sell only their own stock.</div></div>` : ''}
-      ${warehouses.some(w => w.rep_id) ? `<div class="card"><div class="row"><b class="grow">Stock with sales reps (on motorbikes)</b>${K.allow('stock.manage') ? `<button class="btn sm out" id="rep2">${icon('swap', 16)}Give / take back</button>` : ''}</div><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Products</th><th style="text-align:right">Pieces</th><th style="text-align:right">Value (sell price)</th></tr></thead><tbody>
-        ${warehouses.filter(w => w.rep_id).map(w => { const ps = products.filter(p => p.stock[w.id] > 0); return `<tr><td style="font-weight:700">${esc(w.name.split(' · ')[1] || w.name)}</td><td style="text-align:right">${ps.length}</td><td style="text-align:right">${ps.reduce((a, p) => a + p.stock[w.id], 0)}</td><td style="text-align:right">${money(ps.reduce((a, p) => a + p.stock[w.id] * p.price, 0))}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
+      <div class="card" id="stocks"></div>
       <div class="filters"><div class="search grow">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
-        <select class="inp" id="pcf" aria-label="Category" style="width:auto;min-width:160px"><option value="">All categories</option>${[...new Set(cats.concat(products.map(p => p.category)).filter(Boolean))].map(c => `<option ${c === catF ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select><select class="inp" id="comf" aria-label="Main-stock reps" style="width:auto;min-width:200px"><option value="">Commission: all</option><option value="on">Main-stock reps can order</option><option value="off">Main-stock reps cannot order</option></select></div><div class="row" id="combar" style="gap:8px;flex-wrap:wrap"></div><div class="card flush" id="plist"></div></div>`;
+        <select class="inp" id="pcf" aria-label="Category" style="width:auto;min-width:160px"><option value="">All categories</option>${[...new Set(cats.concat(products.map(p => p.category)).filter(Boolean))].map(c => `<option ${c === catF ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select><select class="inp" id="comf" aria-label="Reps can order" style="width:auto;min-width:200px"><option value="">Reps: all</option><option value="on">Reps can order</option><option value="off">Reps cannot order</option></select></div><div class="row" id="combar" style="gap:8px;flex-wrap:wrap"></div><div class="card flush" id="plist"></div></div>`;
     $('#pcf').onchange = e => { catF = e.target.value; draw(); };
     if ($('#comf')) $('#comf').onchange = e => { comF = e.target.value; draw(); };
     if ($('#combar')) $('#combar').onclick = async e => { const b = e.target.closest('[data-comall]'); if (!b) return; const on = b.dataset.comall === '1', ids = shownP.map(p => p.id);
-      if (!(await K.confirmSheet('Switch ' + ids.length + ' products ' + (on ? 'On' : 'Off') + '?', on ? 'Main-stock reps will be able to order these products.' : 'Main-stock reps will see these products but cannot order them.', on ? 'Switch On' : 'Switch Off', !on))) return;
+      if (!(await K.confirmSheet('Switch ' + ids.length + ' products ' + (on ? 'On' : 'Off') + '?', on ? 'Reps will be able to order these products from shared stocks (the Main warehouse and other stocks).' : 'Reps cannot order these products from shared stocks. They can still sell them from their own stock.', on ? 'Switch On' : 'Switch Off', !on))) return;
       await busy(b, () => api.setProductsOrderable(ids, on)); shownP.forEach(p => { p.staff_orderable = on; }); forget('products'); toast(ids.length + ' products switched ' + (on ? 'On' : 'Off')); draw(); };
-    if ($('#rep2')) $('#rep2').onclick = () => K.loadRepSheet(() => K.render());
+    K.stocksCard($('#stocks'), warehouses, products);
     $('#lowb').onclick = () => { onlyLow = !onlyLow; $('#lowb').style.background = onlyLow ? 'var(--ors)' : ''; draw(); };
     $('#ps').oninput = e => { search = e.target.value; draw(); };
     draw();
@@ -6293,8 +6351,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="small muted" style="margin-top:-6px">The selling price is filled in on new orders. Staff can still change the price on each order.</div>
       <label class="f">Low stock warning at<input class="inp" id="mn" type="number" inputmode="numeric" value="${p.min_stock ?? 10}"></label>
       ${K.productPhotoField(p)}
-      ${p.id ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Main-stock reps can order this product</div><div class="seg" id="pcom">${[['1', 'Yes'], ['0', 'No']].map(([k, l]) => `<button data-pc="${k}" class="${(p.staff_orderable !== false) === (k === '1') ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <div class="small muted" style="margin-top:-6px">Main-stock reps always see the product and price (never the stock). "No" = they cannot order it.</div>` : ''}
+      ${p.id ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Reps can order this product from shared stocks</div><div class="seg" id="pcom">${[['1', 'Yes'], ['0', 'No']].map(([k, l]) => `<button data-pc="${k}" class="${(p.staff_orderable !== false) === (k === '1') ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <div class="small muted" style="margin-top:-6px">"No" = reps cannot order it from the Main warehouse or other shared stocks (they can still sell it from their own stock). Managers are not limited.</div>` : ''}
       <div class="btns">${p.id ? '<button class="btn red" id="pdel">Delete</button>' : ''}<button class="btn" id="sv">Save product</button></div>
       ${p.id ? `<div class="sec">Change stock</div><div class="card" style="background:var(--bg)">
         <label class="f">Warehouse<select class="inp" id="wh">${warehouses.map(w => `<option value="${w.id}">${esc(K.whLabel(w))} (${p.stock[w.id] || 0})</option>`).join('')}</select></label>
@@ -6309,7 +6367,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       await busy(e.currentTarget, () => api.saveProduct(row)); s.close(); toast('Product saved'); forget('products', 'pcats'); K.render();
     };
     $$('[data-pc]', s.el).forEach(b => b.onclick = async () => { const on = b.dataset.pc === '1'; if ((p.staff_orderable !== false) === on) return;
-      await busy(b, () => api.setProductsOrderable([p.id], on)); p.staff_orderable = on; $$('[data-pc]', s.el).forEach(x => x.classList.toggle('on', x === b)); forget('products'); toast(on ? 'Main-stock reps can order ' + p.name : p.name + ' switched off for main-stock reps'); });
+      await busy(b, () => api.setProductsOrderable([p.id], on)); p.staff_orderable = on; $$('[data-pc]', s.el).forEach(x => x.classList.toggle('on', x === b)); forget('products'); toast(on ? 'Reps can order ' + p.name : p.name + ' switched off for reps (shared stocks)'); });
     if ($('#pdel', s.el)) $('#pdel', s.el).onclick = e => K.deleteProduct(p, e.currentTarget, () => { s.close(); K.render(); });
     const move = sign => async e => {
       const n = Math.floor(+$('#qn', s.el).value); if (!(n > 0)) return toast('Enter a quantity');
@@ -6709,7 +6767,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   });
 
   // ---------------- Roles & permissions (admin only) ----------------
-  const PROLES = [['manager', 'Manager'], ['supervisor', 'Supervisor'], ['sales', 'Sales'], ['agent', 'Rep (main)'], ['accountant', 'Account.'], ['cashier', 'Cashier'], ['hr', 'HR'], ['purchasing', 'Purchase'], ['warehouse', 'Wareh.'], ['driver', 'Driver']];
+  const PROLES = [['manager', 'Manager'], ['supervisor', 'Supervisor'], ['sales', 'Sales'], ['accountant', 'Account.'], ['cashier', 'Cashier'], ['hr', 'HR'], ['purchasing', 'Purchase'], ['warehouse', 'Wareh.'], ['driver', 'Driver']];
   route(/^\/permissions$/, async (_, q, current) => {
     if (S.me.role !== 'admin') return go('#/dashboard');
     await refreshCounts();
@@ -6759,6 +6817,61 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="seg" id="tabs"></div><div id="pbody" style="display:flex;flex-direction:column;gap:14px"></div></div>`;
     draw();
   });
+})();
+
+// Inventory → Stocks (14 Oct 2026): every stock in one list (Main warehouse, extra stocks, each rep's own stock),
+// add / rename / delete a stock, and choose who may order from each stock (admin).
+(function () {
+  const K = window.KT;
+  const { api, esc, money, icon, busy, toast } = K;
+
+  K.stocksCard = async function (el, warehouses, products) {
+    if (!el) return;
+    const boss = K.allow('stock.access'), manage = K.allow('stock.warehouses'), mover = K.allow('stock.manage') || K.allow('stock.move');
+    let staff = [], access = [];
+    try { [staff, access] = await Promise.all([api.listStaff(), api.listStockAccess ? api.listStockAccess() : []]); } catch (e) { staff = staff || []; access = access || []; }
+    const mainId = Math.min(...warehouses.filter(w => !w.rep_id).map(w => w.id));
+    const nameOf = id => (staff.find(u => u.id === id) || {}).full_name || '';
+    const kind = w => w.id === mainId ? 'Main' : w.rep_id ? 'Rep\'s own' : 'Shared';
+    const pcs = w => products.reduce((a, p) => a + Math.max(0, (p.stock || {})[w.id] || 0), 0);
+    const val = w => products.reduce((a, p) => a + Math.max(0, (p.stock || {})[w.id] || 0) * p.price, 0);
+    const nProd = w => products.filter(p => ((p.stock || {})[w.id] || 0) > 0).length;
+    const who = w => { const ticked = access.filter(a => a.warehouse_id === w.id).map(a => nameOf(a.user_id)).filter(Boolean);
+      const base = w.rep_id ? [K.repWhName(w)] : [];
+      const all = base.concat(ticked);
+      return (all.length ? esc(all.join(', ')) : '<span class="muted">nobody yet</span>') + (w.rep_id ? '' : ' <span class="muted">+ managers & stock staff</span>'); };
+    const order = w => w.id === mainId ? 0 : w.rep_id ? 2 : 1;
+    const list = warehouses.slice().sort((a, b) => order(a) - order(b) || (K.oldRepWh(a) - K.oldRepWh(b)) || a.id - b.id);
+    el.innerHTML = `<div class="row" style="flex-wrap:wrap;gap:8px"><b class="grow">Stocks</b>
+        ${mover ? `<button class="btn sm out" id="rep2">${icon('swap', 16)}Move stock</button>` : ''}${manage ? `<button class="btn sm" id="stnew">${icon('plus', 16)}New stock</button>` : ''}</div>
+      <div class="small muted">Main warehouse and each sales rep's own stock work as before. Add more stocks (e.g. Office stock) and choose who may order from each one${boss ? ' with <b>Who can order</b>' : ''}. A rep always sells from their own stock.</div>
+      <div class="tbl"><table><thead><tr><th style="text-align:left">Stock</th><th style="text-align:left">Kind</th><th style="text-align:right">Products</th><th style="text-align:right">Pieces</th><th style="text-align:right">Value (sell price)</th><th style="text-align:left">Who can order</th><th></th></tr></thead><tbody>
+      ${list.map(w => `<tr style="${K.oldRepWh(w) ? 'opacity:.65' : ''}"><td style="font-weight:700;white-space:nowrap">${esc(K.whLabel(w))}</td><td>${kind(w)}</td><td style="text-align:right">${nProd(w)}</td><td style="text-align:right">${pcs(w)}</td><td style="text-align:right;white-space:nowrap">${money(val(w))}</td>
+        <td style="min-width:180px">${who(w)}</td>
+        <td style="white-space:nowrap;text-align:right">${boss && !K.oldRepWh(w) ? `<button class="btn sm out" data-swho="${w.id}">Who can order</button> ` : ''}${manage && !w.rep_id ? `<button class="btn sm out" data-sren="${w.id}">Rename</button> ` : ''}${manage && !w.rep_id && w.id !== mainId ? `<button class="btn sm out" data-sdel="${w.id}">Delete</button>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>`;
+    const reload = () => { K.forget('warehouses', 'products'); K.render(); };
+    if (K.$('#rep2', el)) K.$('#rep2', el).onclick = () => K.loadRepSheet(() => K.render());
+    const nameSheet = (w) => { const s = K.sheet(w ? 'Rename stock' : 'New stock', `<label class="f">Stock name<input class="inp" id="stn" value="${esc(w ? w.name : '')}" placeholder="e.g. Office stock, Kampot stock" maxlength="60"></label>
+        <div class="small muted">${w ? '' : 'The new stock starts empty. Move goods into it with Move stock or a purchase, then choose who can order from it.'}</div>
+        <button class="btn block" id="stok">${w ? 'Save' : 'Add stock'}</button>`);
+      K.$('#stn', s.el).focus();
+      K.$('#stok', s.el).onclick = async e => { const nm = K.$('#stn', s.el).value.trim(); if (!nm) return toast('Enter a name');
+        await busy(e.currentTarget, () => api.saveWarehouse(w ? w.id : null, nm)); s.close(); toast(w ? 'Stock renamed' : 'Stock added'); reload(); }; };
+    if (K.$('#stnew', el)) K.$('#stnew', el).onclick = () => nameSheet(null);
+    K.$$('[data-sren]', el).forEach(b => b.onclick = () => nameSheet(warehouses.find(w => w.id === +b.dataset.sren)));
+    K.$$('[data-sdel]', el).forEach(b => b.onclick = async () => { const w = warehouses.find(x => x.id === +b.dataset.sdel);
+      if (!(await K.confirmSheet('Delete ' + w.name + '?', 'Only an empty stock that was never used can be deleted. A stock with history is kept (you can rename it).', 'Delete', true))) return;
+      await busy(b, () => api.deleteWarehouse(w.id)); toast('Stock deleted'); reload(); });
+    K.$$('[data-swho]', el).forEach(b => b.onclick = () => { const w = warehouses.find(x => x.id === +b.dataset.swho);
+      const ticked = new Set(access.filter(a => a.warehouse_id === w.id).map(a => a.user_id));
+      const people = staff.filter(u => u.active && !['admin', 'manager', 'guest'].includes(u.role) && u.id !== w.rep_id).sort((a, b) => (K.SELLERS.includes(b.role) - K.SELLERS.includes(a.role)) || a.full_name.localeCompare(b.full_name));
+      const s = K.sheet('Who can order from ' + K.whLabel(w), `<div class="small muted">${w.rep_id ? esc(K.repWhName(w)) + ' always sells from this stock. ' : ''}Tick the people who may also order from it. They will see how many are in it. Managers and people who manage stock can use every stock.</div>
+        <div class="card flush">${people.map(u => `<label class="list-item" style="cursor:pointer"><input type="checkbox" data-su="${esc(u.id)}" ${ticked.has(u.id) ? 'checked' : ''}><div class="grow"><div class="tt" style="font-size:15px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role] || u.role)}</div></div></label>`).join('') || '<div class="pad small muted">No staff yet</div>'}</div>
+        <button class="btn block" id="suok">Save</button>`);
+      K.$('#suok', s.el).onclick = async e => { const ids = K.$$('[data-su]', s.el).filter(c => c.checked).map(c => c.dataset.su);
+        await busy(e.currentTarget, () => api.setStockUsers(w.id, ids)); s.close(); toast('Saved. They see it next time they open the app.'); reload(); }; });
+  };
 })();
 
 // Reports page tabs besides Sales: Sales reps, Stock, Shops, Money (admin web).
@@ -7319,7 +7432,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
-      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'supervisor', 'agent', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'];
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'].concat(u.role === 'agent' ? ['agent'] : []);
       const hints = K.ROLE_HINTS;
       let role = u.role, gender = hh.gender || '';
       const sups = (K.S.cache.staff || []).filter(x => x.active && x.role !== 'guest' && x.id !== u.id), deps = K.S.cache.departments || [];
@@ -7331,6 +7444,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
         ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="rh">${hints[role]}</div>` : ''}
+        ${K.allow('stock.access') && u.active ? `<div id="stx" class="card" style="background:var(--bg);gap:6px"><b style="font-size:14px">Can order from these stocks</b><div class="small muted">Loading…</div></div>` : ''}
         ${boss || hr ? `<div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
           <label class="f">Reports to<select class="inp" id="sup"><option value="">Nobody</option>${sups.map(x => `<option value="${esc(x.id)}" ${x.id === u.supervisor_id ? 'selected' : ''}>${esc(x.full_name)} (${esc(K.ROLE_LABEL[x.role])})</option>`).join('')}</select></label></div>
           <div class="small muted" style="margin-top:-6px">Role = what they can do in the app · Department = where they belong · Reports to = their direct boss. A Sales supervisor sees and approves the orders, shops and visits of the reps who report to them.</div>` : ''}
@@ -7347,13 +7461,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <label class="f">Notes<textarea class="inp" id="hn">${esc(hh.notes || '')}</textarea></label>
         <div class="small muted">Personal details and salary are private: only you and people with the HR permission can see them. Each person sees only their own.</div>` : ''}
         <div class="btns">${boss && u.active && u.id !== K.S.me.id ? '<button class="btn red" id="dis">Disable</button>' : ''}<button class="btn" id="ok">${u.active ? 'Save' : 'Approve'}</button></div>`);
-      K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; });
+      // stocks this person may order from (admin): their own stock is always theirs; tick the others
+      let stTicks = null, stOrig = [];
+      const stShow = () => { const b = K.$('#stx', s.el); if (b) b.style.display = ['admin', 'manager', 'guest'].includes(role) ? 'none' : ''; };
+      if (K.$('#stx', s.el)) Promise.all([api.listWarehouses(), api.listStockAccess ? api.listStockAccess() : []]).then(([whs, acc]) => {
+        stOrig = acc.filter(a => a.user_id === u.id).map(a => a.warehouse_id); stTicks = new Set(stOrig);
+        const own = whs.find(w => w.rep_id === u.id), others = whs.filter(w => w.rep_id !== u.id && !K.oldRepWh(w));
+        K.$('#stx', s.el).innerHTML = `<b style="font-size:14px">Can order from these stocks</b>
+          <div class="small muted">${own ? 'Their own stock is always theirs. ' : ''}Tick the other stocks they may sell from; they will see how many are in them. People who manage stock and managers can use every stock.</div>
+          ${own ? `<label class="row" style="gap:8px;opacity:.7"><input type="checkbox" checked disabled> <span class="grow">Their own stock</span></label>` : ''}
+          ${others.map(w => `<label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" data-st="${w.id}" ${stTicks.has(w.id) ? 'checked' : ''}> <span class="grow">${esc(K.whLabel(w))}</span></label>`).join('') || '<div class="small muted">No other stocks yet. Add one in Inventory → Stocks.</div>'}`;
+        K.$$('[data-st]', s.el).forEach(c => c.onchange = () => { c.checked ? stTicks.add(+c.dataset.st) : stTicks.delete(+c.dataset.st); });
+      }).catch(() => { const b = K.$('#stx', s.el); if (b) b.style.display = 'none'; });
+      stShow();
+      K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; stShow(); });
       K.$$('[data-g]', s.el).forEach(b => b.onclick = () => { gender = gender === b.dataset.g ? '' : b.dataset.g; K.$$('[data-g]', s.el).forEach(x => x.classList.toggle('on', x.dataset.g === gender)); });
       const v = id => K.$('#' + id, s.el).value.trim();
       const saveIt = async (btn, active) => {
         if (!v('nm')) return toast('Enter the full name');
         await busy(btn, async () => {
           if (boss) await api.updateStaff(u.id, role, active, v('nm'), v('ph'));
+          if (stTicks && api.setStockAccess) { const now = [...stTicks].sort(), was = stOrig.slice().sort(); if (now.join() !== was.join()) await api.setStockAccess(u.id, now); }
           if (K.$('#dep', s.el)) { const dv = K.$('#dep', s.el).value ? +K.$('#dep', s.el).value : null, sv = K.$('#sup', s.el).value || null;
             if (dv !== (u.department_id || null) || sv !== (u.supervisor_id || null)) await api.setStaffOrg(u.id, dv, sv); }
           if (hr) await api.saveStaffHr({ user_id: u.id, position: v('hp'), start_date: v('hs'), base_salary: v('hb'), annual_leave_days: v('hl'), emergency_contact: v('he'), notes: v('hn'),
@@ -7372,7 +7500,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
   K.addStaffSheet = function addStaffSheet(onCreated) {
-      const roles = ['sales', 'supervisor', 'agent', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';
+      const roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';
       const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
         <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
         <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
@@ -8578,7 +8706,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div style="font-size:20px;font-weight:800">${chat ? 'Create a chat account' : signup ? 'Create staff account' : 'Log in'}</div>
         ${chat ? '<div class="small muted" style="line-height:1.5">For friends &amp; family: chat only. Find people by their username and send messages, voice, photos and stickers.</div>' : ''}
         ${demo ? `<div class="demo-note">Demo mode: sample data on this phone only. Tap a role to try it.</div>
-          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['dina', 'Rep (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
+          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['dina', 'Sales (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
         ${signup ? `<label class="f">Full name<input class="inp" name="full" required autocomplete="name"></label>` : ''}
         <label class="f">Username<input class="inp" name="user" required autocomplete="username" autocapitalize="none" autocorrect="off" pattern="[a-zA-Z0-9._]{3,24}" title="3–24 letters or numbers, no spaces"></label>
         <label class="f">Password<input class="inp" name="pass" type="password" required minlength="${signup ? 8 : 6}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
