@@ -6,7 +6,7 @@
 <title>K-TRONiCS Staff</title>
 <meta name="description" content="K-TRONiCS staff app: chat, orders, stock and shop visits.">
 <meta name="theme-color" content="#FFFFFF">
-<script>(function(){var t='white';try{t=localStorage.getItem('kt_theme')||'white';}catch(e){}document.documentElement.className='th-'+t;var c={white:'#FFFFFF',red:'#C8121A',dark:'#0E0E10'}[t]||'#FFFFFF';var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',c);})();</script>
+<script>(function(){var t='white';try{t=localStorage.getItem('kt_theme')==='dark'?'dark':'white';}catch(e){}document.documentElement.className='th-'+t;var c={white:'#FFFFFF',red:'#C8121A',dark:'#0E0E10'}[t]||'#FFFFFF';var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',c);})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="K-TRONiCS">
 <link rel="manifest" href="manifest.webmanifest">
@@ -750,7 +750,7 @@ svg { flex-shrink: 0; }
 .btn:disabled { opacity: .55; }
 .btn.ghost { background: var(--ps); color: var(--pd); }
 .btn.out { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
-.btn.green { background: var(--gr); } .btn.red { background: var(--card); color: var(--rd); border: 1px solid #F1C4BF; }
+.btn.green { background: var(--gr); } .btn.red { background: var(--card); color: var(--rd); border: 1.5px solid #E79A93; }   /* delete / reject: outlined so it never looks like a normal button */
 .btn.sm { height: 38px; font-size: 13px; padding: 0 12px; border-radius: 10px; }
 .btn.block { width: 100%; }
 .btns { display: flex; gap: 10px; } .btns > * { flex: 1; }
@@ -785,6 +785,11 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--chatbg); }
 .day { align-self: center; font-size: 12px; font-weight: 700; color: var(--mu); background: var(--card); padding: 4px 12px; border-radius: 999px; }
 .sys { align-self: center; font-size: 12px; color: var(--mu); background: var(--card); padding: 5px 12px; border-radius: 999px; text-align: center; max-width: 90%; }
+.attmsg { align-self: stretch; display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; font-size: 14px; max-width: 560px; }
+.attmsg.warn { border-color: var(--or); background: var(--ors); }
+.attmsg img { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; display: block; }
+.attmsg .attic { width: 40px; height: 40px; border-radius: 12px; background: var(--bls); color: var(--bl); display: flex; align-items: center; justify-content: center; flex: none; }
+.attmsg .small { margin-top: 3px; }
 .m { display: flex; gap: 8px; align-items: flex-end; }
 .m.me { justify-content: flex-end; }
 .bub { max-width: 78%; background: var(--card); border: 1px solid var(--line); border-radius: 16px 16px 16px 4px; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; }
@@ -867,12 +872,12 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 /* ---------- admin panel ---------- */
 #root.admin-root { max-width: none; }
 .adm { display: flex; height: 100%; position: relative; overflow: hidden; }
-.side { width: 248px; flex-shrink: 0; background: var(--side-bg); color: var(--side-ink, #fff); display: flex; flex-direction: column; padding: 18px 12px; gap: 4px; z-index: 60; }
+.side { width: 268px; flex-shrink: 0; background: var(--side-bg); color: var(--side-ink, #fff); display: flex; flex-direction: column; padding: 18px 12px; gap: 4px; z-index: 60; }
 .side .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
 .side .brand small, .side .me small { display: block; color: var(--side-mu, #B9B4CC); font-size: 12px; }
 .logo-sm { width: 38px; height: 38px; border-radius: 11px; background: var(--p); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; }
 .side nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
-.side nav a { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 12px; border-radius: 10px; color: var(--side-fg, #CFCADF); text-decoration: none; font-weight: 700; font-size: 14px; }
+.side nav a { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 0 12px; border-radius: 10px; color: var(--side-fg, #CFCADF); text-decoration: none; font-weight: 700; font-size: 13.5px; line-height: 1.2; white-space: nowrap; }
 .side nav a.on { background: var(--p); color: #fff; }
 .side nav a .badge { margin-left: auto; font-style: normal; background: var(--card); color: var(--p); }
 .side .me { display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(255,255,255,.12); padding: 12px 4px 0; font-size: 14px; }
@@ -883,9 +888,17 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .ahdr .t b { display: block; font-size: 19px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ahdr .t small { display: block; font-size: 12px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ahdr .menu { display: none; margin-left: -8px; }
-.apad { padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 1280px; }
+.apad { padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: none; }   /* uses the whole screen on big monitors */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .kpis .stat b { font-size: 21px; }
+/* dashboard: the main numbers for the chosen dates are bigger than the 'right now' boxes */
+.kpis.big { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.kpis.big .stat { padding: 16px 16px 14px; border-radius: 16px; }
+.kpis.big .stat b { font-size: 28px; letter-spacing: -.01em; }
+.kpis.big .stat > span { font-size: 13px; line-height: 1.35; display: block; }
+.kpis.big .stat em, .kpis .stat em { line-height: 1.35; font-size: 12px; font-weight: 600; }
+.kpis .stat em.muted { color: var(--mu); }
+.kpis.small .stat b { font-size: 19px; }
 .agrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
 .agrid .wide { grid-column: 1 / -1; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -1077,6 +1090,8 @@ html.th-white .hero span[style*="color:#fff"], html.th-white .hero .pill { color
 .crmtabs .chip { text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; }
 .crmtabs .chip.on { background: var(--ink); color: var(--card); border-color: var(--ink); }
 .crmtabs + .rmap { height: calc(100vh - 120px); }
+/* small laptops / tablets sideways: a slimmer menu leaves more room for the page */
+@media (min-width: 861px) and (max-width: 1180px) { .side { width: 232px; } .side nav a { white-space: normal; font-size: 13px; } }
 </style>
 </head>
 <body>
@@ -1118,7 +1133,8 @@ window.KT_PERMS = [
     ['orders.deliver', 'Mark orders delivered'],
     ['orders.paid', 'Mark orders paid'],
     ['orders.cancel', 'Cancel approved orders', 'Goods go back into stock'],
-    ['orders.edit_any', 'Edit or delete other people\'s waiting orders']] },
+    ['orders.edit_any', 'Edit or delete other people\'s waiting orders'],
+    ['orders.catalog', 'Order from the product list (no stock shown)', 'For sales reps who sell from the main stock: all products and prices, no quantities. Only products switched On. Goods come from the main warehouse after approval.']] },
   { group: 'Payments / debt', items: [
     ['payments.collect', 'Staff can collect payments from shops', 'Off by default. Waits for confirmation'],
     ['payments.confirm', 'Confirm payments', 'Also: their own payments count straight away']] },
@@ -1159,7 +1175,14 @@ window.KT_PERM_DEFAULTS = {
   manager: ['orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others', 'expenses.office',
     'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main'],
+  supervisor: ['orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
   sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  agent: ['orders.create', 'orders.catalog', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  accountant: ['dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
+    'expenses.record_others', 'expenses.office', 'purchases.manage', 'chat.create_group'],
+  cashier: ['orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'chat.create_group'],
+  hr: ['hr.manage', 'attendance.view', 'expenses.create', 'chat.announce', 'chat.create_group'],
+  purchasing: ['purchases.manage', 'purchases.receive', 'stock.view_main', 'expenses.create', 'chat.create_group'],
   warehouse: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
   driver: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'expenses.create', 'chat.create_group']
 };
@@ -1202,6 +1225,7 @@ window.makeSupabaseApi = function (cfg) {
   async function loadProfile(userId) {
     me = await q(sb.from('profiles').select('*').eq('id', userId).maybeSingle());
     if (me) me.perms = me.active ? await q(sb.rpc('my_permissions')) : [];
+    if (me && me.active) { try { me.heads = ((await q(sb.from('departments').select('id').eq('head_id', userId))) || []).map(d => d.id); } catch (e) { me.heads = []; } }
     return me;
   }
 
@@ -1259,6 +1283,14 @@ window.makeSupabaseApi = function (cfg) {
     },
     listNameHistory: () => q(sb.from('staff_name_history').select('*').order('changed_at')),
     setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
+    setProductsOrderable: (ids, on) => q(sb.rpc('set_products_orderable', { p_ids: ids, p_on: !!on })),
+    listDepartments: () => q(sb.from('departments').select('*').order('sort').order('name')),
+    saveDepartment: (id, name, head, active) => q(sb.rpc('department_save', { p_id: id || null, p_name: name, p_head: head || null, p_active: active !== false })),
+    deleteDepartment: id => q(sb.rpc('department_delete', { p_id: id })),
+    setStaffOrg: (id, dept, reportsTo) => q(sb.rpc('set_staff_org', { p_id: id, p_dept: dept || null, p_reports_to: reportsTo || null })),
+    announceDepartment: (dept, body) => q(sb.rpc('announce_department', { p_dept: dept, p_body: body })),
+    departmentAnnouncements: () => q(sb.rpc('department_announcements')),
+    setSupervisor: (id, sup) => q(sb.rpc('set_supervisor', { p_id: id, p_supervisor: sup || null })),
     setStaffUsername: (id, username) => q(sb.rpc('admin_set_username', { p_id: id, p_username: username })),
     async changeMyPassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw new Error(/different from the old/i.test(error.message) ? 'The new password must be different from the old one' : error.message); },
     async setAvatar(id, file) { const url = file ? await api.uploadPhoto(file, 'avatars') : null; await q(sb.rpc('set_avatar', { p_id: id, p_url: url })); if (me && id === me.id) me.avatar_url = url; return url; },
@@ -1314,6 +1346,9 @@ window.makeSupabaseApi = function (cfg) {
       return q(sb.from('customers').insert(row).select().single());
     },
 
+    shopDupes: (id, name, phone, tg) => q(sb.rpc('shop_dupes', { p_id: id || null, p_name: name || '', p_phone: phone || '', p_tg: tg || '' })),
+    shopDuplicates: () => q(sb.rpc('shop_duplicates')),
+    mergeCustomers: (keep, remove) => q(sb.rpc('merge_customers', { p_keep: keep, p_remove: remove })),
     reviewCustomer: (id, status, note) => q(sb.rpc('review_customer', { p_id: id, p_status: status, p_note: note || null })),
     setCustomerLocation: (id, lat, lng) => q(sb.rpc('set_customer_location', { p_id: id, p_lat: lat, p_lng: lng })),
     async deleteCustomer(id) {
@@ -1599,7 +1634,7 @@ window.makeSupabaseApi = function (cfg) {
 // can be tried before the real database is set up. Same functions as the
 // real backend, same rules (who can approve, stock checks, chat rules).
 window.makeDemoApi = function () {
-  const KEY = 'kt_demo_v36';
+  const KEY = 'kt_demo_v39';
   const now = () => new Date().toISOString();
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 120));
@@ -1629,7 +1664,7 @@ window.makeDemoApi = function () {
       if (/^shop/.test(ev)) Object.assign(S, { order_no: '', amount: '', items: '', payment: '', note: '' });
       if (/^expense/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '20,000៛ ($4.88)', items: '', payment: '', detail: 'Gasoline · 29 Sep', note: 'Moto fuel' });
       if (/^leave/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: '', payment: '', detail: 'Annual leave · 02 Oct – 03 Oct (2 days)', note: 'Family' });
-      if (/^staff/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', rep: '', amount: '', items: '', payment: '', note: '', detail: ev === 'staff_late' ? 'Started 08:40 · 40 min late' : ev === 'staff_checkout' ? 'Worked 9h 5m' : 'Started 07:55' });
+      if (/^staff/.test(ev)) Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', rep: '', amount: '', items: '', payment: '', note: '', detail: ev === 'staff_late' ? 'Started 08:40 · ⏰ 40 min late · 📍 at the office (40 m)' : ev === 'staff_checkout' ? 'Finished 17:35 · worked 9h 5m · 📍 at the office (25 m)' : 'Started 07:55 · on time · 📍 at the office (30 m)' });
       if (ev === 'stock_low') Object.assign(S, { order_no: '', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '', items: 'Power bank 10000mAh', payment: '', note: '', detail: '4 left · warning at 20' });
       if (ev === 'goods_received') Object.assign(S, { order_no: 'PO-00012', shop: '', owner: '', phone: '', shop_tg: '', area: '', map: '', rep: '', amount: '$1,904.45', items: '65W GaN charger ×200, USB-C cable ×500', payment: '', detail: 'From Shenzhen Supplier', note: '' });
       if (ev === 'order_returned') S.detail = 'Refunded $245.00 (cash)';
@@ -1685,6 +1720,14 @@ window.makeDemoApi = function () {
         '   … and ' + (k ? 236 : 195) + ' more (see Customers in the app)', k ? '• ⏰ Not visited for 30+ days: 12' : '• ⏰ Not visited for 30+ days: 9', k ? '• 💤 No order for 30+ days: 34 · never ordered: 150' : '• 💤 No order for 30+ days: 27 · never ordered: 131'].join('\n'); }
   };
   const clone = (x) => JSON.parse(JSON.stringify(x));
+  // same rules as the database: phone numbers as 855…, Telegram username as u:name; names without spaces/punctuation
+  const shopKeys = (phone, tg) => { const out = new Set();
+    String((phone || '') + '/' + (tg || '')).split(/\s*[\/,;|]\s*|\s+or\s+/i).forEach(part => {
+      let t = part.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?(t\.me|telegram\.me|telegram\.dog)\//, '').replace(/^@/, ''); if (!t) return;
+      if (/^\+?[0-9 ().-]+$/.test(t)) { let d = t.replace(/\D/g, ''); if (d.length < 8 || d.length > 15) return; if (d.startsWith('0')) d = '855' + d.slice(1); else if (!d.startsWith('855') && d.length <= 9) d = '855' + d; out.add(d); }
+      else if (/^[a-z][a-z0-9_]{3,31}$/.test(t)) out.add('u:' + t); });
+    return [...out]; };
+  const shopNameKey = n => String(n || '').toLowerCase().replace(/[\s!-\/:-@\[-`{-~]/g, '') || null;
   const fail = (m) => { throw new Error(m); };
 
   const localDay0 = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
@@ -1694,8 +1737,10 @@ window.makeDemoApi = function () {
       U('u-lee', 'lee', 'Mr. Lee', 'admin'), U('u-sophea', 'sophea', 'Sophea', 'manager'),
       U('u-kimlong', 'kimlong', 'Chhin Kimlong', 'sales'), U('u-sokha', 'sokha', 'Sokha Chan', 'sales'),
       U('u-vanna', 'vanna', 'Vanna', 'warehouse'), U('u-dara', 'dara', 'Dara', 'driver'),
-      U('u-rotha', 'rotha', 'Rotha Kim', 'sales', false), U('u-bopha', 'bopha', 'Bopha (friend)', 'guest')
+      U('u-rotha', 'rotha', 'Rotha Kim', 'sales', false), U('u-bopha', 'bopha', 'Bopha (friend)', 'guest'),
+      U('u-rithy', 'rithy', 'Rithy (team leader)', 'supervisor'), U('u-malis', 'malis', 'Malis (accountant)', 'accountant'), U('u-dina', 'dina', 'Dina (main-stock rep)', 'agent')
     ];
+    users.find(u => u.id === 'u-kimlong').supervisor_id = 'u-rithy';   // Kimlong is in Rithy's sales team
     const P = (id, sku, name, category, price, min_stock) => ({ id, sku, name, category, price, cost: +(price * 0.6).toFixed(2), min_stock, active: true, created_at: ago(9000) });
     const products = [
       P(1, 'KT-C01', 'USB-C cable 1m', 'Cables', 1.2, 50), P(2, 'KT-C02', 'Lightning cable 1m', 'Cables', 1.5, 40),
@@ -1719,7 +1764,8 @@ window.makeDemoApi = function () {
       C(8, 'Kampot Accessories', 'Ms. Chanthy', '097 555 666', 'Old Market', 10.6104, 104.1810, 'Retail', 0, 'Kampot', 'u-sokha'),
       C(9, 'Sihanoukville Mobile', 'Mr. Kosal', '016 777 888', 'Psar Leu', 10.6275, 103.5220, 'Wholesale A', 30, 'Preah Sihanouk', 'u-kimlong'),
       C(10, 'Kep Phone Corner', 'Ms. Dalin', '081 222 999', 'Kep Market', 10.4830, 104.3170, 'Retail', 0, 'Kep', 'u-kimlong'),
-      C(11, 'Takeo Mobile World', 'Mr. Vanny', '077 444 101', 'Takeo town', 10.9908, 104.7850, 'Retail', 0, 'Takeo', 'u-sokha')
+      C(11, 'Takeo Mobile World', 'Mr. Vanny', '077 444 101', 'Takeo town', 10.9908, 104.7850, 'Retail', 0, 'Takeo', 'u-sokha'),
+      C(12, 'Dina Phone Shop', 'Ms. Dina', '085 321 654', 'Olympic Market', 11.5560, 104.9230, 'Retail', 0, 'Phnom Penh', 'u-dina')
     ];
     [['1203', '120301', '12030101'], ['1203', '120302', '12030201'], ['1203', '120307', '12030702'], ['1204', '120404', '12040401'], ['1710', '171001', '17100101'], ['0811', null, null]].forEach(([d, m, v], i) => { customers[i].district = d; customers[i].commune = m; customers[i].village = v; });
     customers.forEach(c => { if (c.district) delete c.address; });
@@ -1730,7 +1776,8 @@ window.makeDemoApi = function () {
     const REP = {}; customers.forEach(c => { REP[c.id] = c.assigned_to; });
     const D = { users, warehouses: [{ id: 1, name: 'Main warehouse', rep_id: null }, { id: 2, name: 'Branch 2 · Toul Kork', rep_id: null },
       { id: 3, name: 'Rep stock · Chhin Kimlong', rep_id: 'u-kimlong' }, { id: 4, name: 'Rep stock · Sokha Chan', rep_id: 'u-sokha' }], products, stock, moves: [], customers,
-      orders: [], items: [], events: [], convs: [], members: [], messages: [], visits: [], seq: { order: 0, item: 0, event: 0, conv: 0, msg: 0, visit: 0, move: 0, product: 10, customer: 11 } };
+      orders: [], items: [], events: [], convs: [], members: [], messages: [], visits: [], seq: { order: 0, item: 0, event: 0, conv: 0, msg: 0, visit: 0, move: 0, product: 10, customer: 12 } };
+    D.products.forEach(p => { p.staff_orderable = p.id !== 4; });   // demo: the 65W charger is switched off for main-stock reps
 
     const conv = (kind, title, extra = {}) => { const c = Object.assign({ id: ++D.seq.conv, kind, title, slug: null, order_id: null, created_by: 'u-lee', created_at: ago(9000), last_message_at: ago(9000) }, extra); D.convs.push(c); return c; };
     const member = (c, u, read = now()) => D.members.push({ conversation_id: c.id, user_id: u, last_read_at: read, is_admin: c.kind === 'group' && u === c.created_by });
@@ -1859,7 +1906,7 @@ window.makeDemoApi = function () {
     buy(3, 'USD', 1, 0, [[5, 400, 0.7], [6, 300, 0.7], [9, 100, 1.2]], 30000, 'received', [[300, 'cash', 29000]]);
     buy(2, 'CNY', 7.2, 45, [[7, 60, 40], [4, 50, 50]], 12000, 'received', [[400, 'bank', 12000]]);
     buy(1, 'CNY', 7.2, 80, [[1, 400, 4.3], [10, 150, 12]], 2000, 'ordered', [[150, 'bank', 1900]]);
-    D.settings = { company_name: 'K-TRONiCS', company_tagline: 'Phone accessories wholesale', company_address: 'Phnom Penh, Cambodia', company_phone: '012 345 678', invoice_note: 'ABA: 000 123 456 · K-TRONiCS CO., LTD', company_logo: '', invoice_footer: 'Thank you for your business!', commission_default: '2', commission_bonus: '1', work_start: '08:00', work_end: '17:30', allow_signup: 'false' };
+    D.settings = { invoice_message: 'Thank you {shop} for your order!\nInvoice {invoice} · Total {total} · Still to pay {balance}', company_name: 'K-TRONiCS', company_tagline: 'Phone accessories wholesale', company_address: 'Phnom Penh, Cambodia', company_phone: '012 345 678', invoice_note: 'ABA: 000 123 456 · K-TRONiCS CO., LTD', company_logo: '', invoice_footer: 'Thank you for your business!', commission_default: '2', commission_bonus: '1', work_start: '08:00', work_end: '17:30', allow_signup: 'false' };
     D.crates = { 'u-sokha': 2.5 };
     D.hr = { 'u-sophea': { position: 'Sales manager', start_date: '2023-02-01', base_salary: 450, annual_leave_days: 18, emergency_contact: '', notes: '' },
       'u-kimlong': { position: 'Sales rep', start_date: '2024-05-10', base_salary: 280, annual_leave_days: 18, emergency_contact: 'Brother 012 555 777', notes: '' },
@@ -1900,6 +1947,14 @@ window.makeDemoApi = function () {
   let D;
   try { D = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { D = null; }
   if (!D) D = seed();
+
+  // 14 Oct: Staff Check-in Alerts channel (all staff), office location for the demo, today's check-ins as sample alerts
+  if (D && D.convs && !D.convs.some(c => c.slug === 'attendance_alerts')) {
+    D.settings = Object.assign({ office_lat: '11.5602', office_lng: '104.9205' }, D.settings || {});
+    const c = { id: ++D.seq.conv, kind: 'channel', title: 'Staff Check-in Alerts', slug: 'attendance_alerts', order_id: null, created_by: 'u-lee', created_at: now(), last_message_at: now(), all_staff: true };
+    D.convs.push(c); (D.users || []).filter(u => u.active && u.role !== 'guest').forEach(u => D.members.push({ conversation_id: c.id, user_id: u.id, last_read_at: now(), is_admin: false }));
+    D.attAlertsSeed = true;
+  }
   // Telegram shop demo: switched on, one shop linked, one order came from Telegram
   if (!D.shopSeeded && D.customers && D.orders) {
     D.shopSeeded = true; D.settings = Object.assign({ shop_enabled: 'true', shop_app_name: 'shop', shop_min_order: '10', shop_allow_credit: 'true', shop_notify: 'true' }, D.settings || {});
@@ -1914,7 +1969,7 @@ window.makeDemoApi = function () {
   const orderSubs = [];
 
   const user = id => D.users.find(u => u.id === id);
-  const publicUser = u => { const x = clone(u); delete x.password; if (me && u.id === me.id) x.perms = permsOf(); return x; };
+  const publicUser = u => { ensureDepts(); const x = clone(u); delete x.password; if (me && u.id === me.id) { x.perms = permsOf(); x.heads = headsOf(u.id); } return x; };
   const role = () => (me && me.active ? me.role : null);
   const hasRole = (...r) => r.includes(role());
   const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; } };
@@ -1932,10 +1987,20 @@ window.makeDemoApi = function () {
     if (pay === 'credit') { due = o.due_date; if (!due) { const d = new Date(); d.setDate(d.getDate() + ((D.customers.find(c => c.id === cid) || {}).credit_days || 0)); due = d.toISOString().slice(0, 10); } }
     return { payment_method: pay, due_date: due };
   };
-  const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id);
+  // departments (made the first time they are needed)
+  const ensureDepts = () => { if (D.departments) return;
+    D.departments = [['Management', 'u-lee'], ['Sales', 'u-rithy'], ['Warehouse & Delivery', 'u-vanna'], ['Accounting & Finance', 'u-malis'], ['HR & Admin', null], ['Purchasing', null]]
+      .map(([name, head], i) => ({ id: i + 1, name, head_id: D.users.some(u => u.id === head) ? head : null, active: true, sort: i + 1 }));
+    const put = { 'u-lee': 1, 'u-sophea': 1, 'u-rithy': 2, 'u-kimlong': 2, 'u-sokha': 2, 'u-rotha': 2, 'u-vanna': 3, 'u-dara': 3, 'u-malis': 4, 'u-dina': 2 };
+    D.users.forEach(u => { if (u.department_id === undefined) u.department_id = put[u.id] || null; }); D.deptAnn = D.deptAnn || []; };
+  const headsOf = uid => { ensureDepts(); return D.departments.filter(d => d.head_id === uid).map(d => d.id); };
+  const headOf = uid => !!me && uid !== me.id && headsOf(me.id).includes((D.users.find(u => u.id === uid) || {}).department_id);
+  const inMyTeam = uid => !!uid && !!me && role() === 'supervisor' && ((D.users.find(u => u.id === uid) || {}).supervisor_id === me.id || headOf(uid));
+  const canSeeShop = c => !!c && (allow('customers.view_all') || c.assigned_to === me.id || inMyTeam(c.assigned_to));
+  const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id || inMyTeam(o.sales_rep_id) || inMyTeam(o.created_by));
   const isMember = (cid, uid) => D.members.some(m => m.conversation_id === cid && m.user_id === uid);
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
-  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits'];
+  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance'];
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
   const canPost = c => !c ? false : SYS_ALERT.includes(c.slug) || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
@@ -1957,9 +2022,25 @@ window.makeDemoApi = function () {
     setTimeout(() => subs.forEach(fn => { try { fn(clone(m)); } catch (e) {} }), 0);
     return m;
   }
-  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts'];
-  const alertSlug = t => t === 'stock' ? 'stock_alerts' : t === 'visits' ? 'visit_alerts' : 'alerts';
+  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts', 'attendance_alerts'];
+  const alertSlug = t => t === 'stock' ? 'stock_alerts' : t === 'visits' ? 'visit_alerts' : t === 'attendance' ? 'attendance_alerts' : 'alerts';
   const alert = (body, meta, type) => D.convs.filter(c => c.slug === alertSlug(type) || (type && (c.alert_types || []).includes(type))).forEach(c => pushMessage(c.id, null, 'system', body, meta));
+
+  // check-in alerts (same words as the database): late minutes, place from the office, map
+  const lateGraceD = () => { try { const g = JSON.parse((D.settings || {}).payroll_rules || '{}').late_grace; return g != null && g !== '' ? +g : 5; } catch (e) { return 5; } };
+  const lateMin = iso => { const d = new Date(iso); if (d.getDay() === 0) return 0; const [h, m] = String((D.settings || {}).work_start || '08:00').split(':').map(Number);
+    const mins = d.getHours() * 60 + d.getMinutes() - (h * 60 + m); return mins > lateGraceD() ? mins : 0; };
+  const officePlace = (lat, lng) => { if (lat == null) return '❓ no GPS'; const st = D.settings || {}; if (!st.office_lat || !st.office_lng) return null;
+    const m = Math.round(geoM(+st.office_lat, +st.office_lng, lat, lng)); return m <= 300 ? '📍 at the office (' + m + ' m)' : '⚠️ ' + (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m + ' m') + ' from the office'; };
+  const hm2 = iso => { const d = new Date(iso); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const attAlert = (a, out) => { const who = (user(a.staff_id) || {}).full_name || 'Someone'; let t, meta;
+    if (!out) { const lm = lateMin(a.check_in_at), pl = officePlace(a.in_lat, a.in_lng);
+      t = (lm ? '⏰ ' : '🕗 ') + who + ' started work ' + hm2(a.check_in_at) + (lm ? ' · ' + lm + ' min late' : ' · on time') + (pl ? ' · ' + pl : '') + (a.note && a.note.trim() ? '\nNote: ' + a.note.trim() : '');
+      meta = { att_id: a.id, photo: a.photo_url || undefined, late: lm > 0, far: !!(pl && pl.startsWith('⚠️')), map: a.in_lat != null ? 'https://maps.google.com/?q=' + a.in_lat + ',' + a.in_lng : undefined };
+    } else { const pl = officePlace(a.out_lat, a.out_lng), mins = Math.max(0, Math.round((new Date(a.check_out_at) - new Date(a.check_in_at)) / 60000));
+      t = '🏠 ' + who + ' finished work ' + hm2(a.check_out_at) + ' · worked ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' + (pl ? ' · ' + pl : '');
+      meta = { att_id: a.id, out: true, far: !!(pl && pl.startsWith('⚠️')), map: a.out_lat != null ? 'https://maps.google.com/?q=' + a.out_lat + ',' + a.out_lng : undefined }; }
+    Object.keys(meta).forEach(k => meta[k] === undefined && delete meta[k]); alert(t, meta, 'attendance'); };
   const who = id => (user(id) || {}).full_name || 'Someone';
   const shopName = id => (D.customers.find(c => c.id === id) || {}).name || 'shop';
   const geoM = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, s1 = Math.sin(r(c - a) / 2), s2 = Math.sin(r(d - b) / 2);
@@ -1995,6 +2076,10 @@ window.makeDemoApi = function () {
     } else if (o.status === 'paid' && o.paid_amount < o.total) { o.status = 'delivered'; o.updated_at = now(); }
     notifyOrder(o);
   }
+  if (D.attAlertsSeed) { delete D.attAlertsSeed; const t0 = localDay0(new Date());
+    D.attendance.filter(a => a.work_date === t0).sort((x, y) => new Date(x.check_in_at) - new Date(y.check_in_at)).forEach((a, i) => {
+      a.in_lat = 11.5602 + (i === 1 ? 0.0132 : 0.0004); a.in_lng = 104.9205 + (i === 1 ? 0.004 : 0.0003); attAlert(a, false); if (a.check_out_at) attAlert(a, true); });
+    save(); }
   const payOut = p => { const o = D.orders.find(x => x.id === p.order_id) || {}, c = D.customers.find(x => x.id === p.customer_id) || {};
     return Object.assign(clone(p), { orders: { order_no: o.order_no, total: o.total, paid_amount: o.paid_amount, status: o.status }, customers: { name: c.name, province: c.province, assigned_to: c.assigned_to },
       receiver: { full_name: (user(p.received_by) || {}).full_name }, confirmer: p.confirmed_by ? { full_name: (user(p.confirmed_by) || {}).full_name } : null }); };
@@ -2006,7 +2091,7 @@ window.makeDemoApi = function () {
   const userAllow = (uid, perm) => { ensurePerms(); const u = user(uid); if (!u || !u.active) return false; if (u.role === 'admin') return true; const x = (D.userPerms[uid] || {})[perm]; return x !== undefined ? x : !!(D.rolePerms[u.role] || {})[perm]; };
   function notify(uid, title, body, link) { if (!uid || (me && uid === me.id)) return; D.notifs = D.notifs || []; const n = { id: (D.seq.notif = (D.seq.notif || 0) + 1), user_id: uid, kind: 'info', title, body: body || '', link: link || '#/home', read_at: null, created_at: now() }; D.notifs.push(n);
     setTimeout(() => { if (api.onNotify && me && me.id === uid) api.onNotify(clone(n)); }, 0); }
-  const notifyPerm = (perm, title, body, link) => D.users.filter(u => userAllow(u.id, perm)).forEach(u => notify(u.id, title, body, link));
+  const notifyPerm = (perm, title, body, link, rep) => D.users.filter(u => userAllow(u.id, perm) && (u.role !== 'supervisor' || (rep && (D.users.find(x => x.id === rep) || {}).supervisor_id === u.id))).forEach(u => notify(u.id, title, body, link));
   const localDay = iso => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
   const notifyOrder = o => setTimeout(() => orderSubs.forEach(fn => { try { fn(clone(o)); } catch (e) {} }), 0);
 
@@ -2056,14 +2141,14 @@ window.makeDemoApi = function () {
       const username = String(x.username || '').trim().toLowerCase();
       if (!/^[a-z0-9._]{3,24}$/.test(username)) fail('Username: 3–24 letters or numbers, no spaces');
       if (!(x.full_name || '').trim()) fail('Enter the full name');
-      if (String(x.password || '').length < 6) fail('The password needs at least 6 characters');
+      if (String(x.password || '').length < 8) fail('The password needs at least 8 characters');
       if (D.users.some(u => u.username === username)) fail('The username "' + username + '" is already used');
       const u = { id: 'u-' + username + '-' + Date.now(), username, full_name: x.full_name.trim(), role: x.role, active: true, phone: x.phone || '', created_at: now(), password: x.password };
       D.users.push(u); joinChannels(u); ensureRepStock(u); save(); return wait(u.id);
     },
     async listNameHistory() { return wait(clone((D.namehist || []).slice().sort((a, b) => a.changed_at.localeCompare(b.changed_at)))); },
-    async setStaffPassword(id, pw) { if (!hasRole('admin')) fail('Only the admin can reset passwords'); if (String(pw).length < 6) fail('The password needs at least 6 characters'); user(id).password = pw; save(); return wait(null); },
-    async changeMyPassword(pw) { if (String(pw).length < 6) fail('The password needs at least 6 characters'); user(me.id).password = pw; save(); return wait(null); },
+    async setStaffPassword(id, pw) { if (!hasRole('admin')) fail('Only the admin can reset passwords'); if (String(pw).length < 8) fail('The password needs at least 8 characters'); user(id).password = pw; save(); return wait(null); },
+    async changeMyPassword(pw) { if (String(pw).length < 8) fail('The password needs at least 8 characters'); user(me.id).password = pw; save(); return wait(null); },
     async setAvatar(id, file) { if (!(id === me.id || hasRole('admin'))) fail('You can only change your own photo'); const url = file ? await api.uploadPhoto(file, 'avatars') : null; user(id).avatar_url = url; save(); return wait(url); },
     me: () => me && publicUser(me),
     refreshMe: async () => me && publicUser(me),
@@ -2081,6 +2166,37 @@ window.makeDemoApi = function () {
       if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
     },
 
+    async setProductsOrderable(ids, on) { if (!allow('stock.manage')) fail('You are not allowed to change products'); let n = 0; D.products.forEach(p => { if (ids.includes(p.id)) { p.staff_orderable = !!on; n++; } }); save(); return wait(n); },
+    async listDepartments() { if (!role()) return []; ensureDepts(); return wait(clone(D.departments).sort((a, b) => a.sort - b.sort)); },
+    async saveDepartment(id, name, head, active) {
+      if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin or HR can change departments'); ensureDepts();
+      const nm = String(name || '').trim(); if (!nm) fail('Enter the department name');
+      if (D.departments.some(d => d.name.toLowerCase() === nm.toLowerCase() && d.id !== id)) fail('There is already a department called ' + nm);
+      if (id) Object.assign(D.departments.find(d => d.id === id), { name: nm, head_id: head || null, active: active !== false });
+      else { id = Math.max(0, ...D.departments.map(d => d.id)) + 1; D.departments.push({ id, name: nm, head_id: head || null, active: true, sort: id }); }
+      save(); return wait(id);
+    },
+    async deleteDepartment(id) { if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin or HR can change departments'); ensureDepts();
+      if (D.users.some(u => u.active && u.department_id === id)) fail('Move the staff in this department to another department first');
+      D.departments = D.departments.filter(d => d.id !== id); save(); return wait(null); },
+    async setStaffOrg(id, dept, reportsTo) {
+      if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin or HR can change this'); ensureDepts();
+      if (reportsTo && reportsTo === id) fail('A person cannot report to themselves');
+      const u = user(id); if (!u) fail('Staff not found'); u.department_id = dept || null; u.supervisor_id = reportsTo || null; save(); return wait(null);
+    },
+    async announceDepartment(dept, body) { ensureDepts(); const d = D.departments.find(x => x.id === dept);
+      if (!d) fail('Department not found'); if (!(allow('chat.announce') || d.head_id === me.id)) fail('You are not allowed to post announcements');
+      if (!String(body || '').trim()) fail('Write the announcement first');
+      D.deptAnn.unshift({ id: Date.now(), department: d.name, body: String(body).trim(), sender: me.full_name, created_at: now() });
+      D.users.filter(u => u.active && u.department_id === dept && u.id !== me.id).forEach(u => notify(u.id, d.name + ' announcement', String(body).trim().slice(0, 120), '#/chat'));
+      save(); return wait(1); },
+    async departmentAnnouncements() { ensureDepts(); return wait(allow('chat.announce') ? clone(D.deptAnn) : []); },
+    async setSupervisor(id, sup) {
+      if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin or HR can change teams');
+      if (sup && sup === id) fail('A person cannot be their own team leader');
+
+      user(id).supervisor_id = sup || null; save(); return wait(null);
+    },
     async listWarehouses() { return wait(clone(D.warehouses)); },
     async deleteProduct(id) {
       if (!allow('stock.manage')) fail('You are not allowed to delete products');
@@ -2132,7 +2248,7 @@ window.makeDemoApi = function () {
 
     async listCustomers() {
       if (!role()) return [];
-      return wait(D.customers.filter(c => allow('customers.view_all') || c.assigned_to === me.id).map(c => Object.assign(clone(c), {
+      return wait(D.customers.filter(c => canSeeShop(c)).map(c => Object.assign(clone(c), {
         rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null,
         owed: +D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered').reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2),
         oldest_unpaid_at: D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered' && o.total > (o.paid_amount || 0)).map(o => o.delivered_at || o.updated_at).sort()[0] || null,
@@ -2176,7 +2292,7 @@ window.makeDemoApi = function () {
       if (!to) fail('Choose the dates'); if (from && from > to) fail('The start date is after the end date'); if (!what || !what.length) fail('Tick what to clear');
       const day = t => { const d = new Date(t); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
       const inR = d => d && d <= to && (!from || d >= from), r = {};
-      if (what.includes('orders')) { const ids = D.orders.filter(o => inR(day(o.created_at))).map(o => o.id); r.orders = ids.length; r.order_payments = D.payments.filter(p => ids.includes(p.order_id)).length;
+      if (what.includes('orders')) { const ids = D.orders.filter(o => !o.is_opening && inR(day(o.created_at))).map(o => o.id); r.orders = ids.length; r.order_payments = D.payments.filter(p => ids.includes(p.order_id)).length;
         if (!preview) { D.orders = D.orders.filter(o => !ids.includes(o.id)); D.items = D.items.filter(i => !ids.includes(i.order_id)); D.events = D.events.filter(e => !ids.includes(e.order_id)); D.payments = D.payments.filter(p => !ids.includes(p.order_id));
           const cv = D.convs.filter(c => ids.includes(c.order_id)).map(c => c.id); D.convs = D.convs.filter(c => !cv.includes(c.id)); D.messages = D.messages.filter(m => !cv.includes(m.conversation_id)); } }
       if (what.includes('payments')) { const ps = D.payments.filter(p => inR(day(p.received_at))); r.payments = ps.length;
@@ -2188,6 +2304,10 @@ window.makeDemoApi = function () {
         if (!preview) { D.attendance = (D.attendance || []).filter(x => !a.includes(x)); D.leave = (D.leave || []).filter(x => !lv.includes(x)); } }
       if (what.includes('chat')) { const l = D.messages.filter(m => inR(day(m.created_at))); r.messages = l.length; if (!preview) D.messages = D.messages.filter(m => !l.includes(m)); }
       if (what.includes('notifications')) { const l = (D.notifs || []).filter(x => inR(day(x.created_at))); r.notifications = l.length; if (!preview) D.notifs = (D.notifs || []).filter(x => !l.includes(x)); }
+      if (what.includes('office')) { api._office(); const l = D.office.filter(e => inR(e.spent_on)); r.office = l.length; if (!preview) D.office = D.office.filter(e => !l.includes(e)); }
+      if (what.includes('payroll')) { api._pay(); const l = D.payLines.filter(x => inR(x.month)), a = D.advances.filter(x => inR(x.given_on)); r.payroll = l.length; r.advances = a.length;
+        if (!preview) { D.advances.forEach(x => { if (x.payroll_month && inR(x.payroll_month)) x.payroll_month = null; }); D.payLines = D.payLines.filter(x => !l.includes(x)); D.advances = D.advances.filter(x => !a.includes(x)); } }
+      if (what.includes('owner')) { api._owner(); const l = D.owner.filter(x => inR(x.day)); r.owner = l.length; if (!preview) D.owner = D.owner.filter(x => !l.includes(x)); }
       if (!preview) save();
       return wait(r);
     },
@@ -2220,6 +2340,33 @@ window.makeDemoApi = function () {
       let n = 0; if (moveTo) { if (!D.pcats.includes(moveTo)) D.pcats.push(moveTo); D.products.forEach(p => { if (p.category === name) { p.category = moveTo; n++; } }); }
       D.pcats = D.pcats.filter(c => c !== name); save(); return wait(n);
     },
+    async shopDupes(id, name, phone, tg) {
+      if (!role()) return [];
+      const k = shopKeys(phone, tg), n = shopNameKey(name);
+      return wait(D.customers.filter(c => c.id !== id && (shopKeys(c.phone, c.telegram).some(x => k.includes(x)) || (n && shopNameKey(c.name) === n))).slice(0, 8)
+        .map(c => ({ id: c.id, name: c.name, area: c.area, province: c.province, status: c.status, rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null,
+          match: shopKeys(c.phone, c.telegram).some(x => k.includes(x)) ? 'contact' : 'name' })));
+    },
+    async shopDuplicates() {
+      if (!(role() === 'admin' || allow('customers.manage'))) fail('Only the admin can see this');
+      const keys = new Map(D.customers.map(c => [c.id, shopKeys(c.phone, c.telegram).concat(shopNameKey(c.name) ? ['n:' + shopNameKey(c.name)] : [])]));
+      const cnt = {}; keys.forEach(ks => ks.forEach(k => cnt[k] = (cnt[k] || 0) + 1));
+      return wait(D.customers.filter(c => keys.get(c.id).some(k => cnt[k] > 1)).map(c => ({ id: c.id, name: c.name, phone: c.phone, telegram: c.telegram, area: c.area, province: c.province,
+        status: c.status, created_at: c.created_at, rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null, keys: keys.get(c.id).filter(k => cnt[k] > 1),
+        orders: D.orders.filter(o => o.customer_id === c.id).length, visits: D.visits.filter(v => v.customer_id === c.id).length })));
+    },
+    async mergeCustomers(keep, remove) {
+      if (role() !== 'admin') fail('Only the admin can merge shops');
+      const k = D.customers.find(c => c.id === keep), r = D.customers.find(c => c.id === remove);
+      if (!k || !r || keep === remove) fail('Choose two different shops');
+      const mv = list => { let n = 0; (list || []).forEach(x => { if (x.customer_id === remove) { x.customer_id = keep; n++; } }); return n; };
+      const out = { orders: mv(D.orders), payments: mv(D.payments), visits: mv(D.visits) };
+      if (D.locFix) D.locFix = D.locFix.filter(x => x.customer_id !== remove);
+      if (k.lat == null && r.lat != null) { k.lat = r.lat; k.lng = r.lng; }
+      if (!k.map_url) k.map_url = r.map_url; if (!k.owner_name) k.owner_name = r.owner_name;
+      if (r.notes && !(k.notes || '').includes(r.notes)) k.notes = [k.notes, r.notes].filter(Boolean).join(' · ');
+      D.customers = D.customers.filter(c => c.id !== remove); save(); return wait(out);
+    },
     async saveCustomer(c) {
       if (!role()) fail('Your account is not active');
       const row = { name: c.name, owner_name: c.owner_name || null, phone: c.phone || null, area: c.area || null, district: c.district || null, commune: c.commune || null, village: c.village || null,
@@ -2230,6 +2377,11 @@ window.makeDemoApi = function () {
         if (miss.length) fail('Please fill in: ' + miss.join(', ')); }
       if (c.assigned_to !== undefined && boss) row.assigned_to = c.assigned_to || null;
       if (c.credit_limit !== undefined && boss) row.credit_limit = +c.credit_limit || 0;
+      const prev = c.id && D.customers.find(x => x.id === c.id);
+      if (!boss && role() !== 'admin' && (!prev || prev.phone !== row.phone || prev.telegram !== row.telegram)) {
+        const k = shopKeys(row.phone, row.telegram), o = D.customers.find(x => x.id !== c.id && shopKeys(x.phone, x.telegram).some(y => k.includes(y)));
+        if (o) fail('This shop is already in the app: "' + o.name + '"' + (o.assigned_to ? ' (sales rep ' + (user(o.assigned_to) || {}).full_name + ')' : '') + '. Same phone or Telegram. Please ask the admin.');
+      }
       let out;
       if (c.id) {
         out = D.customers.find(x => x.id === c.id);
@@ -2265,7 +2417,7 @@ window.makeDemoApi = function () {
     },
     async reviewCustomer(id, status, note) {
       if (!allow('customers.approve')) fail('You are not allowed to approve shops');
-      const cu = D.customers.find(c => c.id === id); const before = cu.status; Object.assign(cu, { status, review_note: note || null });
+      const cu = D.customers.find(c => c.id === id); if (!canSeeShop(cu)) fail('This shop is not in your team'); const before = cu.status; Object.assign(cu, { status, review_note: note || null });
       if (before !== status && ['approved', 'rejected'].includes(status)) alert((status === 'approved' ? '✅ Shop approved: ' : '❌ Shop rejected: ') + cu.name + ' · by ' + me.full_name, { customer_id: id }, 'visits');
       if (['approved', 'rejected'].includes(status)) notify(cu.assigned_to, 'Shop ' + status, cu.name + (note ? ' · ' + note : ''), '#/customers/' + id);
       save(); return wait(null);
@@ -2283,6 +2435,7 @@ window.makeDemoApi = function () {
       if (ord.status !== 'pending') fail('This order is already approved and cannot be changed');
       if (!(ord.created_by === me.id || allow('orders.edit_any'))) fail('You cannot change this order');
       if (!o.items.length) fail('Add at least one product');
+      { const wh = D.warehouses.find(w => w.id === ord.warehouse_id); if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); }); }
       D.items = D.items.filter(i => i.order_id !== id);
       let total = 0; o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id), pr = priceFor(p, it); D.items.push({ id: ++D.seq.item, order_id: id, product_id: p.id, qty: it.qty, price: pr, cost: p.cost }); total += pr * it.qty; });
       checkCredit(ord.customer_id, total, id);
@@ -2332,12 +2485,13 @@ window.makeDemoApi = function () {
       demoPay(o, o.customer_id);
       if (!role()) fail('Your account is not active');
       if (!allow('orders.create')) fail('You are not allowed to create orders');
-      if (!allow('customers.view_all') && (D.customers.find(c => c.id === o.customer_id) || {}).assigned_to !== me.id) fail('This shop belongs to another sales rep');
+      if (!canSeeShop(D.customers.find(c => c.id === o.customer_id))) fail('This shop belongs to another sales rep');
       if ((D.customers.find(c => c.id === o.customer_id) || {}).status !== 'approved') fail('This shop is waiting for admin approval. You can order after it is approved.');
       if (!o.items || !o.items.length) fail('Add at least one product');
       const wh = D.warehouses.find(w => w.id === o.warehouse_id);
       if (wh && wh.rep_id && wh.rep_id !== me.id && !allow('stock.manage')) fail('You can only sell from your own stock');
-      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) fail('You can only sell from your own stock (the goods you carry)');
+      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main') || (allow('orders.catalog') && wh.id === Math.min(...D.warehouses.filter(w => !w.rep_id && !w.route_id).map(w => w.id))))) fail('You can only sell from your own stock (the goods you carry)');
+      if (wh && !wh.rep_id && !(allow('stock.manage') || allow('stock.view_main'))) o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); });
       let pre = 0; o.items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p) pre += priceFor(p, it) * it.qty; });
       checkCredit(o.customer_id, pre, null);
       const autoOk = allow('orders.approve');
@@ -2356,7 +2510,7 @@ window.makeDemoApi = function () {
       alert('New order ' + order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), { order_id: id }, 'orders');
       save(); notifyOrder(order);
       if (autoOk) await api.setOrderStatus(id, 'approved', 'Approved automatically');
-      else notifyPerm('orders.approve', 'New order to approve', order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), '#/orders/' + id);
+      else notifyPerm('orders.approve', 'New order to approve', order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name + ' · $' + total.toFixed(2), '#/orders/' + id, o.sales_rep_id);
       if (order.sales_rep_id !== me.id) notify(order.sales_rep_id, 'New order for your shop', order_no + ' · ' + D.customers.find(x => x.id === o.customer_id).name, '#/orders/' + id);
       return wait(id);
     },
@@ -2415,17 +2569,17 @@ window.makeDemoApi = function () {
     },
     async visitsBetween(from, to, staffId) {
       const f = new Date(from), t = new Date(to);
-      return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all')) && (!staffId || v.staff_id === staffId) && new Date(v.check_in_at) >= f && new Date(v.check_in_at) < t)
+      return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all') || inMyTeam(v.staff_id)) && (!staffId || v.staff_id === staffId) && new Date(v.check_in_at) >= f && new Date(v.check_in_at) < t)
         .sort((a, b) => new Date(a.check_in_at) - new Date(b.check_in_at)).map(v => Object.assign(clone(v), {
           customers: (({ name, area, lat, lng }) => ({ name, area, lat, lng }))(D.customers.find(c => c.id === v.customer_id) || {}), profiles: { full_name: user(v.staff_id).full_name } })));
     },
     async listVisits() {
-      return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all'))).sort((a, b) => b.id - a.id).map(v => Object.assign(clone(v), {
+      return wait(D.visits.filter(v => role() && (v.staff_id === me.id || allow('visits.view_all') || inMyTeam(v.staff_id))).sort((a, b) => b.id - a.id).map(v => Object.assign(clone(v), {
         customers: (({ name, area }) => ({ name, area }))(D.customers.find(c => c.id === v.customer_id)), profiles: { full_name: user(v.staff_id).full_name } })));
     },
     async getVisit(id) {
       const v = D.visits.find(x => x.id === id);
-      if (!v || !role() || !(v.staff_id === me.id || allow('visits.view_all'))) return wait(null);
+      if (!v || !role() || !(v.staff_id === me.id || allow('visits.view_all') || inMyTeam(v.staff_id))) return wait(null);
       const c = D.customers.find(x => x.id === v.customer_id) || {};
       return wait(Object.assign(clone(v), { customers: { name: c.name, area: c.area, phone: c.phone, lat: c.lat, lng: c.lng }, profiles: { full_name: user(v.staff_id).full_name } }));
     },
@@ -2436,7 +2590,7 @@ window.makeDemoApi = function () {
     async checkIn(v) {
       if (!role()) fail('Your account is not active');
       if (!allow('visits.create')) fail('You are not allowed to check in');
-      if (!allow('customers.view_all') && (D.customers.find(c => c.id === v.customer_id) || {}).assigned_to !== me.id) fail('This shop belongs to another sales rep');
+      if (!canSeeShop(D.customers.find(c => c.id === v.customer_id))) fail('This shop belongs to another sales rep');
       const photo_url = v.photo ? await api.uploadPhoto(v.photo) : null;
       const cu = D.customers.find(x => x.id === v.customer_id);
       if (v.save_loc && cu && cu.lat == null && v.lat != null) { cu.lat = v.lat; cu.lng = v.lng; cu.map_url = `https://www.google.com/maps?q=${v.lat},${v.lng}`; }
@@ -2805,7 +2959,10 @@ window.makeDemoApi = function () {
         collected: r2(D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at))).reduce((x, p) => x + +p.amount_usd, 0)),
         visits: D.visits.filter(v => inR(localDay(v.check_in_at))).length, new_shops: D.customers.filter(c => c.created_by && c.created_at && inR(localDay(c.created_at))).length,
         staff_exp: r2(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on)).reduce((x, e) => x + +e.amount_usd, 0)),
-        office: hasRole('admin') || allow('expenses.office') ? r2(D.office.filter(e => inR(e.spent_on)).reduce((x, e) => x + +e.amount_usd, 0)) : null, days }); },
+        office: hasRole('admin') || allow('expenses.office') ? r2(D.office.filter(e => inR(e.spent_on)).reduce((x, e) => x + +e.amount_usd, 0)) : null, days,
+        ...(() => { if (!(hasRole('admin') || allow('hr.manage'))) return { salaries: null, salary_months: null, salary_missing: null }; api._pay();
+          const ms = []; for (let d = new Date(a.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= b; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= a && m1 <= b) ms.push(m0); }
+          return { salaries: r2(D.payLines.filter(l => ms.includes(l.month)).reduce((x, l) => x + +l.gross, 0)), salary_months: ms.length, salary_missing: ms.filter(m => !D.payLines.some(l => l.month === m)) }; })() }); },
     async dashboardCash() { if (!hasRole('admin')) fail('Only the admin can see cash on hand'); api._owner();
       const t = localDay0(new Date()), m0 = t.slice(0, 8) + '01', o = D.cashOpening || null, month = api._cashMoves(m0, t), since = o ? api._cashMoves(o.day, t) : null;
       return wait({ today: t, month_from: m0, month, month_net: api._cashNet(month), opening_set: !!o, opening_day: o && o.day, opening_cash: o && o.cash, opening_bank: o && o.bank,
@@ -2916,7 +3073,7 @@ window.makeDemoApi = function () {
       if (!allow('reports.view')) return wait([]);
       const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1, bf = new Date(new Date(from) - days * 86400000).toISOString().slice(0, 10), bt = new Date(new Date(from) - 86400000).toISOString().slice(0, 10);
       const sale = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening), today = localDay(new Date().toISOString());
-      return wait(D.customers.filter(c => allow('customers.view_all') || c.assigned_to === me.id).map(c => { const mine = sale.filter(o => o.customer_id === c.id), ds = mine.map(o => localDay(o.created_at)).sort();
+      return wait(D.customers.filter(c => canSeeShop(c)).map(c => { const mine = sale.filter(o => o.customer_id === c.id), ds = mine.map(o => localDay(o.created_at)).sort();
         const inr = mine.filter(o => { const d = localDay(o.created_at); return d >= from && d <= to; }), bef = mine.filter(o => { const d = localDay(o.created_at); return d >= bf && d <= bt; });
         const vs = D.visits.filter(v => v.customer_id === c.id).map(v => localDay(v.check_in_at)).sort();
         return { customer_id: c.id, name: c.name, province: c.province, district: c.district, rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null, status: c.status, created_on: localDay(c.created_at),
@@ -3097,7 +3254,7 @@ window.makeDemoApi = function () {
     async listCommissionRates() { return wait(Object.entries(D.crates || {}).filter(([u]) => allow('hr.manage') || u === me.id).map(([user_id, rate]) => ({ user_id, rate }))); },
     async setCommissionRate(uid, rate) { if (!allow('hr.manage')) fail('You are not allowed to change commission'); D.crates = D.crates || {}; if (rate === '' || rate == null) delete D.crates[uid]; else D.crates[uid] = +rate; save(); return wait(null); },
     // ---------- attendance, leave, HR ----------
-    async listAttendance(from, to) { if (!role()) return []; return wait(D.attendance.filter(a => a.work_date >= from && a.work_date <= to && (a.staff_id === me.id || allow('attendance.view') || allow('hr.manage')))
+    async listAttendance(from, to) { if (!role()) return []; return wait(D.attendance.filter(a => a.work_date >= from && a.work_date <= to && (a.staff_id === me.id || allow('attendance.view') || allow('hr.manage') || headOf(a.staff_id)))
       .sort((a, b) => b.work_date.localeCompare(a.work_date)).map(a => Object.assign(clone(a), { profiles: { full_name: (user(a.staff_id) || {}).full_name } }))); },
     async livePing(lat, lng, acc) {
       const t = localDay0(new Date()), a = me && D.attendance.find(x => x.staff_id === me.id && x.work_date === t && !x.check_out_at); if (!a) return wait(false);
@@ -3126,20 +3283,21 @@ window.makeDemoApi = function () {
         .sort((x, y) => new Date(x.at) - new Date(y.at)));
     },
     async todayAttendance() { const t = localDay0(new Date()); return wait(clone(D.attendance.find(a => a.staff_id === me.id && a.work_date === t) || null)); },
-    async clockIn(lat, lng, photo, note) {
+    async clockIn(lat, lng, photo, note, pre) {
       if (!role()) fail('Your account is not active'); const t = localDay0(new Date());
       if (D.attendance.some(a => a.staff_id === me.id && a.work_date === t)) fail('You already started work today');
-      const photo_url = photo ? await api.uploadPhoto(photo) : null;
-      D.attendance.push({ id: ++D.seq.att, staff_id: me.id, work_date: t, check_in_at: now(), check_out_at: null, in_lat: lat, in_lng: lng, photo_url, note: note || '' }); save(); return wait(D.seq.att);
+      const photo_url = pre && pre.photo_url !== undefined ? pre.photo_url : photo ? await api.uploadPhoto(photo) : null;
+      D.attendance.push({ id: ++D.seq.att, staff_id: me.id, work_date: t, check_in_at: pre && pre.at || now(), check_out_at: null, in_lat: lat, in_lng: lng, photo_url, note: note || '' }); attAlert(D.attendance[D.attendance.length - 1], false); save(); return wait(D.seq.att);
     },
     async clockOut(lat, lng, note) { const t = localDay0(new Date()), a = D.attendance.find(x => x.staff_id === me.id && x.work_date === t && !x.check_out_at); if (!a) fail('You have not started work today');
-      Object.assign(a, { check_out_at: now(), out_lat: lat, out_lng: lng, note: note || a.note }); save(); return wait(null); },
-    async listLeave() { if (!role()) return []; return wait(D.leave.filter(l => l.staff_id === me.id || allow('hr.manage') || allow('attendance.view')).sort((a, b) => b.id - a.id).map(l => Object.assign(clone(l), { profiles: { full_name: (user(l.staff_id) || {}).full_name } }))); },
+      Object.assign(a, { check_out_at: now(), out_lat: lat, out_lng: lng, note: note || a.note }); attAlert(a, true); save(); return wait(null); },
+    async listLeave() { if (!role()) return []; return wait(D.leave.filter(l => l.staff_id === me.id || allow('hr.manage') || allow('attendance.view') || headOf(l.staff_id)).sort((a, b) => b.id - a.id).map(l => Object.assign(clone(l), { profiles: { full_name: (user(l.staff_id) || {}).full_name } }))); },
     async askLeave(x) { if (!role()) fail('Your account is not active'); if (!(+x.days > 0)) fail('Enter the number of days'); if (x.to_date < x.from_date) fail('The end date is before the start date');
       const l = { id: ++D.seq.leave, staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now() };
-      D.leave.push(l); notifyPerm('hr.manage', 'Leave request', me.full_name + ' · ' + l.days + ' day(s)', '#/leave'); save(); return wait(clone(l)); },
+      D.leave.push(l); notifyPerm('hr.manage', 'Leave request', me.full_name + ' · ' + l.days + ' day(s)', '#/leave');
+      { ensureDepts(); const d = D.departments.find(x => x.id === me.department_id); if (d && d.head_id && d.head_id !== me.id && !userAllow(d.head_id, 'hr.manage')) notify(d.head_id, 'Leave request', me.full_name + ' · ' + l.days + ' day(s)', '#/hr?t=leave'); } save(); return wait(clone(l)); },
     async deleteLeave(id) { const i = D.leave.findIndex(l => l.id === id && l.staff_id === me.id && l.status === 'pending'); if (i < 0) fail('Only your own waiting requests can be deleted'); D.leave.splice(i, 1); save(); return wait(null); },
-    async reviewLeave(id, status, note) { if (!allow('hr.manage')) fail('You are not allowed to approve leave'); const l = D.leave.find(x => x.id === id); Object.assign(l, { status, reviewed_by: me.id, review_note: note || null });
+    async reviewLeave(id, status, note) { const l = D.leave.find(x => x.id === id); if (!l) fail('Leave request not found'); if (!(allow('hr.manage') || headOf(l.staff_id))) fail('You are not allowed to approve leave'); if (l.staff_id === me.id && role() !== 'admin') fail('You cannot approve your own leave'); Object.assign(l, { status, reviewed_by: me.id, review_note: note || null });
       notify(l.staff_id, 'Leave ' + status, l.from_date + ' – ' + l.to_date, '#/leave'); save(); return wait(null); },
     async listStaffHr() { return wait(Object.entries(D.hr || {}).filter(([u]) => allow('hr.manage') || u === me.id).map(([user_id, h]) => Object.assign({ user_id }, clone(h)))); },
     async saveStaffHr(x) { if (!allow('hr.manage')) fail('You are not allowed to change staff details'); D.hr = D.hr || {};
@@ -3298,7 +3456,7 @@ window.makeDemoApi = function () {
       else if (kind === 'checkout') { const v = D.visits.find(x => x.id === +p.visit_id && x.staff_id === me.id); if (v && !v.check_out_at) { await api.checkOut(v.id, p.notes); v.check_out_at = when; } r = { id: v ? v.id : null }; }
       else if (kind === 'payment') { const id = await api.addPayment(Object.assign({}, p, { photo: null })); const row = D.payments.find(x => x.id === id); if (row) { row.received_at = when; row.photo_url = p.photo_url || null; } r = { id }; }
       else if (kind === 'expense') { const e = await api.saveExpense(Object.assign({}, p, { photo: null, receipt_url: p.receipt_url || null, spent_on: p.spent_on || when.slice(0, 10) })); r = { id: e.id }; }
-      else if (kind === 'clock_in') { const id = await api.clockIn(p.lat, p.lng, null, p.note); const a = D.attendance.find(x => x.id === id); if (a) { a.check_in_at = when; a.photo_url = p.photo_url || null; } r = { id }; }
+      else if (kind === 'clock_in') { const id = await api.clockIn(p.lat, p.lng, null, p.note, { at: when, photo_url: p.photo_url || null }); r = { id }; }
       else if (kind === 'clock_out') { await api.clockOut(p.lat, p.lng, p.note); r = { id: null }; }
       else fail('Unknown kind');
       D.offRefs[ref] = r; save(); return wait(r);
@@ -3611,7 +3769,12 @@ window.makeDemoApi = function () {
     'Koh Kong', 'Kratie', 'Mondulkiri', 'Oddar Meanchey', 'Pailin', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanakiri', 'Siem Reap',
     'Stung Treng', 'Svay Rieng', 'Takeo', 'Tbong Khmum'];
   const provinceOptions = (sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + PROVINCES.map(p => `<option ${p === sel ? 'selected' : ''}>${p}</option>`).join('');
-  const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', sales: 'Sales', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user' };
+  const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', supervisor: 'Sales supervisor', sales: 'Sales', agent: 'Sales rep (main stock)', accountant: 'Accountant', cashier: 'Cashier', hr: 'HR officer', purchasing: 'Purchasing', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user' };
+  const SELLERS = ['sales', 'supervisor', 'agent', 'manager', 'admin'];   // people who can look after shops
+  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
+    accountant: 'Money from shops, payments, reports, staff and office expenses, paying suppliers. No payroll.', cashier: 'Receives and confirms payments, sees what shops owe.',
+    hr: 'Staff details, attendance, leave, payroll and payslips. No sales money.', purchasing: 'Suppliers, purchase orders and receiving goods.',
+    warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
   const STATUS = {
     pending: ['Waiting approval', 'or'], approved: ['Approved', 'bl'], packed: ['Approved', 'bl'], delivering: ['Approved', 'bl'],
     delivered: ['Delivered · unpaid', 'or'], paid: ['Paid', 'gr'], cancelled: ['Cancelled', 'rd'], returned: ['Returned', 'rd']
@@ -3695,13 +3858,20 @@ window.makeDemoApi = function () {
     warehouses: f => ensure('warehouses', api.listWarehouses, f),
     orders: f => ensure('orders', api.listOrders, f),
     convs: f => ensure('convs', api.listConversations, f),
-    people: f => ensure('people', api.chatPeople, f)
+    people: f => ensure('people', api.chatPeople, f),
+    departments: f => ensure('departments', () => api.listDepartments ? api.listDepartments() : [], f)
   };
+  // departments: where people belong (role = what they may do)
+  const isDeptHead = () => !!S.me && S.me.active && (S.me.heads || []).length > 0;
+  const deptOf = uid => { const u = (S.cache.staff || []).find(x => x.id === uid) || (S.me && S.me.id === uid ? S.me : null); const d = u && (S.cache.departments || []).find(x => x.id === u.department_id); return d ? d.name : ''; };
+  const isHeadOf = uid => { if (!isDeptHead() || uid === S.me.id) return false; const u = (S.cache.staff || []).find(x => x.id === uid); return !!u && (S.me.heads || []).includes(u.department_id); };
   const forget = (...keys) => keys.forEach(k => delete S.cache[k]);
   const staffName = id => { const u = (S.cache.staff || []).find(x => x.id === id) || (S.cache.people || []).find(x => x.id === id); return u ? u.full_name : ''; };
   const can = (...roles) => !!S.me && roles.includes(S.me.role);
   const allow = p => !!S.me && S.me.active && (S.me.role === 'admin' || (S.me.perms || []).includes(p));
-  const repOptions = (staff, sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + staff.filter(u => u.active && ['sales', 'manager', 'admin'].includes(u.role))
+  // the admin web: the dashboard permission, or office work (HR, purchasing, money, reports)
+  const canAdminWeb = () => ['dashboard.view', 'hr.manage', 'attendance.view', 'purchases.manage', 'purchases.receive', 'payments.confirm', 'expenses.approve', 'expenses.office', 'reports.view'].some(allow) || isDeptHead();
+  const repOptions = (staff, sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + staff.filter(u => u.active && SELLERS.includes(u.role))
     .sort((a, b) => (a.role !== 'sales') - (b.role !== 'sales') || a.full_name.localeCompare(b.full_name))
     .map(u => `<option value="${esc(u.id)}" ${u.id === sel ? 'selected' : ''}>${esc(u.full_name)}${u.role !== 'sales' ? ' (' + ROLE_LABEL[u.role] + ')' : ''}</option>`).join('');
 
@@ -3775,7 +3945,7 @@ window.makeDemoApi = function () {
     if (fromNav === true) navSeq = seq;   // opened from the menu / a link: saved data may show first
     if (!S.me) return window.KT.screens.login();
     if (!S.me.active) return window.KT.screens.pending();
-    if (cfg.ADMIN && !allow('dashboard.view')) return window.KT.screens.notAdmin();
+    if (cfg.ADMIN && !canAdminWeb()) return window.KT.screens.notAdmin();
     const { path, query } = parseHash();
     // chat-only accounts (friends & family) only have Chat and More
     if (S.me.role === 'guest' && !/^\/(chat|more)(\/|$)/.test(path)) { location.replace('#/chat'); return; }
@@ -3856,7 +4026,7 @@ window.makeDemoApi = function () {
     location.hash = '#/home'; render();
   }
 
-  window.KT = { isVoid, isSale, ding, soundOn, setSound, allow, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
+  window.KT = { isVoid, isSale, ding, soundOn, setSound, allow, canAdminWeb, SELLERS, ROLE_HINTS, isDeptHead, deptOf, isHeadOf, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
     distanceM, icon, data, forget, staffName, can, toast, sheet, confirmSheet, busy, loading, emptyBox, page, header, tabbar, updateBadge,
     refreshUnread, route, go, render, ensure, afterLogin, logout, liveHandlers, screens: {}, loginHooks: [] };
 
@@ -3871,6 +4041,8 @@ window.makeDemoApi = function () {
 // Khmer words for the app. English text on screen is swapped for these when Khmer is chosen.
 // Add or fix any line: 'English text': 'ខ្មែរ',
 window.KT_KM = {
+  // full sales report
+  'Filter': 'តម្រង', 'Clear filters': 'លុបតម្រង', 'All sales': 'ការលក់ទាំងអស់', 'Pay on delivery': 'បង់ពេលដឹកដល់', 'Pieces sold': 'ចំនួនគ្រឿងបានលក់', 'Shops that bought': 'ហាងដែលបានទិញ', 'Average order': 'មធ្យមភាគការបញ្ជាទិញ', 'Sales by day': 'ការលក់តាមថ្ងៃ', 'Sales by month': 'ការលក់តាមខែ', 'Payments &amp; discounts': 'ការបង់ប្រាក់ និងការបញ្ចុះតម្លៃ', 'Payments & discounts': 'ការបង់ប្រាក់ និងការបញ្ចុះតម្លៃ', 'Fully paid orders': 'ការបញ្ជាទិញបង់គ្រប់', 'Partly paid': 'បង់ខ្លះ', 'Not paid at all': 'មិនទាន់បង់សោះ', 'Still to collect': 'នៅត្រូវប្រមូល', 'Overdue credit': 'ជំពាក់ហួសកាលកំណត់', 'Total collected': 'សរុបបានប្រមូល', 'Returns, cancellations and discounts': 'ការប្រគល់ត្រឡប់ ការលុបចោល និងការបញ្ចុះតម្លៃ', 'Sales by product': 'ការលក់តាមផលិតផល', 'Sales by category': 'ការលក់តាមប្រភេទ', 'Sales by shop': 'ការលក់តាមហាង', 'Sales by staff': 'ការលក់តាមបុគ្គលិក', 'Sales by department': 'ការលក់តាមផ្នែក', 'Sales by role': 'ការលក់តាមតួនាទី', 'Tap an order to see its products': 'ចុចលើការបញ្ជាទិញ ដើម្បីមើលផលិតផល', 'Open the order': 'បើកការបញ្ជាទិញ', 'Last order': 'ការបញ្ជាទិញចុងក្រោយ', 'Share': 'ភាគរយ', 'Gross profit (filtered)': 'ប្រាក់ចំណេញដុល (មានតម្រង)', 'No orders in these dates': 'គ្មានការបញ្ជាទិញក្នុងថ្ងៃទាំងនេះ', 'No sales in these dates': 'គ្មានការលក់ក្នុងថ្ងៃទាំងនេះ',
   'Only the admin or a manager can change banners': 'មានតែអ្នកកាន់កាប់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកែផ្ទាំងផ្សព្វផ្សាយបាន',
   'Log out?': 'ចាកចេញ?', 'Some things are still waiting to be sent from this phone. They are sent when you log in again on this phone.': 'មានរបស់ខ្លះនៅរង់ចាំផ្ញើពីទូរស័ព្ទនេះ។ វានឹងត្រូវផ្ញើ ពេលអ្នកចូលម្តងទៀតនៅលើទូរស័ព្ទនេះ។',
   'How to use the app': 'របៀបប្រើកម្មវិធី', 'Short guides with pictures': 'ការណែនាំខ្លីៗ ជាមួយរូបភាព', 'New to the app?': 'ទើបប្រើកម្មវិធីថ្មី?', 'Read the short guide with pictures': 'អានការណែនាំខ្លីៗ ជាមួយរូបភាព',
@@ -4159,6 +4331,42 @@ Object.assign(window.KT_KM, {
   'You owe at month end': 'ជំពាក់នៅចុងខែ',
   'Operating expenses': 'ចំណាយប្រតិបត្តិការ',
   'Open payroll': 'បើកប្រាក់ខែ' });
+// duplicate shops (12 Oct)
+Object.assign(window.KT_KM, {
+  'This shop is already in the app': 'ហាងនេះមានក្នុងកម្មវិធីរួចហើយ',
+  'Another shop has the same phone number or Telegram, so this one cannot be saved again.': 'មានហាងផ្សេងប្រើលេខទូរស័ព្ទ ឬ Telegram ដូចគ្នា ដូច្នេះមិនអាចរក្សាទុកម្តងទៀតបានទេ។',
+  'If it really is a different shop (for example a second branch), ask the admin to add it.': 'បើពិតជាហាងផ្សេង (ឧ. សាខាទីពីរ) សូមស្នើអ្នកគ្រប់គ្រងឱ្យបន្ថែម។',
+  'same phone / Telegram': 'ទូរស័ព្ទ / Telegram ដូចគ្នា', 'same name': 'ឈ្មោះដូចគ្នា',
+  'A shop with this name exists': 'មានហាងឈ្មោះនេះរួចហើយ', 'Please check it is not the same shop:': 'សូមពិនិត្យថាវាមិនមែនជាហាងតែមួយ៖',
+  'Different shops can have the same name (for example in different markets).': 'ហាងផ្សេងគ្នាអាចមានឈ្មោះដូចគ្នា (ឧ. នៅផ្សារផ្សេងគ្នា)។',
+  'It is a different shop, save': 'ជាហាងផ្សេង រក្សាទុក', 'Same phone or Telegram': 'ទូរស័ព្ទ ឬ Telegram ដូចគ្នា',
+  'This phone number or Telegram is already used by:': 'លេខទូរស័ព្ទ ឬ Telegram នេះកំពុងប្រើដោយ៖', 'Save anyway': 'រក្សាទុកដដែល',
+  'Save only if it is really a different shop (for example a second branch). To join two copies of the same shop, use Customers → Duplicates.': 'រក្សាទុកតែពេលពិតជាហាងផ្សេង (ឧ. សាខាទីពីរ)។ ដើម្បីបញ្ចូលហាងស្ទួនគ្នា សូមប្រើ អតិថិជន → ហាងស្ទួន។',
+  'no sales rep': 'គ្មានអ្នកលក់', 'waiting approval': 'រង់ចាំការអនុម័ត'
+});
+window.KT_KM_PATTERNS.push([/^This shop is already in the app: "(.+)"(?: \(sales rep (.+)\))?\. Same phone or Telegram\. Please ask the admin\.$/, 'ហាងនេះមានក្នុងកម្មវិធីរួចហើយ៖ "$1" $2។ ទូរស័ព្ទ ឬ Telegram ដូចគ្នា។ សូមសួរអ្នកគ្រប់គ្រង។']);
+Object.assign(window.KT_KM, { 'The password needs at least 8 characters': 'ពាក្យសម្ងាត់ត្រូវមានយ៉ាងហោចណាស់ ៨ តួ' });
+// new roles (12 Oct)
+Object.assign(window.KT_KM, {
+  'Sales supervisor': 'ប្រធានក្រុមលក់', 'Supervisor': 'ប្រធានក្រុម', 'Accountant': 'គណនេយ្យករ', 'Account.': 'គណនេយ្យ', 'Cashier': 'បេឡាករ', 'HR officer': 'មន្ត្រីធនធានមនុស្ស', 'HR': 'ធនធានមនុស្ស',
+  'Purchasing': 'ផ្នែកទិញ', 'Purchase': 'ទិញ', 'Wareh.': 'ឃ្លាំង', 'Job title': 'មុខតំណែង', 'Team leader (Sales supervisor)': 'ប្រធានក្រុម (ប្រធានក្រុមលក់)', 'No team leader': 'គ្មានប្រធានក្រុម',
+  'Scroll sideways to see every role.': 'អូសទៅចំហៀង ដើម្បីមើលតួនាទីទាំងអស់។'
+});
+Object.assign(window.KT_KM, { 'Payments to check': 'ការបង់ប្រាក់ត្រូវពិនិត្យ', 'Team shops': 'ហាងក្រុម', 'Team visits': 'ការចុះហាងក្រុម', 'Team orders': 'ការបញ្ជាទិញក្រុម', 'My attendance': 'វត្តមានខ្ញុំ' });
+Object.assign(window.KT_KM, { 'Send invoice + message': 'ផ្ញើវិក្កយបត្រ + សារ', 'Or copy and paste:': 'ឬ ចម្លង ហើយបិទភ្ជាប់៖' });
+// departments (12 Oct)
+Object.assign(window.KT_KM, { 'Departments': 'នាយកដ្ឋាន', 'Department': 'នាយកដ្ឋាន', 'Add department': 'បន្ថែមនាយកដ្ឋាន', 'New department': 'នាយកដ្ឋានថ្មី', 'Department name': 'ឈ្មោះនាយកដ្ឋាន',
+  'Head (manager or supervisor)': 'ប្រធាន (អ្នកគ្រប់គ្រង ឬ ប្រធានក្រុម)', 'No head yet': 'មិនទាន់មានប្រធាន', 'No department': 'គ្មាននាយកដ្ឋាន', 'No department yet': 'មិនទាន់មាននាយកដ្ឋាន',
+  'Reports to': 'រាយការណ៍ទៅ', 'Nobody': 'គ្មាន', 'All departments': 'នាយកដ្ឋានទាំងអស់', 'All my departments': 'នាយកដ្ឋានរបស់ខ្ញុំទាំងអស់', 'My department': 'នាយកដ្ឋានរបស់ខ្ញុំ',
+  'Send to': 'ផ្ញើទៅ', 'All staff': 'បុគ្គលិកទាំងអស់', 'Sent to departments': 'បានផ្ញើទៅនាយកដ្ឋាន', 'Department (optional)': 'នាយកដ្ឋាន (មិនចាំបាច់)', 'In use': 'កំពុងប្រើ' });
+// commission sellers (12 Oct)
+Object.assign(window.KT_KM, { 'Commission seller': 'អ្នកលក់យកកម្រៃជើងសារ', 'Commission': 'កម្រៃជើងសារ', 'Comm.': 'ជើងសារ', 'Products': 'ទំនិញ', 'Can order': 'អាចកុម្ម៉ង់', 'Not available': 'មិនមាន',
+  'Not available to order': 'មិនអាចកុម្ម៉ង់បាន', 'Order from the product list (no stock shown)': 'កុម្ម៉ង់ពីបញ្ជីទំនិញ (មិនបង្ហាញស្តុក)', 'Product list (order from main warehouse)': 'បញ្ជីទំនិញ (កុម្ម៉ង់ពីឃ្លាំងធំ)',
+  'Commission sellers can order this product': 'អ្នកលក់យកជើងសារអាចកុម្ម៉ង់ទំនិញនេះ',
+  'Sales rep (main stock)': 'អ្នកលក់ (លក់ពីស្តុកធំ)', 'Rep (main stock)': 'អ្នកលក់ (ស្តុកធំ)', 'Rep (main)': 'អ្នកលក់ (ធំ)', 'Main-stock reps can order this product': 'អ្នកលក់ស្តុកធំអាចកុម្ម៉ង់ទំនិញនេះ',
+  'Main-stock reps can order': 'អ្នកលក់ស្តុកធំអាចកុម្ម៉ង់', 'Main-stock reps cannot order': 'អ្នកលក់ស្តុកធំមិនអាចកុម្ម៉ង់', 'Main-stock reps will be able to order these products.': 'អ្នកលក់ស្តុកធំនឹងអាចកុម្ម៉ង់ទំនិញទាំងនេះ។', 'Switch all shown On': 'បើកទាំងអស់ដែលបង្ហាញ', 'Switch all shown Off': 'បិទទាំងអស់ដែលបង្ហាញ' });
+// staff check-in alerts (14 Oct)
+Object.assign(window.KT_KM, { 'Staff Check-in Alerts': 'ការជូនដំណឹងចូល/ចេញធ្វើការ', 'Staff check-in': 'ការចូលធ្វើការ', 'Started work, late, finished work': 'ចូលធ្វើការ មកយឺត ចេញពីការងារ', 'Office location': 'ទីតាំងការិយាល័យ', 'Save office location': 'រក្សាទុកទីតាំងការិយាល័យ', 'Latitude': 'រយៈទទឹង', 'Longitude': 'រយៈបណ្តោយ', 'Use my location now (stand in the office)': 'ប្រើទីតាំងខ្ញុំឥឡូវ (ឈរក្នុងការិយាល័យ)', 'Check on the map ›': 'មើលលើផែនទី ›' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -4268,8 +4476,8 @@ Object.assign(window.KT_KM, {
   K.loginHooks.push(() => { if (K.live && pushState() === 'granted') setTimeout(() => subscribePush(false), 1500); });
 
   // ---------------- Appearance (each phone / computer chooses) ----------------
-  const THEMES = [['white', 'Clean white', '#FFFFFF', '#D7141A'], ['red', 'Bold red', '#C8121A', '#151515'], ['dark', 'Dark', '#0E0E10', '#E8252C']];
-  K.theme = () => { try { return localStorage.getItem('kt_theme') || 'white'; } catch (e) { return 'white'; } };
+  const THEMES = [['white', 'Clean white', '#FFFFFF', '#D7141A'], ['dark', 'Dark', '#0E0E10', '#E8252C']];   // 'Bold red' removed 12 Oct
+  K.theme = () => { try { const t = localStorage.getItem('kt_theme'); return t === 'dark' ? 'dark' : 'white'; } catch (e) { return 'white'; } };
   K.setTheme = t => { try { localStorage.setItem('kt_theme', t); } catch (e) {} document.documentElement.className = 'th-' + t;
     const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', (THEMES.find(x => x[0] === t) || THEMES[0])[2]); };
   K.themeButtons = () => `<div class="themes">${THEMES.map(([k, l, bg, acc]) => `<button data-theme="${k}" class="${K.theme() === k ? 'on' : ''}"><span class="sw" style="background:${bg};border-color:${acc}"><i style="background:${acc}"></i></span>${l}</button>`).join('')}</div>`;
@@ -4326,11 +4534,11 @@ Object.assign(window.KT_KM, {
         <div style="font-size:20px;font-weight:800">${chat ? 'Create a chat account' : signup ? 'Create staff account' : 'Log in'}</div>
         ${chat ? '<div class="small muted" style="line-height:1.5">For friends &amp; family: chat only. Find people by their username and send messages, voice, photos and stickers.</div>' : ''}
         ${demo ? `<div class="demo-note">Demo mode: sample data on this phone only. Tap a role to try it.</div>
-          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['kimlong', 'Sales'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user']].filter(x => !(window.KT_CONFIG || {}).ADMIN || x[1] === 'Admin' || x[1] === 'Manager').map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
+          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['dina', 'Rep (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
         ${signup ? `<label class="f">Full name<input class="inp" name="full" required autocomplete="name"></label>` : ''}
         <label class="f">Username<input class="inp" name="user" required autocomplete="username" autocapitalize="none" autocorrect="off" pattern="[a-zA-Z0-9._]{3,24}" title="3–24 letters or numbers, no spaces"></label>
-        <label class="f">Password<input class="inp" name="pass" type="password" required minlength="6" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
-        ${signup ? `<label class="f">Repeat password<input class="inp" name="pass2" type="password" required minlength="6" autocomplete="new-password"></label>` : ''}
+        <label class="f">Password<input class="inp" name="pass" type="password" required minlength="${signup ? 8 : 6}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
+        ${signup ? `<label class="f">Repeat password<input class="inp" name="pass2" type="password" required minlength="8" autocomplete="new-password"></label>` : ''}
         <button class="btn block" type="submit">${signup ? 'Create account' : 'Log in'}</button>
         <div class="err" id="err"></div>
         <div class="small muted" style="text-align:center" id="swl">${signup ? 'Already have an account?' : 'New staff member?'} <a href="#" id="sw" style="font-weight:700">${signup ? 'Log in' : 'Create an account'}</a></div>
@@ -4370,7 +4578,7 @@ Object.assign(window.KT_KM, {
   };
 
   // ---------------- Home ----------------
-  const ACTION_STATUSES = { admin: ['pending'], manager: ['pending'], warehouse: ['approved'], driver: ['approved'], sales: [] };
+  const ACTION_STATUSES = { admin: ['pending'], manager: ['pending'], supervisor: ['pending'], warehouse: ['approved'], driver: ['approved'], sales: [] };
   function quickActions() {
     const qa = (href, ic, label, bg = 'var(--ps)', fg = 'var(--p)') => `<a class="qa" href="${href}"><span class="i" style="background:${bg};color:${fg}">${icon(ic, 26)}</span>${label}</a>`;
     const r = S.me.role;
@@ -4383,6 +4591,15 @@ Object.assign(window.KT_KM, {
         qa('#/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)'), qa('#/payments?t=check', 'cash', 'Payments', 'var(--grs)', 'var(--gr)'), qa('#/chat/channel/announcements', 'mega', 'Announce'), qa('#/hr', 'users', 'HR', 'var(--ors)', 'var(--or)')]
     };
     list.admin = list.manager;
+    list.agent = [qa('#/orders/new', 'order', 'New order'), qa('#/visit/new', 'pin', 'Shop visit'), qa('#/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)'), qa('#/stock', 'box', 'Products', 'var(--bls)', 'var(--bl)'),
+      qa('#/visits', 'clock', 'My visits', 'var(--bls)', 'var(--bl)'), qa('#/orders', 'list', 'My orders'), qa('#/mydash', 'chart', 'Dashboard', 'var(--grs)', 'var(--gr)'), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
+    const money = [qa('#/payments?t=check', 'check', 'Payments to check', 'var(--ors)', 'var(--or)'), qa('#/payments', 'cash', 'Money from shops', 'var(--grs)', 'var(--gr)'), qa('#/orders', 'list', 'Orders'), qa('#/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)')];
+    list.supervisor = [qa('#/orders?f=pending', 'check', 'Approvals', 'var(--ors)', 'var(--or)'), qa('#/orders/new', 'order', 'New order'), qa('#/visit/new', 'pin', 'Shop visit'), qa('#/customers', 'store', 'Team shops', 'var(--grs)', 'var(--gr)'),
+      qa('#/visits', 'clock', 'Team visits', 'var(--bls)', 'var(--bl)'), qa('#/orders', 'list', 'Team orders'), qa('#/mydash', 'chart', 'Dashboard', 'var(--grs)', 'var(--gr)'), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
+    list.accountant = money.concat([K.allow('dashboard.view') ? qa('#/dashboard', 'chart', 'Dashboard') : '', K.canOffice && K.canOffice() ? qa('#/office', 'receipt', 'Office expenses', 'var(--bls)', 'var(--bl)') : '', qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')]);
+    list.cashier = money.concat([qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')]);
+    list.hr = [qa('#/hr', 'users', 'HR & Payroll', 'var(--ors)', 'var(--or)'), qa('#/attendance', 'clock', 'My attendance', 'var(--bls)', 'var(--bl)'), K.allow('chat.announce') ? qa('#/chat/channel/announcements', 'mega', 'Announce') : '', qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
+    list.purchasing = [qa('#/purchases', 'truck', 'From suppliers'), qa('#/stock', 'box', 'Stock', 'var(--bls)', 'var(--bl)'), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
     return (list[r] || list.sales).join('');
   }
   route(/^\/home$/, async (_, __, current) => {
@@ -4457,15 +4674,15 @@ Object.assign(window.KT_KM, {
         <input type="file" id="phf" accept="image/*" class="hidden"></div>
       <div class="sec" style="margin:6px 0 0">Appearance</div>${K.themeButtons()}
       <div class="sec" style="margin:6px 0 0">Change password</div>
-      <label class="f">New password<input class="inp" id="np1" type="password" minlength="6" autocomplete="new-password"></label>
-      <label class="f">Repeat new password<input class="inp" id="np2" type="password" minlength="6" autocomplete="new-password"></label>
+      <label class="f">New password<input class="inp" id="np1" type="password" minlength="8" autocomplete="new-password"></label>
+      <label class="f">Repeat new password<input class="inp" id="np2" type="password" minlength="8" autocomplete="new-password"></label>
       <button class="btn block" id="npok">Save new password</button>`);
     const $s = x => K.$(x, s.el);
     $s('#ph').onclick = () => $s('#phf').click();
     $s('#phf').onchange = async e => { const f = e.target.files[0]; if (!f) return; S.me.avatar_url = await K.busy($s('#ph'), () => api.setAvatar(me.id, f)); K.forget('staff'); await K.data.staff(true); s.close(); K.toast('Photo saved'); K.render(); };
     if ($s('#phx')) $s('#phx').onclick = async e => { await K.busy(e.currentTarget, () => api.setAvatar(me.id, null)); S.me.avatar_url = null; K.forget('staff'); await K.data.staff(true); s.close(); K.toast('Photo removed'); K.render(); };
     $s('#npok').onclick = async e => { const a = $s('#np1').value, b = $s('#np2').value;
-      if (a.length < 6) return K.toast('The password needs at least 6 characters'); if (a !== b) return K.toast('The two passwords are different');
+      if (a.length < 8) return K.toast('The password needs at least 8 characters'); if (a !== b) return K.toast('The two passwords are different');
       await K.busy(e.currentTarget, () => api.changeMyPassword(a)); s.close(); K.toast('Password changed. Use the new one next time you log in.'); };
   };
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#myprof')) K.myProfileSheet(); });
@@ -4490,8 +4707,8 @@ Object.assign(window.KT_KM, {
         ${K.canOwnerAccount && K.canOwnerAccount() ? item('#/owner', 'cash', 'Owner\'s account', 'Money I take and put back', 'var(--ps)', 'var(--p)') : ''}
         ${K.canOffice && K.canOffice() ? item('#/office', 'receipt', 'Office expenses', 'Rent, bills and other company costs', 'var(--bls)', 'var(--bl)') : ''}
         <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">${S.me.role === 'sales' ? 'Get my daily report in Telegram' : 'Daily report and low-stock alerts in Telegram'}</div></div></button>
-        ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view')
-          ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + item('#/hr', 'users', 'HR & Payroll', 'Staff, attendance, leave, payroll', 'var(--ors)', 'var(--or)')
+        ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view') || K.isDeptHead()
+          ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + (can('admin') || K.allow('hr.manage') || K.allow('attendance.view') ? item('#/hr', 'users', 'HR & Payroll', 'Staff, attendance, leave, payroll', 'var(--ors)', 'var(--or)') : item('#/hr', 'users', 'My department', 'My people\'s attendance and leave', 'var(--ors)', 'var(--or)'))
           : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
         ${K.allow('dashboard.view') ? item('#/dashboard', 'chart', 'Dashboard', 'Sales, orders, money owed') : item('#/mydash', 'chart', 'My dashboard', 'My sales, target, ranking, shops')}
         ${can('admin') ? item('#/chats', 'chat', 'Chats Control', 'Friends & family chat accounts', 'var(--grs)', 'var(--gr)') : ''}
@@ -4584,6 +4801,7 @@ Object.assign(window.KT_KM, {
     if (c.kind === 'direct') return avatar(c.title || '?');
     if (c.slug === 'announcements') return `<div class="ic-av" style="background:var(--p);color:#fff">${icon('mega')}</div>`;
     if (c.slug === 'stock_alerts') return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('box')}</div>`;
+    if (c.slug === 'attendance_alerts') return `<div class="ic-av" style="background:var(--bls);color:var(--bl)">${icon('clock')}</div>`;
     if (c.slug === 'visit_alerts') return `<div class="ic-av" style="background:var(--grs);color:var(--gr)">${icon('pin')}</div>`;
     if (c.slug === 'alerts' || (c.alert_types || []).length) return `<div class="ic-av" style="background:var(--ors);color:var(--or)">${icon('bell')}</div>`;
     if (/^shop_\d+$/.test(c.slug || '')) return `<div class="ic-av" style="background:var(--grs);color:var(--gr)">${icon('store')}</div>`;
@@ -4667,8 +4885,8 @@ Object.assign(window.KT_KM, {
     if ($('#chn', s.el)) $('#chn', s.el).onclick = () => { s.close(); newChannel(staff); };
   }
   const pickList = staff => `<div class="card flush">${staff.map(u => `<label class="list-item" style="cursor:pointer">${avatar(u.full_name, 'sm', u.avatar_url)}<div class="grow"><div class="tt" style="font-size:14px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role] || '')}</div></div><input type="checkbox" value="${esc(u.id)}" style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('') || '<div class="empty">No one to add</div>'}</div>`;
-  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts'];
-  const ALERTS = [['visits', 'Shop visits', 'Check-in, finish, edit, delete visits, new shops'], ['stock', 'Stock', 'Low stock, goods received'], ['orders', 'Orders', 'New orders, status changes, deleted orders'], ['payments', 'Payments', 'Payments to confirm, fully paid orders']];
+  const SYS_ALERT = ['alerts', 'stock_alerts', 'visit_alerts', 'attendance_alerts'];
+  const ALERTS = [['visits', 'Shop visits', 'Check-in, finish, edit, delete visits, new shops'], ['stock', 'Stock', 'Low stock, goods received'], ['orders', 'Orders', 'New orders, status changes, deleted orders'], ['payments', 'Payments', 'Payments to confirm, fully paid orders'], ['attendance', 'Staff check-in', 'Started work, late, finished work']];
   const alertLabel = types => (types || []).map(t => (ALERTS.find(a => a[0] === t) || [t, t])[1]).join(', ');
   const alertPick = sel => `<div class="card flush">${ALERTS.map(([k, l, d]) => `<label class="list-item" style="cursor:pointer"><div class="grow"><div class="tt" style="font-size:14px">${l}</div><div class="st">${d}</div></div><input type="checkbox" data-alert="${k}" ${(sel || []).includes(k) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('')}</div>`;
   function newChannel(staff) {
@@ -4716,6 +4934,11 @@ Object.assign(window.KT_KM, {
     if (!prev || !sameDay(prev.created_at, m.created_at)) out += `<div class="day">${esc(dayLabel(m.created_at))}</div>`;
     if (m.kind === 'system') {
       const mt = m.meta || {};
+      if (mt.att_id) {   // staff check-in / check-out: photo, text, map
+        const [l1, ...rest] = String(m.body).split('\n');
+        return out + `<div class="attmsg${mt.late || mt.far ? ' warn' : ''}" data-id="${m.id}">${mt.photo ? `<a href="${esc(mt.photo)}" target="_blank" rel="noopener"><img src="${esc(mt.photo)}" alt="Check-in photo" loading="lazy"></a>` : `<span class="attic">${icon(mt.out ? 'home' : 'clock', 20)}</span>`}
+          <div class="grow"><div>${esc(l1)}</div>${rest.length ? `<div class="small muted">${esc(rest.join(' '))}</div>` : ''}<div class="small">${mt.map ? `<a href="${esc(mt.map)}" target="_blank" rel="noopener" style="font-weight:700">${icon('pin', 14)} Map</a> · ` : ''}<span class="muted">${hhmm(m.created_at)}</span></div></div></div>`;
+      }
       const href = mt.order_id && conv.kind !== 'order' ? '#/orders/' + mt.order_id : mt.visit_id ? '#/visits/' + mt.visit_id : mt.customer_id ? '#/customers/' + mt.customer_id : mt.product_id ? '#/stock/' + mt.product_id : '';
       return out + `<div class="sys" data-id="${m.id}">${href ? `<a href="${href}" style="text-decoration:none;color:inherit">${esc(m.body)} <span style="color:var(--p);font-weight:700">›</span></a>` : esc(m.body)} · ${hhmm(m.created_at)}</div>`;
     }
@@ -4894,7 +5117,7 @@ Object.assign(window.KT_KM, {
     const canDelete = !sys && (boss || conv.created_by === S.me.id);
     const word = isCh ? 'channel' : 'group';
     main.innerHTML = `<div class="pad"><div class="card" style="text-align:center;padding:18px 14px">
-        <div style="display:flex;justify-content:center;margin-bottom:8px">${isCh ? `<div class="ic-av" style="width:64px;height:64px;background:var(--p);color:#fff">${icon(conv.slug === 'stock_alerts' ? 'box' : conv.slug === 'visit_alerts' ? 'pin' : SYS_ALERT.includes(conv.slug) || (conv.alert_types || []).length ? 'bell' : 'mega', 30)}</div>` : `<div class="ic-av" style="width:64px;height:64px">${icon('users', 30)}</div>`}</div>
+        <div style="display:flex;justify-content:center;margin-bottom:8px">${isCh ? `<div class="ic-av" style="width:64px;height:64px;background:var(--p);color:#fff">${icon(conv.slug === 'stock_alerts' ? 'box' : conv.slug === 'visit_alerts' ? 'pin' : conv.slug === 'attendance_alerts' ? 'clock' : SYS_ALERT.includes(conv.slug) || (conv.alert_types || []).length ? 'bell' : 'mega', 30)}</div>` : `<div class="ic-av" style="width:64px;height:64px">${icon('users', 30)}</div>`}</div>
         <div style="font-size:19px;font-weight:800">${esc(conv.title || '')}</div>
         <div class="small muted">${isCh ? 'Channel' : 'Group'} · ${members.length} members${isCh && conv.all_staff ? ' · everyone in the company' : ''}</div>
         ${iAdmin && !sys ? `<button class="linkbtn" id="ren" style="margin:8px auto 0;align-self:center">${icon('pen', 16)} Rename</button>` : ''}
@@ -5142,7 +5365,24 @@ Object.assign(window.KT_KM, {
     if (manage) $('#addp').onclick = () => editProduct();
     const [products, allWh] = await Promise.all([data.products(true), data.warehouses(true)]);
     if (!current()) return;
-    const warehouses = K.sellFrom(allWh), mine = K.myRepWh(allWh);
+    const warehouses = K.sellFrom(allWh).filter(w => !(K.catalogMode() && !w.rep_id)), mine = K.myRepWh(allWh);
+    // commission sellers: the product list with prices, no quantities
+    if (K.catalogMode() && !manage && (!mine || q.cat === '1')) {
+      let cs = '', cc = '';
+      const draw = () => { const t = cs.toLowerCase();
+        const list = products.filter(p => (!t || [p.name, p.sku, p.category].some(x => String(x || '').toLowerCase().includes(t))) && (!cc || p.category === cc));
+        $('#clist').innerHTML = list.length ? list.map(p => `<div class="list-item">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="" style="width:46px;height:46px;border-radius:10px;object-fit:cover;flex-shrink:0">` : `<div class="ic-av sq">${icon('box', 20)}</div>`}
+          <div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)}</div></div>
+          <div style="text-align:right;flex-shrink:0"><div style="font-weight:800;font-size:16px">${money(p.price)}</div>${p.staff_orderable === false ? '<span class="pill rd">Not available</span>' : '<span class="pill gr">Can order</span>'}</div></div>`).join('') : emptyBox('box', 'No products found'); };
+      main.innerHTML = `<div class="pad">${mine ? '<a class="btn ghost block" href="#/stock">‹ Back to my stock</a>' : ''}
+        <div class="small muted">All products and prices. Order the ones marked <b>Can order</b>; the goods come from the main warehouse after approval.</div>
+        <a class="btn block" href="#/orders/new">${icon('plus', 18)}New order</a>
+        <div class="search">${icon('search', 18)}<input id="cs" placeholder="Search product, SKU or category" aria-label="Search products"></div>
+        <select class="inp" id="ccf" aria-label="Category"><option value="">All categories</option>${[...new Set(products.map(p => p.category).filter(Boolean))].sort().map(c => `<option>${esc(c)}</option>`).join('')}</select>
+        <div class="card flush" id="clist"></div></div>`;
+      $('#cs').oninput = e => { cs = e.target.value; draw(); }; $('#ccf').onchange = e => { cc = e.target.value; draw(); };
+      draw(); return;
+    }
     if (!warehouses.length) { main.innerHTML = `<div class="pad">${emptyBox('box', 'You have no stock yet. Ask the warehouse or admin to give you goods.')}</div>`; return; }
     let wh = q.w ? +q.w : mine ? mine.id : 0, search = '', onlyLow = q.low === '1', catF = '';
     if (!wh && warehouses.length === 1) wh = warehouses[0].id;
@@ -5161,6 +5401,7 @@ Object.assign(window.KT_KM, {
     main.innerHTML = `<div class="pad">
       ${warehouses.length > 1 ? `<div class="seg wrap">${[{ id: 0, name: 'All' }].concat(warehouses).map(w => `<button data-w="${w.id}" class="${w.id === wh ? 'on' : ''}">${esc(w.id ? K.whLabel(w) : 'All')}</button>`).join('')}</div>` : ''}
       ${!manage && mine && warehouses.length === 1 ? '<div class="small muted">Your stock: the goods you carry. Ask the warehouse or admin to give you more.</div>' : ''}
+      ${K.catalogMode() && mine ? `<a class="btn ghost block" href="#/stock?cat=1">${icon('list', 20)} Product list (order from main warehouse)</a>` : ''}
       ${manage ? `<button class="btn ghost block" id="loadrep">${icon('swap', 20)} Give stock to a sales rep / take back</button>` : ''}
       <div class="stats three" id="sum"></div>
       <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
@@ -5344,7 +5585,9 @@ Object.assign(window.KT_KM, {
       if (!K.tgLink(row.telegram)) return toast('Telegram: write @username or a phone number');
       if ($('#rp', s.el)) row.assigned_to = $('#rp', s.el).value || null;
       if ($('#cl', s.el)) row.credit_limit = +$('#cl', s.el).value || 0;
-      const saved = await busy(e.currentTarget, () => api.saveCustomer(row));
+      const _b = e.currentTarget;
+      if (!c.id || row.name !== c.name || row.phone !== (c.phone || '') || row.telegram !== (c.telegram || '')) { _b.disabled = true; const ok = await K.dupeCheck(row); _b.disabled = false; if (!ok) return; }
+      const saved = await busy(_b, () => api.saveCustomer(row));
       s.close(); forget('customers'); toast(K.allow('customers.approve') ? 'Shop saved' : 'Saved. Waiting for admin approval.'); go('#/customers/' + saved.id);
     };
     s.el.addEventListener('click', ev => { if ((ev.target === s.el || ev.target.closest('[data-close]')) && !c.id && location.hash === '#/customers/new') history.back(); });
@@ -5967,7 +6210,7 @@ Object.assign(window.KT_KM, {
   const ago = n => dstr(new Date(Date.now() - n * 86400000));
   const P = {
     LIST: [['today', 'Today'], ['week', 'Last 7 days'], ['month', 'This month'], ['last', 'Last month'], ['custom', 'Custom']],
-    DASH: [['today', 'Today'], ['wk', 'This week'], ['month', 'This month'], ['custom', 'Custom']],
+    DASH: [['today', 'Today'], ['wk', 'This week'], ['month', 'This month'], ['last', 'Last month'], ['custom', 'Custom']],
     QUICK: [['y', 'Yesterday'], ['d30', 'Last 30 days'], ['d90', 'Last 90 days'], ['yr', 'This year']],
     dstr, today,
     // [from, to] as YYYY-MM-DD, both days included
@@ -6115,6 +6358,26 @@ Object.assign(window.KT_KM, {
   };
   K.geoSearch = c => { const d = G.district(c.district), m = d && G.commune(c.commune), v = m && G.village(c.village); return [d && d.km, d && d.en, m && m.km, m && m.en, v && v.km, v && v.en].filter(Boolean).join(' '); };
   // every shop field must be filled, except map link, GPS, credit days, credit limit and notes
+  // Before saving a shop: is it already in the app? Same phone/Telegram = blocked for staff (managers may save a branch); same name = warning only.
+  K.dupeCheck = async row => {
+    let list; try { list = await K.api.shopDupes(row.id || null, row.name, row.phone, row.telegram); } catch (e) { return true; }   // offline: the server still checks
+    if (!list || !list.length) return true;
+    const boss = K.allow('customers.manage'), same = list.filter(x => x.match === 'contact'), esc = K.esc;
+    const li = x => `<div class="list-item" style="padding:10px 0"><div class="ic-av sq">${K.icon('store', 20)}</div><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc([x.area, x.province].filter(Boolean).join(' · ') || '—')} · ${x.rep_name ? 'sales rep ' + esc(x.rep_name) : 'no sales rep'}${x.status === 'pending' ? ' · waiting approval' : ''}</div></div>${x.match === 'contact' ? '<span class="pill rd">same phone / Telegram</span>' : '<span class="pill or">same name</span>'}</div>`;
+    return new Promise(res => {
+      let done = false; const fin = v => { if (!done) { done = true; res(v); } };
+      if (same.length && !boss) {
+        const s = K.sheet('This shop is already in the app', `<div class="muted" style="line-height:1.5">Another shop has the same phone number or Telegram, so this one cannot be saved again.</div>${list.map(li).join('')}<div class="small muted">If it really is a different shop (for example a second branch), ask the admin to add it.</div><button class="btn block" data-close>OK</button>`);
+        new MutationObserver((m, ob) => { if (!s.el.isConnected) { ob.disconnect(); fin(false); } }).observe(document.body, { childList: true, subtree: true });
+        return;
+      }
+      const s = K.sheet(same.length ? 'Same phone or Telegram' : 'A shop with this name exists', `<div class="muted" style="line-height:1.5">${same.length ? 'This phone number or Telegram is already used by:' : 'Please check it is not the same shop:'}</div>${list.map(li).join('')}
+        <div class="small muted">${same.length ? 'Save only if it is really a different shop (for example a second branch). To join two copies of the same shop, use Customers → Duplicates.' : 'Different shops can have the same name (for example in different markets).'}</div>
+        <div class="btns"><button class="btn out" data-close>Back</button><button class="btn" data-yes>${same.length ? 'Save anyway' : 'It is a different shop, save'}</button></div>`);
+      K.$('[data-yes]', s.el).onclick = () => { fin(true); s.close(); };
+      new MutationObserver((m, ob) => { if (!s.el.isConnected) { ob.disconnect(); fin(false); } }).observe(document.body, { childList: true, subtree: true });
+    });
+  };
   K.shopMissing = el => {
     const need = [['#nm', 'Shop name'], ['#ow', 'Owner'], ['#ph', 'Phone'], ['#tg', 'Telegram'], ['#rp', 'Sales rep'], ['#pv', 'Province'], ['#gd', 'District'], ['#gc', 'Commune'], ['#gv', 'Village'], ['#ar', 'Area / market']];
     K.$$('.inp.bad', el).forEach(x => x.classList.remove('bad'));
@@ -6281,7 +6544,9 @@ Object.assign(window.KT_KM, {
     const P = id => products.find(p => p.id === id) || { name: '?', sku: '', price: 0, stock: {}, min_stock: 0 };
     lines.forEach(l => { if (l.price == null || l.price === '') l.price = P(l.pid).price; });
     const inOrder = id => lines.filter(l => l.pid === id).reduce((a, l) => a + l.qty, 0);
-    const stockTxt = p => { const have = (p.stock || {})[wh()] || 0, want = inOrder(p.id);
+    const cat = () => K.isCatalogWh && K.isCatalogWh(wh()), blocked = p => cat() && p.staff_orderable === false;
+    const stockTxt = p => { if (cat()) return blocked(p) ? '<span style="color:var(--rd);font-weight:700">Not available to order</span>' : '<span style="color:var(--gr);font-weight:700">Can order</span>';
+      const have = (p.stock || {})[wh()] || 0, want = inOrder(p.id);
       return `<span style="color:${have <= 0 || want > have ? 'var(--rd)' : have <= p.min_stock ? 'var(--or)' : 'var(--gr)'};font-weight:700">${have <= 0 ? 'Out of stock' : have + ' in stock'}</span>`; };
     const lineHtml = (l, i) => { const p = P(l.pid), twice = lines.filter(x => x.pid === l.pid).length > 1, changed = r2(+l.price) !== r2(+p.price);
       return `<div class="oline" data-li="${i}">
@@ -6301,7 +6566,7 @@ Object.assign(window.KT_KM, {
         <div style="${listHeight ? `max-height:${listHeight}px;overflow:auto` : ''}">${rest.slice(0, 80).map(p => { const n = inOrder(p.id);
           return `<div class="row" style="padding:10px 0;border-top:1px solid var(--line)"><div class="grow"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div>
             <div class="small muted">${esc(p.sku)} · ${money(p.price)} · ${stockTxt(p)}</div></div>
-            ${n ? `<span class="pill gr" style="font-size:11px">${n} in order</span>` : ''}<button class="btn sm ${n ? 'out' : ''}" data-la="${p.id}">${icon('plus', 16)}Add</button></div>`; }).join('') || '<div class="muted small" style="padding:10px 0">No products found</div>'}</div>`;
+            ${n ? `<span class="pill gr" style="font-size:11px">${n} in order</span>` : ''}${blocked(p) ? '<button class="btn sm out" disabled>Not available</button>' : `<button class="btn sm ${n ? 'out' : ''}" data-la="${p.id}">${icon('plus', 16)}Add</button>`}</div>`; }).join('') || '<div class="muted small" style="padding:10px 0">No products found</div>'}</div>`;
       const $$ = sel => el.querySelectorAll(sel);
       const s = el.querySelector('[data-ls]'); s.oninput = e => { search = e.target.value; const pos = e.target.selectionStart; draw(); const n = el.querySelector('[data-ls]'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) {} };
       $$('[data-la]').forEach(b => b.onclick = () => { const p = P(+b.dataset.la); lines.push({ pid: p.id, qty: 1, price: p.price }); draw(); onChange();
@@ -6473,7 +6738,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.whLabel = w => w.rep_id ? (K.S.me && w.rep_id === K.S.me.id ? 'My stock' : 'Rep: ' + (w.name.split(' · ')[1] || w.name)) : w.name.split(' · ')[0];
   // which stock a person may see and sell from: their own rep stock, plus the main warehouse(s) if allowed
   K.seesMain = () => K.allow('stock.manage') || K.allow('stock.view_main');
-  K.sellFrom = list => K.allow('stock.manage') ? list : list.filter(w => (w.rep_id && w.rep_id === K.S.me.id) || (!w.rep_id && K.seesMain()));
+  K.catalogMode = () => !K.seesMain() && K.allow('orders.catalog');   // commission seller: product list, no stock shown
+  K.isCatalogWh = id => K.catalogMode() && (K.S.cache.warehouses || []).some(w => w.id === id && !w.rep_id);
+  K.catalogWh = list => (list || []).filter(w => !w.rep_id && !w.route_id).sort((a, b) => a.id - b.id)[0];   // the main warehouse
+  K.sellFrom = list => { if (K.allow('stock.manage')) return list; const cw = K.catalogMode() && K.catalogWh(list);
+    return list.filter(w => (w.rep_id && w.rep_id === K.S.me.id) || (!w.rep_id && K.seesMain()) || (cw && w.id === cw.id)); };
   K.myRepWh = list => list.find(w => w.rep_id && K.S.me && w.rep_id === K.S.me.id);
 
   K.paymentRow = (p, opts = {}) => {
@@ -6942,19 +7211,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       K.$('#itg', s.el).innerHTML = `<div class="card" style="gap:10px;border-color:#BCD7F5">
         <div class="row"><div class="ic-av sq" style="background:#229ED9;color:#fff">${icon('send', 20)}</div><div class="grow"><b>Send to ${shop} on Telegram</b><div class="small muted">${who}</div></div></div>
         ${tg ? (canCopy
-          ? `<div class="btns"><button class="btn" id="tgc">${icon('image', 18)}1. Copy invoice</button><a class="btn out" id="tgo" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}2. Open chat</a></div>
-             <div class="small muted">Tap <b>Copy invoice</b>, then <b>Open chat</b>. In the chat, long-press the message box → <b>Paste</b> → Send.${msg ? ' Your message is already in the chat box.' : ''}</div>${msg ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:8px 10px;white-space:pre-wrap">${esc(msg)}</div>` : ''}`
-          : `<div class="btns">${canShare ? `<button class="btn" id="tgs">${icon('send', 18)}Share picture</button>` : ''}<a class="btn out" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}Open chat</a></div>
-             <div class="small muted">${canShare ? `Tap <b>Share picture</b> → Telegram → find <b>${esc(tg.label)}</b>.` : 'Save the image below, open the chat, then attach the picture.'}</div>`) : ''}
+          ? `<div class="btns"><button class="btn" id="tgc">${icon('image', 18)}1. Copy invoice${msg ? ' + message' : ''}</button><a class="btn out" id="tgo" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}2. Open chat</a></div>
+             <div class="small muted">Tap <b>Copy</b>${msg ? ' (it copies the invoice picture and your message)' : ''}, then <b>Open chat</b>. In the chat, long-press the message box → <b>Paste</b> → the invoice picture appears${msg ? ' with your message under it' : ''} → <b>Send</b>.</div>
+             ${msg ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:8px 10px;white-space:pre-wrap">${esc(msg)}</div>` : ''}`
+          : `<div class="btns"><a class="btn out" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}Open chat</a></div><div class="small muted">This phone cannot copy pictures. Save the image below, open the chat, then attach the picture.</div>`) : ''}
         <details ${tg && tg.saved ? '' : 'open'}><summary class="small" style="cursor:pointer;font-weight:700">${tg && tg.saved ? 'Change Telegram' : 'Add the shop\'s Telegram'}</summary>
           <div class="row" style="gap:8px;margin-top:8px"><input class="inp grow" id="tgv" value="${esc(cu.telegram || '')}" placeholder="@username or phone" autocapitalize="none" autocorrect="off"><button class="btn sm" id="tgsv">Save</button></div></details></div>`;
       if (K.$('#tgc', s.el)) K.$('#tgc', s.el).onclick = async e => {
         const btn = e.currentTarget;
-        try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]); }
-        catch (err) { return K.toast('This phone cannot copy pictures here. Use Share or Save image instead.'); }
+        // picture + message in one copy; if this phone allows only one kind, copy the picture (the message is already in the chat box)
+        try { await navigator.clipboard.write([new ClipboardItem(msg ? { 'image/png': png, 'text/plain': new Blob([msg], { type: 'text/plain' }) } : { 'image/png': png })]); }
+        catch (err) {
+          try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]); }
+          catch (err2) { return K.toast('This phone cannot copy pictures here. Use Save image instead.'); }
+        }
         btn.innerHTML = icon('check', 18) + 'Copied'; btn.classList.add('out');
         const op = K.$('#tgo', s.el); if (op) op.classList.remove('out');
-        K.toast('Invoice copied. Now tap Open chat and paste it.');
+        K.toast(msg ? 'Invoice and message copied. Now tap Open chat and paste.' : 'Invoice copied. Now tap Open chat and paste it.');
       };
       if (K.$('#tgs', s.el)) K.$('#tgs', s.el).onclick = async () => {
         try { await navigator.share({ files: [new File([png], name + '.png', { type: 'image/png' })], title: invNo(o), text: msg || `${K.COMPANY.name} ${invNo(o)} · ${money(o.total)}` }); }
@@ -7415,24 +7688,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
-      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'warehouse', 'driver', 'manager', 'admin'];
-      const hints = { sales: 'Takes orders, visits shops, chat. Sees stock but cannot change it.', warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'supervisor', 'agent', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'];
+      const hints = K.ROLE_HINTS;
       let role = u.role, gender = hh.gender || '';
+      const sups = (K.S.cache.staff || []).filter(x => x.active && x.role !== 'guest' && x.id !== u.id), deps = K.S.cache.departments || [];
       const inp = (id, label, v, type = 'text', ph = '', extra = '') => `<label class="f">${label}<input class="inp" id="${id}" type="${type}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" ${extra}></label>`;
       const s = K.sheet(u.active ? u.full_name : 'Approve staff', `<div class="row">${avatar(u.full_name, 'lg', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)} · login name</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill or">Waiting</span>'}</div>
         ${boss ? `<div class="btns"><button class="btn sm out" id="sph">${icon('camera', 16)}${u.avatar_url ? 'Change photo' : 'Add photo'}</button>${u.avatar_url ? '<button class="btn sm out" id="sphx">Remove photo</button>' : ''}<button class="btn sm out" id="srp">${icon('lock', 16)}Reset password</button><button class="btn sm out" id="sun">${icon('user', 16)}Change username</button></div><input type="file" id="sphf" accept="image/*" class="hidden">` : ''}
         ${K.namesOf(u.id).length ? `<div class="card" style="background:var(--bg);gap:4px"><b style="font-size:13px">Name history (who used this login before)</b>${K.namesOf(u.id).map(h => `<div class="small">${esc(h.old_name)} <span class="muted">→ ${esc(h.new_name)} on ${esc(K.poDate ? K.poDate(h.changed_at.slice(0, 10)) : h.changed_at.slice(0, 10))}</span></div>`).join('')}<div class="small muted">Orders and visits made before a change show the old name as "(then …)".</div></div>` : ''}
         <div class="sec" style="margin:4px 0 0">Account</div>
         <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
-        ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="rh">${hints[role]}</div>` : ''}
+        ${boss || hr ? `<div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
+          <label class="f">Reports to<select class="inp" id="sup"><option value="">Nobody</option>${sups.map(x => `<option value="${esc(x.id)}" ${x.id === u.supervisor_id ? 'selected' : ''}>${esc(x.full_name)} (${esc(K.ROLE_LABEL[x.role])})</option>`).join('')}</select></label></div>
+          <div class="small muted" style="margin-top:-6px">Role = what they can do in the app · Department = where they belong · Reports to = their direct boss. A Sales supervisor sees and approves the orders, shops and visits of the reps who report to them.</div>` : ''}
         ${hr ? `<div class="sec" style="margin:8px 0 0">Personal details</div>
         <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Gender</div><div class="seg">${[['male', 'Male'], ['female', 'Female']].map(([k, l]) => `<button data-g="${k}" class="${gender === k ? 'on' : ''}">${l}</button>`).join('')}</div>
         <div class="btns">${inp('hbd', 'Date of birth', hh.birth_date, 'date')}${inp('hid', 'ID card number', hh.id_card, 'text', 'National ID / passport')}</div>
         ${inp('had', 'Home address', hh.address, 'text', 'Village, commune, district, province')}
         ${inp('he', 'Emergency contact', hh.emergency_contact, 'text', 'Name, relation and phone')}
         <div class="sec" style="margin:8px 0 0">Job & pay</div>
-        <div class="btns">${inp('hp', 'Position', hh.position, 'text', 'e.g. Sales rep')}${inp('hs', 'Start date', hh.start_date, 'date')}</div>
+        <div class="btns">${inp('hp', 'Job title', hh.position, 'text', 'e.g. Senior sales, Office assistant')}${inp('hs', 'Start date', hh.start_date, 'date')}</div>
         <div class="btns">${inp('hb', 'Base salary ($ per month)', hh.base_salary, 'number', '', 'step="0.01" inputmode="decimal"')}${inp('hl', 'Annual leave days', hh.annual_leave_days ?? 18, 'number', '', 'step="0.5"')}</div>
         <div class="btns">${inp('hal', 'Allowance ($ per month, optional)', hh.allowance || '', 'number', '0', 'step="0.01" inputmode="decimal"')}${inp('haln', 'Allowance for', hh.allowance_note, 'text', 'e.g. fuel and phone')}</div>
         ${inp('hbk', 'Bank account for salary', hh.bank_account, 'text', 'e.g. ABA 000 123 456 · name')}
@@ -7446,6 +7723,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!v('nm')) return toast('Enter the full name');
         await busy(btn, async () => {
           if (boss) await api.updateStaff(u.id, role, active, v('nm'), v('ph'));
+          if (K.$('#dep', s.el)) { const dv = K.$('#dep', s.el).value ? +K.$('#dep', s.el).value : null, sv = K.$('#sup', s.el).value || null;
+            if (dv !== (u.department_id || null) || sv !== (u.supervisor_id || null)) await api.setStaffOrg(u.id, dv, sv); }
           if (hr) await api.saveStaffHr({ user_id: u.id, position: v('hp'), start_date: v('hs'), base_salary: v('hb'), annual_leave_days: v('hl'), emergency_contact: v('he'), notes: v('hn'),
             gender, birth_date: v('hbd'), address: v('had'), id_card: v('hid'), bank_account: v('hbk'), allowance: v('hal'), allowance_note: v('haln') });
         });
@@ -7462,22 +7741,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
   K.addStaffSheet = function addStaffSheet(onCreated) {
-      const roles = ['sales', 'warehouse', 'driver', 'manager', 'admin']; let role = 'sales';
+      const roles = ['sales', 'supervisor', 'agent', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';
       const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
         <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
-        <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 6 characters"></label></div>
-        <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 18%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
+        <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
+        <div class="small muted" id="arh">${esc(K.ROLE_HINTS.sales)}</div>
+        ${(K.S.cache.departments || []).length ? `<label class="f">Department (optional)<select class="inp" id="adep"><option value="">No department yet</option>${(K.S.cache.departments || []).filter(d => d.active !== false).map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>` : ''}
         <button class="btn block" id="aok">${icon('plus', 18)}Create account</button>`);
       const v = id => K.$('#' + id, s.el).value.trim();
-      K.$('#apw', s.el).value = String(Math.floor(100000 + Math.random() * 900000));
+      K.$('#apw', s.el).value = String(10000000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90000000));
       K.$('#an', s.el).oninput = () => { const u = K.$('#au', s.el); if (!u.dataset.touched) u.value = v('an').toLowerCase().split(/\s+/).pop().replace(/[^a-z0-9._]/g, ''); };
       K.$('#au', s.el).oninput = e => { e.target.dataset.touched = '1'; };
-      K.$$('[data-ar]', s.el).forEach(b => b.onclick = () => { role = b.dataset.ar; K.$$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+      K.$$('[data-ar]', s.el).forEach(b => b.onclick = () => { role = b.dataset.ar; K.$$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#arh', s.el).textContent = K.ROLE_HINTS[role] || ''; });
       K.$('#aok', s.el).onclick = async e => {
         const x = { full_name: v('an'), phone: v('aph'), username: v('au').toLowerCase(), password: v('apw'), role };
         if (!x.full_name) return toast('Enter the full name'); if (!/^[a-z0-9._]{3,24}$/.test(x.username)) return toast('Username: 3–24 letters or numbers, no spaces');
-        if (x.password.length < 6) return toast('The password needs at least 6 characters');
-        await busy(e.currentTarget, () => api.createStaff(x)); s.close();
+        if (x.password.length < 8) return toast('The password needs at least 8 characters');
+        const dep = K.$('#adep', s.el) && K.$('#adep', s.el).value ? +K.$('#adep', s.el).value : null;
+        await busy(e.currentTarget, async () => { const id = await api.createStaff(x); if (dep && id) { try { await api.setStaffOrg(id, dep, null); } catch (err) { toast('Account made, but the department was not saved: ' + err.message); } } }); s.close();
         K.forget('staff'); await K.data.staff(true); if (onCreated) await onCreated();
         const ok = K.sheet('Account ready', `<div class="card" style="background:var(--grs)"><b>${esc(x.full_name)}</b><div>Username: <b>${esc(x.username)}</b></div><div>Password: <b>${esc(x.password)}</b></div><div class="small muted">Role: ${esc(K.ROLE_LABEL[x.role])}</div></div>
           <div class="small muted">Send these to them (for example in Telegram) together with the app link. They can change the password in More → My profile.</div>
@@ -7505,8 +7787,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
   K.resetPasswordSheet = function resetPasswordSheet(u) {
       const s = K.sheet('New password · ' + u.full_name, `<div class="small muted">Use this when ${esc(u.full_name)} forgot their password. Give them the new one; they can change it later in More → My profile.</div>
-        <label class="f">New password<input class="inp" id="rp1" value="${String(Math.floor(100000 + Math.random() * 900000))}"></label><button class="btn block" id="rpok">Set new password</button>`);
-      K.$('#rpok', s.el).onclick = async e => { const pw = K.$('#rp1', s.el).value.trim(); if (pw.length < 6) return toast('The password needs at least 6 characters');
+        <label class="f">New password<input class="inp" id="rp1" value="${String(10000000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90000000))}"></label><button class="btn block" id="rpok">Set new password</button>`);
+      K.$('#rpok', s.el).onclick = async e => { const pw = K.$('#rp1', s.el).value.trim(); if (pw.length < 8) return toast('The password needs at least 8 characters');
         await busy(e.currentTarget, () => api.setStaffPassword(u.id, pw)); s.close(); K.sheet('Password changed', `<div class="card" style="background:var(--grs)">Username: <b>${esc(u.username)}</b><br>New password: <b>${esc(pw)}</b></div>`); };
     }
 })();
@@ -7536,24 +7818,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const hm = d => d ? new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 
   route(/^\/hr$/, async (_, q, current) => {
-    const A = K.adm, hr = K.allow('hr.manage'), boss = K.S.me.role === 'admin', att = hr || K.allow('attendance.view');
+    const A = K.adm, hr = K.allow('hr.manage'), boss = K.S.me.role === 'admin', head = K.isDeptHead(), seeAll = hr || boss || K.allow('attendance.view'), att = seeAll || head;
+    const heads = K.S.me.heads || [];
     if (!(att || boss)) return go('#/dashboard');
     await A.refreshCounts();
     if (!K.HOLIDAYS) K.HOLIDAYS = await api.listHolidays().catch(() => []);
-    const main = A.shell('hr', 'HR & Payroll', `<button class="btn sm out" id="myleave">${icon('bed', 18)}<span class="hide-sm">Ask for leave</span></button>`);
+    const depts = await K.data.departments(true).catch(() => []);
+    const main = A.shell('hr', seeAll ? 'HR & Payroll' : 'My department', `<button class="btn sm out" id="myleave">${icon('bed', 18)}<span class="hide-sm">Ask for leave</span></button>`);
     $('#myleave').onclick = () => K.leaveSheet(() => K.render());
     const P = K.period, since = P.range('custom')[0] < P.range('last')[0] ? P.range('custom')[0] : P.range('last')[0];
     const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave() : [], hr ? api.listStaffHr() : [],
       boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
     if (!current()) return;
     const att_ = attList;
-    const tabs = [boss && ['staff', 'Staff'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], hr && ['pay', 'Staff & pay'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
+    const tabs = [boss && ['staff', 'Staff'], (boss || hr) && ['depts', 'Departments'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], hr && ['pay', 'Staff & pay'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), month = K.monthKey(), cmonth = K.monthKey();
-    const reps = staff.filter(u => u.active && u.role === 'sales');
+    const reps = staff.filter(u => u.active && ['sales', 'supervisor', 'agent'].includes(u.role));
     const rateOf = id => (rates.find(r => r.user_id === id) || {}).rate;
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
     const pst = P.fresh('month');
-    const active = staff.filter(u => u.active);
+    const activeAll = staff.filter(u => u.active);
+    let deptF = q.d || '';
+    const inDept = u => !deptF ? true : deptF === 'none' ? !u.department_id : String(u.department_id) === deptF;
+    const mineP = u => seeAll || heads.includes(u.department_id);   // a department head only sees their own people
+    let active = activeAll.filter(u => mineP(u) && inDept(u));
+    const deptName = id => (depts.find(d => d.id === id) || {}).name || '';
     const hrOf = id => hrs.find(h => h.user_id === id) || {};
     const onLeave = (id, day) => leave.find(l => l.staff_id === id && l.status === 'approved' && l.from_date <= day && l.to_date >= day);
     let who = q.who || '', hols = null;
@@ -7592,7 +7881,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="card"><div class="row"><b class="grow">Leave</b><span class="pill ${allow - used > 0 ? 'gr' : 'or'}">Annual leave ${yr}: ${used} used · ${allow - used} left of ${allow}</span></div></div>
         <div class="card flush">${mine.map(l => K.leaveRow(l, false)).join('') || '<div class="empty">No leave requests</div>'}</div>`;
     };
+    const deptSheet = d => {
+      const isNew = !d.id;
+      const s = K.sheet(isNew ? 'New department' : d.name, `<label class="f">Department name<input class="inp" id="dn" value="${esc(d.name || '')}" placeholder="e.g. Sales"></label>
+        <label class="f">Head (manager or supervisor)<select class="inp" id="dh"><option value="">No head yet</option>${activeAll.map(u => `<option value="${esc(u.id)}" ${u.id === d.head_id ? 'selected' : ''}>${esc(u.full_name)} (${esc(K.ROLE_LABEL[u.role])})</option>`).join('')}</select></label>
+        <div class="small muted">The head sees this department's attendance and leave, approves their leave and posts in the department's chat channel. Heads do not see salaries.</div>
+        ${isNew ? '' : `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">In use</div><div class="seg">${[['1', 'On'], ['0', 'Off']].map(([k, l]) => `<button data-da="${k}" class="${(d.active !== false) === (k === '1') ? 'on' : ''}">${l}</button>`).join('')}</div>`}
+        <div class="btns">${isNew ? '' : '<button class="btn red" id="ddel">Delete</button>'}<button class="btn" id="dok">Save</button></div>`);
+      let on = d.active !== false;
+      K.$$('[data-da]', s.el).forEach(b => b.onclick = () => { on = b.dataset.da === '1'; K.$$('[data-da]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+      const after = async msg => { s.close(); toast(msg); depts.splice(0, depts.length, ...(await K.data.departments(true)));
+        try { const me = await api.refreshMe(); if (me) K.S.me.heads = me.heads; } catch (e) {} draw(); };
+      K.$('#dok', s.el).onclick = async e => { const nm = K.$('#dn', s.el).value.trim(); if (!nm) return toast('Enter the department name');
+        await busy(e.currentTarget, () => api.saveDepartment(d.id, nm, K.$('#dh', s.el).value || null, on)); after('Department saved'); };
+      if (K.$('#ddel', s.el)) K.$('#ddel', s.el).onclick = async e => { const b = e.currentTarget;
+        if (!(await K.confirmSheet('Delete ' + d.name + '?', 'Only possible when nobody is in this department.', 'Delete', true))) return;
+        await busy(b, () => api.deleteDepartment(d.id)); after('Department deleted'); };
+    };
     const draw = async () => {
+      active = activeAll.filter(u => mineP(u) && inDept(u));
       const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active).length : 0;
       $('#tabs').innerHTML = tabs.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}${cnt(k) ? ` <span style="opacity:.8">${cnt(k)}</span>` : ''}</button>`).join('');
       $$('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
@@ -7601,18 +7908,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
         const stats = u => { const mine = orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && new Date(o.created_at) >= monthStart && K.isSale(o));
           return { sales: mine.reduce((s, o) => s + +o.total, 0), orders: mine.length, visits: visits.filter(v => v.staff_id === u.id && new Date(v.check_in_at) >= monthStart).length }; };
-        const pending = staff.filter(u => !u.active), active = staff.filter(u => u.active);
+        const pending = staff.filter(u => !u.active), active = activeAll.filter(inDept);
         const row = u => { const x = stats(u), hh = hrOf(u.id);
           const was = K.namesOf(u.id);
           return `<button class="list-item" data-u="${esc(u.id)}">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}${was.length ? ` <span class="small muted" style="font-weight:600">· was ${was.map(h => esc(h.old_name)).join(', ')}</span>` : ''}</div>
-            <div class="st">${u.active ? [hh.position || K.ROLE_LABEL[u.role], u.phone, `${money(x.sales)} sales · ${x.orders} orders · ${x.visits} visits this month`].filter(Boolean).map(esc).join(' · ') : '@' + esc(u.username) + ' · waiting for approval'}</div></div>
+            <div class="st">${u.active ? [hh.position ? hh.position + ' (' + K.ROLE_LABEL[u.role] + ')' : K.ROLE_LABEL[u.role], deptName(u.department_id), u.supervisor_id && staff.find(y => y.id === u.supervisor_id) ? 'reports to ' + staff.find(y => y.id === u.supervisor_id).full_name : '', u.phone, `${money(x.sales)} sales · ${x.orders} orders · ${x.visits} visits this month`].filter(Boolean).map(esc).join(' · ') : '@' + esc(u.username) + ' · waiting for approval'}</div></div>
             ${u.active ? `<span class="pill">${esc(K.ROLE_LABEL[u.role])}</span>` : '<span class="pill or">Approve</span>'}</button>`; };
         const selfOn = (st.allow_signup || 'false') !== 'false';
         h = `<div class="row" style="flex-wrap:wrap;gap:10px"><button class="btn" id="addst">${icon('plus', 18)}Add staff</button><div class="grow"></div>
             <div class="row small" style="gap:8px"><span class="muted">Staff can make their own account</span><div class="seg" style="width:auto">${[['true', 'On'], ['false', 'Off']].map(([k, l]) => `<button data-self="${k}" class="${String(selfOn) === k ? 'on' : ''}" style="padding:0 14px">${l}</button>`).join('')}</div></div></div>
           <div class="card small muted"><div style="line-height:1.5">Tap <b>Add staff</b> to make a login: you choose the username and first password, and the account works straight away. Give them their username and password; they can change the password in More → My profile. Tap a person to edit their details, photo or password. When someone leaves, open them and tap <b>Disable</b>.${selfOn ? ' Self sign-up is on: people who make their own account wait here for your approval.' : ''}</div></div>
           ${pending.length ? `<div class="sec">Waiting for approval (${pending.length})</div><div class="card flush">${pending.map(row).join('')}</div>` : ''}
-          <div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div>`;
+          ${depts.length ? depts.concat([{ id: null, name: 'No department' }]).map(d => { const ppl = active.filter(u => (u.department_id || null) === d.id); const hd = d.head_id && staff.find(u => u.id === d.head_id);
+              return ppl.length ? `<div class="sec">${esc(d.name)} (${ppl.length})${hd ? ` <span style="text-transform:none;font-weight:600">· head ${esc(hd.full_name)}</span>` : ''}</div><div class="card flush">${ppl.map(row).join('')}</div>` : ''; }).join('')
+            : `<div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div>`}`;
+      } else if (tab === 'depts') {
+        const card = d => { const ppl = activeAll.filter(u => u.department_id === d.id), hd = staff.find(u => u.id === d.head_id), cost = ppl.reduce((s, u) => s + (+hrOf(u.id).base_salary || 0), 0);
+          return `<button class="list-item" data-dep="${d.id}" style="width:100%;text-align:left;align-items:flex-start"><div class="ic-av sq">${icon('users', 20)}</div><div class="grow"><div class="tt">${esc(d.name)}${d.active === false ? ' <span class="pill gy">Off</span>' : ''}</div>
+            <div class="st">${hd ? 'Head: ' + esc(hd.full_name) : '<b style="color:var(--or)">No head yet</b>'} · ${ppl.length} staff${hr && cost ? ' · base salaries ' + money(cost) + ' a month' : ''}</div>
+            <div class="small muted">${esc(ppl.map(u => u.full_name).join(', ') || 'Nobody yet')}</div></div>${icon('right', 18)}</button>`; };
+        const none = activeAll.filter(u => !u.department_id);
+        h = `<div class="row"><button class="btn" id="adddep">${icon('plus', 18)}Add department</button></div>
+          <div class="card small muted"><div style="line-height:1.6"><b>Role</b> = what a person can do in the app. <b>Department</b> = where they belong in the company. <b>Reports to</b> = their direct boss.<br>
+            The <b>head</b> of a department sees their people's attendance and leave, approves their leave and posts in the department's chat channel. Heads do not see salaries.<br>To put someone in a department, tap the person (Staff tab) → Department.</div></div>
+          <div class="card flush">${depts.map(card).join('') || '<div class="empty">No departments yet</div>'}</div>
+          ${none.length ? `<div class="card" style="background:var(--ors)"><b>No department yet (${none.length})</b><div class="small">${esc(none.map(u => u.full_name).join(', '))}</div></div>` : ''}`;
       } else if (tab === 'commission') {
         const rep = await api.commissionReport(cmonth), tot = rep.reduce((a, r) => a + +r.commission, 0);
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
@@ -7631,7 +7951,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="small muted">Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>`;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
-            <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>`;
+            <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>
+          <div class="card" style="max-width:560px"><b>Office location</b><div class="small muted">Used in the "Staff Check-in Alerts" channel and Telegram: each start / finish shows "at the office" or "⚠️ 1.4 km from the office" (more than 300 m away). Leave empty to show only the map link.</div>
+            <button class="btn sm out" id="offhere" type="button">${K.icon('pin', 16)} Use my location now (stand in the office)</button>
+            <div class="btns">${field('office_lat', 'Latitude', 'e.g. 11.5602')}${field('office_lng', 'Longitude', 'e.g. 104.9205')}</div>
+            <div class="small muted">Or in Google Maps: press and hold on your office, copy the two numbers here.${st.office_lat && st.office_lng ? ` <a href="https://maps.google.com/?q=${esc(st.office_lat)},${esc(st.office_lng)}" target="_blank" rel="noopener" style="font-weight:700">Check on the map ›</a>` : ''}</div>
+            <button class="btn" data-save>Save office location</button></div>`;
       } else if (tab === 'today') {
         const t = P.today(), rows = active.map(u => ({ u, a: att_.find(x => x.staff_id === u.id && x.work_date === t), l: onLeave(u.id, t) }));
         const inN = rows.filter(r => r.a).length, late = rows.filter(r => r.a && K.isLate(r.a)).length, lv = rows.filter(r => !r.a && r.l).length;
@@ -7655,7 +7980,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else if (tab === 'payroll') {
         h = '<div id="payv"></div>';
       } else if (tab === 'leave') {
-        const pend = leave.filter(l => l.status === 'pending'), rest = leave.filter(l => l.status !== 'pending');
+        const lv = leave.filter(l => (seeAll && !deptF) || active.some(u => u.id === l.staff_id) || (l.staff_id === K.S.me.id && !deptF)), pend = lv.filter(l => l.status === 'pending'), rest = lv.filter(l => l.status !== 'pending');
         h = `<div class="sec">Waiting for approval</div><div class="card flush">${pend.map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests waiting</div>'}</div>
           <div class="sec">All requests</div><div class="card flush">${rest.slice(0, 100).map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests yet</div>'}</div>`;
       } else {
@@ -7671,21 +7996,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <tr style="background:var(--bg)"><td><b>Total</b></td><td class="hide-sm"></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + (+r.hh.base_salary || 0), 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.c, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.pay, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.back, 0))}</b></td><td></td><td></td></tr></tbody></table></div>
           <div class="small muted">Salary details are private: only you (and people you give "Staff details, salary…" permission) can see them. Each person sees only their own.</div></div>`;
       }
+      if (depts.length && ['staff', 'today', 'att', 'leave', 'pay'].includes(tab)) {
+        const opts = depts.filter(d => seeAll || heads.includes(d.id));
+        if (seeAll || opts.length > 1) h = `<label class="f" style="max-width:280px">Department<select class="inp" id="deptf"><option value="">${seeAll ? 'All departments' : 'All my departments'}</option>${opts.map(d => `<option value="${d.id}" ${String(d.id) === deptF ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}${seeAll ? `<option value="none" ${deptF === 'none' ? 'selected' : ''}>No department</option>` : ''}</select></label>` + h;
+      }
       $('#body').innerHTML = h;
+      if ($('#deptf')) $('#deptf').onchange = e => { deptF = e.target.value; who = ''; draw(); };
+      if ($('#adddep')) $('#adddep').onclick = () => deptSheet({});
+      $$('[data-dep]').forEach(b => b.onclick = () => deptSheet(depts.find(d => d.id === +b.dataset.dep)));
       if ($('#payv')) K.payrollView($('#payv'), { staff });
       if ($('#attwho')) $('#attwho').onchange = e => { who = e.target.value; draw(); };
       if ($('#attall')) $('#attall').onclick = () => { who = ''; draw(); };
       $$('[data-who]').forEach(r => r.onclick = () => { who = r.dataset.who; draw(); const m = $('#main'); if (m) m.scrollTop = 0; });
       if ($('#per')) P.bind($('#per'), pst, draw);
       $$('[data-m]').forEach(b => b.onclick = () => { month = b.dataset.m; draw(); });
-      $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr) K.leaveReview(l, () => K.render()); });
+      $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr || K.isHeadOf(l.staff_id)) K.leaveReview(l, () => K.render()); });
       $$('[data-hr]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.hr)));
       $$('[data-u]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.u)));
       if ($('#addst')) $('#addst').onclick = addStaffSheet;
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
+      if ($('#offhere')) $('#offhere').onclick = e => { const b = e.currentTarget; if (!navigator.geolocation) return toast('This device cannot find its location');
+        b.disabled = true; navigator.geolocation.getCurrentPosition(p => { b.disabled = false; $('[data-k="office_lat"]').value = p.coords.latitude.toFixed(6); $('[data-k="office_lng"]').value = p.coords.longitude.toFixed(6); toast('Location found (± ' + Math.round(p.coords.accuracy) + ' m). Tap Save office location.'); },
+          () => { b.disabled = false; toast('Could not get the location. Allow location for this site and try again.'); }, { enableHighAccuracy: true, timeout: 15000 }); };
       $$('[data-save]').forEach(b => b.onclick = async () => {
         const obj = {}; $$('[data-k]').forEach(i => { obj[i.dataset.k] = i.value.trim(); });
+        if ('office_lat' in obj) { const two = obj.office_lat.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/); if (two) { obj.office_lat = two[1]; obj.office_lng = two[2]; } }   // pasted "11.56, 104.92" from Google Maps
+        for (const k of ['office_lat', 'office_lng']) if (k in obj) { obj[k] = obj[k].replace(',', '.').replace(/[^0-9.\-]/g, ''); if (obj[k] && isNaN(+obj[k])) return toast('The office location must be numbers, e.g. 11.5602'); }
+        if (('office_lat' in obj) && !!obj.office_lat !== !!obj.office_lng) return toast('Fill both latitude and longitude, or leave both empty');
         await busy(b, () => api.saveSettings(obj)); Object.assign(st, obj); await K.loadSettings(); toast('Saved'); if (tab === 'commission') draw();
       });
       if ($('#scr')) $('#scr').onclick = async e => { await busy(e.currentTarget, async () => { for (const i of $$('[data-cr]')) { const v = i.value.trim(), old = rateOf(i.dataset.cr);
@@ -7741,7 +8079,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return `<div class="payslip" style="display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><b style="font-size:16px">${esc(S.company_name || 'K-TRONiCS')}</b><div class="small muted">Payslip · ${esc(K.monthName(String(l.month).slice(0, 10)))}</div></div>
         ${l.status === 'paid' ? `<span class="pill gr">Paid${l.paid_at ? ' ' + esc(K.poDate ? K.poDate(String(l.paid_at).slice(0, 10)) : String(l.paid_at).slice(0, 10)) : ''}${l.paid_method ? ' · ' + esc(methodName(l.paid_method)) : ''}</span>` : '<span class="pill gy">Not paid yet</span>'}</div>
-      <div><b>${esc(name || l.full_name || '')}</b>${l.position ? ` <span class="muted small">· ${esc(l.position)}</span>` : ''}${num(l.days_worked) ? `<div class="small muted">${dz(l.days_worked, 'day(s) at work')}</div>` : ''}</div>
+      <div><b>${esc(name || l.full_name || '')}</b>${l.position ? ` <span class="muted small">· ${esc(l.position)}</span>` : ''}${K.deptOf && K.deptOf(l.user_id) ? ` <span class="muted small">· ${esc(K.deptOf(l.user_id))}</span>` : ''}${num(l.days_worked) ? `<div class="small muted">${dz(l.days_worked, 'day(s) at work')}</div>` : ''}</div>
       <div class="tbl"><table><tbody>${add.filter(a => a[2] || num(a[1])).map(a => row(a[0], a[1])).join('')}
         <tr style="background:var(--bg)"><td><b>Total pay</b></td><td style="text-align:right"><b>${money(gross)}</b></td></tr>
         ${sub.filter(a => num(a[1])).map(a => row(a[0], a[1], true)).join('')}
@@ -7957,6 +8295,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <td style="text-align:right">${c(l.saved || l.status === 'paid' ? l.advances : l.advances_now, 0, '', 1)}</td><td style="text-align:right">${c(l.tax, 0, '', 1)}</td><td style="text-align:right">${c(l.other_deduct, 0, '', 1)}</td></tr>`).join('') || '<tr><td colspan="16" class="muted">No staff yet. Add staff and their base salary in the Staff tab.</td></tr>'}
           <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right;white-space:nowrap"><b>${money(tot('net'))}</b></td><td></td><td style="text-align:right"><b>${money(tot('base'))}</b></td><td style="text-align:right">${money(tot('allowance'))}</td><td style="text-align:right">${money(tot('commission'))}</td><td style="text-align:right">${money(tot('ot_pay'))}</td><td style="text-align:right">${money(tot('sunday_pay'))}</td><td style="text-align:right">${money(tot('holiday_pay'))}</td><td style="text-align:right">${money(tot('bonus'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('late_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('unpaid_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('absent_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(L.reduce((a, l) => a + num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), 0))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('tax'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('other_deduct'))}</td></tr></tbody></table></div>
           <div class="small muted">Tap a person to see the payslip, change numbers, add a bonus or NSSF/tax.</div></div>
+        ${(() => { const deps = K.S.cache.departments || [], staff = ctx.staff || K.S.cache.staff || []; if (!deps.length || !L.length) return '';
+            const g = {}; L.forEach(l => { const u = staff.find(x => x.id === l.user_id) || {}; const k = u.department_id || 0; g[k] = g[k] || { n: 0, gross: 0, net: 0 }; g[k].n++; g[k].gross += num(l.gross); g[k].net += num(l.net); });
+            const name = k => k ? ((deps.find(d => d.id === +k) || {}).name || 'Department') : 'No department';
+            const keys = Object.keys(g).sort((a, b) => g[b].gross - g[a].gross);
+            return `<div class="card"><b>By department · ${esc(K.monthName(month))}</b><div class="tbl"><table><thead><tr><th style="text-align:left">Department</th><th style="text-align:right">Staff</th><th style="text-align:right">Total pay (cost)</th><th style="text-align:right">Net pay</th></tr></thead><tbody>
+              ${keys.map(k => `<tr><td><b>${esc(name(k))}</b></td><td style="text-align:right">${g[k].n}</td><td style="text-align:right">${money(g[k].gross)}</td><td style="text-align:right">${money(g[k].net)}</td></tr>`).join('')}
+              <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right">${L.length}</td><td style="text-align:right"><b>${money(tot('gross'))}</b></td><td style="text-align:right"><b>${money(tot('net'))}</b></td></tr></tbody></table></div>
+              <div class="small muted">Total pay = what the department costs the company this month (before deductions).</div></div>`; })()}
         <div class="card"><b>How the payroll is counted</b><div class="small" style="line-height:1.7">
           • Daily pay = base salary ÷ ${+r.workdays} days · hourly pay = daily pay ÷ ${+r.hours} hours<br>
           • <b>Late</b>: start work more than ${+r.late_grace} min after ${esc((K.SETTINGS || {}).work_start || '08:00')} (Monday – Saturday) = ${+r.late_amount ? '−' + money(r.late_amount) + ' per day' : 'shown, but no money taken'}<br>
@@ -7993,6 +8339,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const A = K.adm, admin = A && !A.phone;
     const main = admin ? A.shell('hr', 'My payslips', '', 'Your salary each month') : K.page({ title: 'My payslips', sub: 'Your salary each month', back: '#/more' });
     const d = await api.myPayslips();
+    try { await K.data.departments(); } catch (e) {}
     if (!current()) return;
     const L = d.lines || [], adv = d.advances || [], open = adv.filter(a => !a.payroll_month);
     main.innerHTML = `<div class="${admin ? 'apad' : 'pad'}" style="display:flex;flex-direction:column;gap:12px">
@@ -8300,7 +8647,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let staff = [], shops = [];
     try { [staff, shops] = await Promise.all([K.data.staff(), K.data.customers(true)]); } catch (e) {}
     if (!current()) return;
-    const reps = staff.filter(u => u.active && ['sales', 'manager', 'admin'].includes(u.role));
+    const reps = staff.filter(u => u.active && K.SELLERS.includes(u.role));
     main.innerHTML = (K.crmTabs && !A.phone ? K.crmTabs('routemap') : '') + `<div class="rmap"><div class="rside card">
         <div class="btns" style="margin:0"><label class="f">Day<input class="inp" type="date" id="rd" value="${st.date}"></label>
           <label class="f">Sales rep<select class="inp" id="rr"><option value="">All reps</option>${reps.map(u => `<option value="${u.id}" ${u.id === st.rep ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label></div>
