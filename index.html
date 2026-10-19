@@ -2133,11 +2133,19 @@ window.makeDemoApi = function () {
     if (!c) { c = { id: Math.max(0, ...pCusts().map(y => y.id)) + 1, partner_id: pid, name: 'K-TRONiCS', notes: 'Made by the app: goods K-TRONiCS buys from you', active: true, is_ktronics: true, created_at: now() }; pCusts().push(c); }
     return c; };
   const pSyncPays = purchaseId => { const r = pReqs().find(x => x.purchase_id === purchaseId), o = r && pOrds().find(x => x.request_id === r.id); if (!o) return;
-    const sp = (D.spays || []).filter(x => x.purchase_id === purchaseId && (x.kind || 'payment') === 'payment');
+    const sp = (D.spays || []).filter(x => x.purchase_id === purchaseId);   // payments, and money back (refund) as minus
     D.pPays = pPays().filter(y => !(y.order_id === o.id && y.supplier_payment_id && !sp.some(x => x.id === y.supplier_payment_id)));
     sp.forEach(x => { if (!pPays().some(y => y.supplier_payment_id === x.id)) pPays().push({ id: Math.max(0, ...pPays().map(z => z.id)) + 1, partner_id: o.partner_id, order_id: o.id, customer_id: o.customer_id,
-      amount: x.amount, currency: 'USD', rate: 1, amount_usd: x.amount, method: x.method, note: 'Paid by K-TRONiCS', received_at: x.created_at || now(), voided_at: null, void_reason: null, supplier_payment_id: x.id }); });
+      amount: x.kind === 'refund' ? -x.amount : x.amount, currency: 'USD', rate: 1, amount_usd: x.kind === 'refund' ? -x.amount : x.amount, method: x.method, note: x.kind === 'refund' ? 'Money back to K-TRONiCS' : 'Paid by K-TRONiCS', received_at: x.created_at || now(), voided_at: null, void_reason: null, supplier_payment_id: x.id }); });
     o.paid_amount = +pPays().filter(z => z.order_id === o.id && !z.voided_at).reduce((a, z) => a + z.amount_usd, 0).toFixed(2); };
+  // goods bought from a partner and sent back (sign 1) or sent again (-1: undo / new goods arrived)
+  const pPurchaseReturn = (ret, sign) => { const q = pReqs().find(x => x.purchase_id === ret.purchase_id), o = q && pOrds().find(x => x.request_id === q.id); if (!o) return;
+    const pa = partnersOf().find(x => x.id === o.partner_id) || {};
+    if (sign < 0) ret.items.forEach(i => { if (pStock(o.partner_id, i.product_id) < i.qty) fail(pa.name + ' has only ' + pStock(o.partner_id, i.product_id) + ' of ' + (D.products.find(p => p.id === i.product_id) || {}).name + ' now, so it cannot send them again'); });
+    ret.items.forEach(i => { pStockChange(o.partner_id, i.product_id, sign * i.qty, sign > 0 ? 'returned' : 'to_ktronics', sign > 0 ? ret.note : 'Again (' + ret.return_no + ')', ret.return_no);
+      if (sign > 0 && ret.settle === 'money') (D.pReturns = D.pReturns || []).push({ order_id: o.id, return_id: ret.id, return_no: ret.return_no, product_id: i.product_id, qty: i.qty, price: Math.round(i.unit_value * 100) / 100 }); });
+    if (sign < 0) D.pReturns = (D.pReturns || []).filter(x => x.return_id !== ret.id);
+    o.returned_amount = +(D.pReturns || []).filter(x => x.order_id === o.id).reduce((a, x) => a + x.qty * x.price, 0).toFixed(2); };
   const pReqOrder = r => { let o = pOrds().find(x => x.request_id === r.id); if (o) return o; const c = pKtrCust(r.partner_id);
     const seq = Math.max(0, ...pOrds().filter(x => x.partner_id === r.partner_id).map(x => x.seq)) + 1, lines = r.items.filter(i => i.qty_given > 0).map(i => ({ product_id: i.product_id, qty: i.qty_given, price: i.price }));
     o = { id: Math.max(0, ...pOrds().map(y => y.id)) + 1, partner_id: r.partner_id, seq, order_no: 'P' + r.partner_id + '-' + String(seq).padStart(4, '0'), customer_id: c.id, status: 'delivered', payment: 'credit', due_date: null,
@@ -2303,7 +2311,7 @@ window.makeDemoApi = function () {
     async partnerCustomers() { const pid = myPartner(); if (!pid) fail('Not a partner account'); return api._pCustsOf(pid); },
     async _pCustsOf(pid) {
       return wait(pCusts().filter(c => c.partner_id === pid).map(c => { const os = pOrds().filter(o => o.customer_id === c.id && o.status !== 'cancelled');
-        return Object.assign(clone(c), { owed: +os.reduce((a, o) => a + Math.max(0, o.total - o.paid_amount), 0).toFixed(2), orders: os.length, last_order: os.length ? os[os.length - 1].created_at : null }); })
+        return Object.assign(clone(c), { owed: +os.reduce((a, o) => a + Math.max(0, o.total - (o.returned_amount || 0) - o.paid_amount), 0).toFixed(2), orders: os.length, last_order: os.length ? os[os.length - 1].created_at : null }); })
         .sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name))); },
     async partnerCustomerSave(x) { const pid = myPartner(); if (!pid) fail('Not a partner account'); const nm = String(x.name || '').trim(); if (!nm) fail('Enter the customer name');
       const v = { name: nm, owner_name: x.owner_name || null, phone: x.phone || null, telegram: x.telegram || null, address: x.address || null, province: x.province || null, notes: x.notes || null, active: x.active !== false };
@@ -2327,7 +2335,8 @@ window.makeDemoApi = function () {
       o.items.forEach(l => pStockChange(o.partner_id, l.product_id, l.qty, 'cancel', reason, o.order_no)); o.status = 'cancelled'; o.cancelled_at = now(); o.cancel_reason = reason.trim(); save(); return wait(null); },
     async partnerOrder(id) { return api._pOrderOf(myPOrder(id)); },
     async _pOrderOf(o) { const c = pCusts().find(x => x.id === o.customer_id), pa = partnersOf().find(x => x.id === o.partner_id);
-      return wait({ id: o.id, order_no: o.order_no, status: o.status, payment: o.payment, due_date: o.due_date, total: o.total, paid: o.paid_amount, owed: Math.max(0, +(o.total - o.paid_amount).toFixed(2)), notes: o.notes,
+      return wait({ id: o.id, order_no: o.order_no, status: o.status, payment: o.payment, due_date: o.due_date, total: o.total, paid: o.paid_amount, owed: Math.max(0, +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2)), returned: (o.returned_amount || 0), pay_back: o.status === 'cancelled' ? 0 : Math.max(0, +(o.paid_amount - (o.total - (o.returned_amount || 0))).toFixed(2)),
+        returns: (D.pReturns || []).filter(x => x.order_id === o.id).map(x => ({ name: (D.products.find(p => p.id === x.product_id) || {}).name, qty: x.qty, price: x.price, return_no: x.return_no })), notes: o.notes,
         created_at: o.created_at, delivered_at: o.delivered_at || null, cancelled_at: o.cancelled_at || null, cancel_reason: o.cancel_reason || null, by: staffNameD(o.created_by),
         customer: { id: c.id, name: c.name, owner_name: c.owner_name, phone: c.phone, address: c.address, province: c.province },
         items: o.items.map(l => { const p = D.products.find(x => x.id === l.product_id) || {}; return { product_id: l.product_id, name: p.name, sku: p.sku, qty: l.qty, price: l.price, line_total: +(l.qty * l.price).toFixed(2) }; }),
@@ -2335,13 +2344,13 @@ window.makeDemoApi = function () {
     async partnerOrders(from, to, status, customer) { const pid = myPartner(); if (!pid) fail('Not a partner account'); return api._pOrdersOf(pid, from, to, status, customer); },
     async _pOrdersOf(pid, from, to, status, customer) { const d = t => localDay0(t);
       return wait(pOrds().filter(o => o.partner_id === pid && (!from || d(o.created_at) >= from) && (!to || d(o.created_at) <= to)
-          && (!status || o.status === status || (status === 'unpaid' && o.status !== 'cancelled' && o.total > o.paid_amount)) && (!customer || o.customer_id === customer))
+          && (!status || o.status === status || (status === 'unpaid' && o.status !== 'cancelled' && o.total - (o.returned_amount || 0) > o.paid_amount)) && (!customer || o.customer_id === customer))
         .map(o => ({ id: o.id, order_no: o.order_no, customer: (pCusts().find(c => c.id === o.customer_id) || {}).name, customer_id: o.customer_id, status: o.status, payment: o.payment, due_date: o.due_date,
-          total: o.total, paid: o.paid_amount, owed: o.status === 'cancelled' ? 0 : Math.max(0, +(o.total - o.paid_amount).toFixed(2)), created_at: o.created_at, lines: o.items.length, request_id: o.request_id || null })).reverse()); },
+          total: o.total, paid: o.paid_amount, owed: o.status === 'cancelled' ? 0 : Math.max(0, +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2)), returned: (o.returned_amount || 0), created_at: o.created_at, lines: o.items.length, request_id: o.request_id || null })).reverse()); },
     async partnerPaymentAdd(x) { const o = myPOrder(x.order_id); if (o.status === 'cancelled') fail('This order is cancelled'); if (o.request_id) fail('K-TRONiCS pays this order in its Purchasing. The payment shows here by itself.'); if (!(+x.amount > 0)) fail('Enter the amount');
       if (!['USD', 'KHR'].includes(x.currency)) fail('Choose USD or KHR'); if (!['cash', 'aba', 'bank', 'other'].includes(x.method)) fail('Choose how it was paid');
       const rt = x.currency === 'USD' ? 1 : +x.rate || 0; if (x.currency === 'KHR' && rt < 1000) fail('Enter the riel rate (for example 4100)');
-      const usd = Math.round(+x.amount / rt * 100) / 100; if (usd > +(o.total - o.paid_amount).toFixed(2) + 0.01) fail('This is more than the $' + (o.total - o.paid_amount).toFixed(2) + ' still owed');
+      const usd = Math.round(+x.amount / rt * 100) / 100; if (usd > +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2) + 0.01) fail('This is more than the $' + (o.total - o.paid_amount).toFixed(2) + ' still owed');
       const y = { id: Math.max(0, ...pPays().map(z => z.id)) + 1, partner_id: o.partner_id, order_id: o.id, customer_id: o.customer_id, amount: +x.amount, currency: x.currency, rate: rt, amount_usd: Math.min(usd, +(o.total - o.paid_amount).toFixed(2)),
         method: x.method, note: (x.note || '').trim() || null, received_at: now(), voided_at: null, void_reason: null };
       pPays().push(y); o.paid_amount = +pPays().filter(z => z.order_id === o.id && !z.voided_at).reduce((a, z) => a + z.amount_usd, 0).toFixed(2); save(); return wait(y.id); },
@@ -2352,14 +2361,15 @@ window.makeDemoApi = function () {
     async _pReportOf(pid, from, to) { const d = t => localDay0(t);
       const os = pOrds().filter(o => o.partner_id === pid && o.status !== 'cancelled' && d(o.created_at) >= from && d(o.created_at) <= to), its = [];
       os.forEach(o => o.items.forEach(l => its.push(Object.assign({ name: (D.products.find(p => p.id === l.product_id) || {}).name }, l))));
+      (D.pReturns || []).filter(x => os.some(o => o.id === x.order_id)).forEach(x => its.push({ name: (D.products.find(p => p.id === x.product_id) || {}).name, product_id: x.product_id, qty: -x.qty, price: x.price }));   // goods K-TRONiCS sent back
       const grp = (arr, k, f) => Object.values(arr.reduce((m, x) => { const key = k(x); (m[key] = m[key] || []).push(x); return m; }, {})).map(f);
-      return wait({ from, to, sales: +os.reduce((a, o) => a + o.total, 0).toFixed(2), orders: os.length, pieces: its.reduce((a, l) => a + l.qty, 0), customers: new Set(os.map(o => o.customer_id)).size,
+      return wait({ from, to, sales: +os.reduce((a, o) => a + o.total - (o.returned_amount || 0), 0).toFixed(2), orders: os.length, pieces: its.reduce((a, l) => a + l.qty, 0), customers: new Set(os.map(o => o.customer_id)).size,
         collected: +pPays().filter(y => y.partner_id === pid && !y.voided_at && d(y.received_at) >= from && d(y.received_at) <= to).reduce((a, y) => a + y.amount_usd, 0).toFixed(2),
-        still_owed_all: +pOrds().filter(o => o.partner_id === pid && o.status !== 'cancelled').reduce((a, o) => a + Math.max(0, o.total - o.paid_amount), 0).toFixed(2),
+        still_owed_all: +pOrds().filter(o => o.partner_id === pid && o.status !== 'cancelled').reduce((a, o) => a + Math.max(0, o.total - (o.returned_amount || 0) - o.paid_amount), 0).toFixed(2),
         cancelled: pOrds().filter(o => o.partner_id === pid && o.status === 'cancelled' && d(o.created_at) >= from && d(o.created_at) <= to).length,
-        by_day: grp(os, o => d(o.created_at), g => ({ day: d(g[0].created_at), sales: +g.reduce((a, o) => a + o.total, 0).toFixed(2) })).sort((a, b) => a.day.localeCompare(b.day)),
+        by_day: grp(os, o => d(o.created_at), g => ({ day: d(g[0].created_at), sales: +g.reduce((a, o) => a + o.total - (o.returned_amount || 0), 0).toFixed(2) })).sort((a, b) => a.day.localeCompare(b.day)),
         by_product: grp(its, l => l.name, g => ({ product: g[0].name, pcs: g.reduce((a, l) => a + l.qty, 0), sales: +g.reduce((a, l) => a + l.qty * l.price, 0).toFixed(2) })).sort((a, b) => b.sales - a.sales),
-        by_customer: grp(os, o => o.customer_id, g => ({ customer: (pCusts().find(c => c.id === g[0].customer_id) || {}).name, orders: g.length, sales: +g.reduce((a, o) => a + o.total, 0).toFixed(2) })).sort((a, b) => b.sales - a.sales) }); },
+        by_customer: grp(os, o => o.customer_id, g => ({ customer: (pCusts().find(c => c.id === g[0].customer_id) || {}).name, orders: g.length, sales: +g.reduce((a, o) => a + o.total - (o.returned_amount || 0), 0).toFixed(2) })).sort((a, b) => b.sales - a.sales) }); },
     // admin views of each partner (step 4): read only, admin only
     async partnerCustomersAdmin(pid) { adminPartner(pid); return api._pCustsOf(pid); },
     async partnerOrdersAdmin(pid, from, to, status, customer) { adminPartner(pid); return api._pOrdersOf(pid, from, to, status, customer); },
@@ -3655,7 +3665,6 @@ window.makeDemoApi = function () {
       if (!allow('purchases.manage')) fail('You are not allowed to return goods to suppliers');
       const p = D.purchases.find(y => y.id === pid); if (!p) fail('Purchase not found');
       if (p.status !== 'received') fail('Only goods that arrived can be returned. For goods not arrived yet, edit or cancel the purchase.');
-      if ((D.pReqs || []).some(r => r.purchase_id === pid)) fail('These goods came from a partner (stock request), so they cannot be returned here.');
       if (!['money', 'replace'].includes(settle)) fail('Choose money back or new goods'); if (!String(note || '').trim()) fail('Write why you return the goods');
       const L = (items || []).filter(x => x.qty > 0); if (!L.length) fail('Type how many pieces go back');
       const id = (D.preturns = D.preturns || []).length ? Math.max(...D.preturns.map(r => r.id)) + 1 : 1, r = { id, return_no: 'RT-' + String(id).padStart(5, '0'), purchase_id: pid, settle, status: 'returned', amount: 0, note: note.trim(), created_by: me.id, created_at: now(), items: [] };
@@ -3666,7 +3675,7 @@ window.makeDemoApi = function () {
         const each = its.reduce((s, i) => s + i.qty * i.landed_cost, 0) / got; r.items.push({ product_id: x.product_id, qty: x.qty, unit_value: +each.toFixed(4) }); r.amount += x.qty * each; });
       r.amount = +r.amount.toFixed(2);
       r.items.forEach(x => { setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) - x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: -x.qty, reason: 'out', ref: r.return_no, note: 'Returned to supplier · ' + p.purchase_no, created_by: me.id, created_at: now() }); });
-      D.preturns.push(r); api._poRecalc(p);
+      D.preturns.push(r); pPurchaseReturn(r, 1); api._poRecalc(p);
       alert('↩️ Returned to supplier: ' + r.return_no + ' · ' + (D.suppliers.find(s => s.id === p.supplier_id) || {}).name + ' · ' + r.items.map(x => D.products.find(y => y.id === x.product_id).name + ' ×' + x.qty).join(', ') + ' · ' + (settle === 'money' ? 'money back' : 'new goods coming') + ' · ' + r.note, {}, 'stock');
       save(); return wait(id);
     },
@@ -3675,6 +3684,7 @@ window.makeDemoApi = function () {
       const r = (D.preturns || []).find(x => x.id === id); if (!r) fail('Return not found'); if (r.status !== 'returned') fail('This return is already ' + r.status);
       if (action === 'replaced' && r.settle !== 'replace') fail('This return is for money back, not new goods');
       const p = D.purchases.find(y => y.id === r.purchase_id);
+      pPurchaseReturn(r, -1);   // goods from a partner: the partner sends them again (refused first if it has not got them)
       r.items.forEach(x => { setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) + x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: x.qty, reason: 'in', ref: r.return_no, note: (action === 'replaced' ? 'New goods from supplier for ' : 'Return undone · ') + p.purchase_no, created_by: me.id, created_at: now() }); });
       r.status = action === 'replaced' ? 'replaced' : 'undone'; r.done_at = now(); api._poRecalc(p); save(); return wait(null);
     },
@@ -4695,6 +4705,9 @@ Object.assign(window.KT_KM, {"The stock disappears from the app. Its old orders 
 // partner: sale to K-TRONiCS is an order (20 Oct)
 Object.assign(window.KT_KM, {"Orders for K-TRONiCS are made by the app when you give goods for a request from K-TRONiCS. K-TRONiCS pays them in its Purchasing.": "ការបញ្ជាទិញសម្រាប់ K-TRONiCS ត្រូវបានបង្កើតដោយកម្មវិធី ពេលអ្នកផ្តល់ទំនិញតាមសំណើពី K-TRONiCS។ K-TRONiCS បង់ប្រាក់តាមផ្នែកទិញរបស់ខ្លួន។", "Sold to K-TRONiCS (stock request). K-TRONiCS pays this in its Purchasing; each payment shows here by itself.": "បានលក់ទៅ K-TRONiCS (សំណើស្តុក)។ K-TRONiCS បង់ប្រាក់នេះតាមផ្នែកទិញរបស់ខ្លួន ហើយការបង់ប្រាក់នីមួយៗនឹងបង្ហាញនៅទីនេះដោយស្វ័យប្រវត្តិ។", "Your order": "ការបញ្ជាទិញរបស់អ្នក", "K-TRONiCS pays this order in its Purchasing. It cannot be cancelled here.": "K-TRONiCS បង់ប្រាក់ការបញ្ជាទិញនេះតាមផ្នែកទិញរបស់ខ្លួន។ មិនអាចលុបចោលនៅទីនេះបានទេ។", "K-TRONiCS pays this order in its Purchasing. The payment shows here by itself.": "K-TRONiCS បង់ប្រាក់ការបញ្ជាទិញនេះតាមផ្នែកទិញរបស់ខ្លួន។ ការបង់ប្រាក់នឹងបង្ហាញនៅទីនេះដោយស្វ័យប្រវត្តិ។", "This payment was made by K-TRONiCS. Only K-TRONiCS can change it.": "ការបង់ប្រាក់នេះធ្វើដោយ K-TRONiCS។ មានតែ K-TRONiCS ទេដែលអាចកែបាន។", "The K-TRONiCS customer is made by the app and cannot be changed": "អតិថិជន K-TRONiCS ត្រូវបានបង្កើតដោយកម្មវិធី ហើយមិនអាចកែបានទេ", "Paid by K-TRONiCS": "K-TRONiCS បានបង់"});
 
+// returns to a partner (20 Oct)
+Object.assign(window.KT_KM, {"Returned by K-TRONiCS": "K-TRONiCS បានប្រគល់ត្រឡប់", "You pay back to K-TRONiCS": "អ្នកត្រូវសងប្រាក់ឱ្យ K-TRONiCS", "Money back to K-TRONiCS": "ប្រាក់សងទៅ K-TRONiCS", "Sent to K-TRONiCS again": "បានផ្ញើទៅ K-TRONiCS ម្តងទៀត"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5619,6 +5632,9 @@ Object.assign(window.KT_ZH, {"The stock disappears from the app. Its old orders 
 
 // partner: sale to K-TRONiCS is an order (20 Oct)
 Object.assign(window.KT_ZH, {"Orders for K-TRONiCS are made by the app when you give goods for a request from K-TRONiCS. K-TRONiCS pays them in its Purchasing.": "给 K-TRONiCS 的订单由应用自动生成（当你按 K-TRONiCS 的申请提供货物时）。K-TRONiCS 在其采购中付款。", "Sold to K-TRONiCS (stock request). K-TRONiCS pays this in its Purchasing; each payment shows here by itself.": "已卖给 K-TRONiCS（库存申请）。K-TRONiCS 在其采购中付款，每笔付款会自动显示在这里。", "Your order": "你的订单", "K-TRONiCS pays this order in its Purchasing. It cannot be cancelled here.": "K-TRONiCS 在其采购中支付此订单。不能在这里取消。", "K-TRONiCS pays this order in its Purchasing. The payment shows here by itself.": "K-TRONiCS 在其采购中支付此订单。付款会自动显示在这里。", "This payment was made by K-TRONiCS. Only K-TRONiCS can change it.": "这笔付款由 K-TRONiCS 支付。只有 K-TRONiCS 可以修改。", "The K-TRONiCS customer is made by the app and cannot be changed": "K-TRONiCS 客户由应用生成，不能修改", "Paid by K-TRONiCS": "K-TRONiCS 已付"});
+
+// returns to a partner (20 Oct)
+Object.assign(window.KT_ZH, {"Returned by K-TRONiCS": "K-TRONiCS 已退回", "You pay back to K-TRONiCS": "你需退款给 K-TRONiCS", "Money back to K-TRONiCS": "退款给 K-TRONiCS", "Sent to K-TRONiCS again": "再次发给 K-TRONiCS"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -10184,7 +10200,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     K.$('#pout', main).onclick = async () => { if (await K.confirmSheet('Log out?', 'You will need your username and password to log in again.', 'Log out', true)) K.logout(); };
   });
 
-  const KIND = { in: 'Stock in', fix: 'Count fixed', sale: 'Sold', cancel: 'Order cancelled', to_ktronics: 'Sent to K-TRONiCS' };
+  const KIND = { in: 'Stock in', fix: 'Count fixed', sale: 'Sold', cancel: 'Order cancelled', to_ktronics: 'Sent to K-TRONiCS', returned: 'Returned by K-TRONiCS' };
   const fmtWhen = t => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
   // my stock: what is in my partner warehouse (only the admin adds stock; my sales take it out)
@@ -10409,12 +10425,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${o.status === 'cancelled' ? `<div class="small" style="color:var(--rd)">Cancelled ${esc(fmtWhen(o.cancelled_at))}: ${esc(o.cancel_reason || '')}</div>` : ''}</div>
       <div class="card flush">${o.items.map(l => `<div class="list-item"><div class="grow"><div class="tt">${esc(l.name)}</div><div class="st">${l.qty} × ${money(l.price)}</div></div><b>${money(l.line_total)}</b></div>`).join('')}
         <div class="list-item"><b class="grow">Total</b><b style="font-size:18px">${money(o.total)}</b></div>
+        ${(o.returns || []).map(x => `<div class="list-item"><div class="grow"><div class="tt">↩ ${esc(x.name)}</div><div class="st">Returned by K-TRONiCS · ${esc(x.return_no)} · ${x.qty} × ${money(x.price)}</div></div><b style="color:var(--rd)">−${money(x.qty * x.price)}</b></div>`).join('')}
+        ${+o.returned > 0 ? `<div class="list-item"><span class="grow">Returned</span><b style="color:var(--rd)">−${money(o.returned)}</b></div>` : ''}
         <div class="list-item"><span class="grow">Paid</span><b style="color:var(--gr)">${money(o.paid)}</b></div>
-        ${live ? `<div class="list-item"><span class="grow">Still owed</span><b style="color:${+o.owed > 0 ? 'var(--or)' : ''}">${money(o.owed)}</b></div>` : ''}</div>
+        ${live ? `<div class="list-item"><span class="grow">Still owed</span><b style="color:${+o.owed > 0 ? 'var(--or)' : ''}">${money(o.owed)}</b></div>` : ''}
+        ${+o.pay_back > 0 ? `<div class="list-item"><span class="grow">You pay back to K-TRONiCS</span><b style="color:var(--rd)">${money(o.pay_back)}</b></div>` : ''}</div>
       <button class="btn block" id="oinv">${icon('receipt', 18)}Invoice</button>
       ${ktr ? `<div class="card small" style="background:var(--bls)">Sold to K-TRONiCS (stock request). K-TRONiCS pays this in its Purchasing; each payment shows here by itself.</div>` : ''}
       ${live && !ktr ? `<div class="btns">${+o.owed > 0 ? `<button class="btn green" id="opay">${icon('cash', 18)}Collect payment</button>` : ''}${o.status === 'open' ? `<button class="btn out" id="odel">${icon('truck', 18)}Mark delivered</button>` : ''}</div>` : ''}
-      ${o.payments.length ? `<div class="sec">Payments</div><div class="card flush">${o.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt" style="${y.voided_at ? 'text-decoration:line-through;opacity:.6' : ''}">${y.currency === 'KHR' ? '៛' + Math.round(y.amount).toLocaleString() + ' (' + money(y.amount_usd) + ')' : money(y.amount)} · ${esc(METHOD[y.method] || y.method)}</div>
+      ${o.payments.length ? `<div class="sec">Payments</div><div class="card flush">${o.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt" style="${y.voided_at ? 'text-decoration:line-through;opacity:.6' : ''}">${y.currency === 'KHR' ? '៛' + Math.round(y.amount).toLocaleString() + ' (' + money(y.amount_usd) + ')' : (+y.amount < 0 ? '−' + money(-y.amount) : money(y.amount))} · ${esc(METHOD[y.method] || y.method)}</div>
           <div class="st">${esc(fmtWhen(y.received_at))}${y.note ? ' · ' + esc(y.note) : ''}${y.voided_at ? ' · cancelled: ' + esc(y.void_reason || '') : ''}</div></div>${!y.voided_at && live && !y.by_ktronics ? `<button class="btn sm out" data-pv="${y.id}">Cancel</button>` : ''}</div>`).join('')}</div>` : ''}
       ${live && !ktr ? `<button class="btn red out block" id="ocan">${icon('x', 18)}Cancel order (stock goes back)</button>` : ''}</div>`;
     $('#oinv', main).onclick = () => invoiceSheet(o);
