@@ -4450,6 +4450,9 @@ Object.assign(window.KT_KM, {"Orders for K-TRONiCS are made by the app when you 
 // returns to a partner (20 Oct)
 Object.assign(window.KT_KM, {"Returned by K-TRONiCS": "K-TRONiCS បានប្រគល់ត្រឡប់", "You pay back to K-TRONiCS": "អ្នកត្រូវសងប្រាក់ឱ្យ K-TRONiCS", "Money back to K-TRONiCS": "ប្រាក់សងទៅ K-TRONiCS", "Sent to K-TRONiCS again": "បានផ្ញើទៅ K-TRONiCS ម្តងទៀត"});
 
+// all returned label (20 Oct)
+Object.assign(window.KT_KM, {"All returned": "បានប្រគល់ត្រឡប់ទាំងអស់", "Nothing to pay": "គ្មានអ្វីត្រូវបង់"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5377,6 +5380,9 @@ Object.assign(window.KT_ZH, {"Orders for K-TRONiCS are made by the app when you 
 
 // returns to a partner (20 Oct)
 Object.assign(window.KT_ZH, {"Returned by K-TRONiCS": "K-TRONiCS 已退回", "You pay back to K-TRONiCS": "你需退款给 K-TRONiCS", "Money back to K-TRONiCS": "退款给 K-TRONiCS", "Sent to K-TRONiCS again": "再次发给 K-TRONiCS"});
+
+// all returned label (20 Oct)
+Object.assign(window.KT_ZH, {"All returned": "全部退回", "Nothing to pay": "无需付款"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -7020,7 +7026,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const K = window.KT;
   const { esc, money, icon } = K;
   K.PO_STATUS = { ordered: ['Waiting to arrive', 'or'], received: ['Received', 'gr'], cancelled: ['Cancelled', 'rd'] };
-  K.poPill = s => `<span class="pill ${K.PO_STATUS[s][1]}">${K.PO_STATUS[s][0]}</span>`;
+  // every piece was sent back for money back → "All returned" (the purchase stays as a record; nothing to pay)
+  K.poAllReturned = p => !!p && p.status === 'received' && +p.total > 0 && +(p.returned_amount || 0) >= +p.total - 0.004;
+  K.poPill = (s, p) => K.poAllReturned(p) ? '<span class="pill gy">All returned</span>' : `<span class="pill ${K.PO_STATUS[s][1]}">${K.PO_STATUS[s][0]}</span>`;
   K.CURRENCIES = [['USD', 'US dollar'], ['CNY', 'Chinese yuan'], ['THB', 'Thai baht'], ['VND', 'Vietnam dong'], ['KHR', 'Riel']];
   K.RATE_HINT = { CNY: 7.2, THB: 36, VND: 25000, KHR: 4100 };
   K.curMoney = (n, cur) => cur === 'USD' || !cur ? money(n) : (+n).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + cur;
@@ -7030,7 +7038,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const owed = p => Math.max(0, bal(p));
   K.poOwed = owed;
   K.poCredit = p => Math.max(0, -bal(p));
-  K.poOwedPill = p => p.status === 'cancelled' ? '' : bal(p) < 0 ? `<span class="pill bl">Supplier owes ${money(-bal(p))}</span>` : owed(p) <= 0 ? '<span class="pill gr">Paid</span>' : +p.paid_amount > 0 ? `<span class="pill or">${money(owed(p))} to pay</span>` : `<span class="pill rd">${money(owed(p))} to pay</span>`;
+  K.poOwedPill = p => p.status === 'cancelled' || (K.poAllReturned(p) && bal(p) === 0 && !+p.paid_amount) ? '' : bal(p) < 0 ? `<span class="pill bl">Supplier owes ${money(-bal(p))}</span>` : owed(p) <= 0 ? '<span class="pill gr">Paid</span>' : +p.paid_amount > 0 ? `<span class="pill or">${money(owed(p))} to pay</span>` : `<span class="pill rd">${money(owed(p))} to pay</span>`;
   const dstr = d => new Date(d + (String(d).length === 10 ? 'T12:00:00' : '')).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
   K.poDate = dstr;
   const RT_STATUS = { returned: ['Sent back', 'or'], replaced: ['New goods arrived', 'gr'], undone: ['Undone', 'gy'] };
@@ -7041,7 +7049,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const p = await K.api.getPurchase(id), mgr = K.allow('purchases.manage'), rcv = K.allow('purchases.receive') || mgr;
     const sup = p.suppliers || {}, goods = p.items.reduce((a, i) => a + i.qty * i.unit_cost, 0), rets = p.returns || [], credit = K.poCredit(p);
     K.$('.sh span', s.el).textContent = p.purchase_no + ' · ' + sup.name;
-    K.$('.sb', s.el).innerHTML = `<div class="row"><div class="grow"><div class="big">${mgr ? money(p.total) : p.items.reduce((a, i) => a + i.qty, 0) + ' pcs'}</div><div class="small muted">${esc(sup.name)}${sup.country ? ' · ' + esc(sup.country) : ''} · into ${esc(p.warehouses ? p.warehouses.name : '')}</div></div>${K.poPill(p.status)}</div>
+    K.$('.sb', s.el).innerHTML = `<div class="row"><div class="grow"><div class="big">${mgr ? money(p.total) : p.items.reduce((a, i) => a + i.qty, 0) + ' pcs'}</div><div class="small muted">${esc(sup.name)}${sup.country ? ' · ' + esc(sup.country) : ''} · into ${esc(p.warehouses ? p.warehouses.name : '')}</div></div>${K.poPill(p.status, p)}</div>
       ${mgr && p.status !== 'cancelled' ? `<div class="btns" style="margin:0"><button class="btn sm out" id="ped">${icon('pen', 16)} Edit purchase</button>${p.status === 'received' ? `<button class="btn sm out" id="pret">↩️ Return to supplier</button>` : ''}</div>` : ''}
       <div class="card" style="gap:6px;background:var(--bg)">
         <div class="row small"><span class="grow muted">Ordered</span><b>${dstr(p.ordered_on)}${p.creator ? ' · ' + esc(p.creator.full_name) : ''}</b></div>
@@ -7063,7 +7071,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="row small"><span class="grow muted">Paid${p.payments.some(x => x.kind === 'refund') ? ' (after money back)' : ''}</span><b>${money(p.paid_amount)}</b></div>
         <div class="paybar"><div style="width:${Math.min(100, (+p.total - +(p.returned_amount || 0)) > 0 ? p.paid_amount / (+p.total - +(p.returned_amount || 0)) * 100 : 100)}%"></div></div>
         ${credit > 0 ? `<div class="row"><span class="grow"><b>Supplier owes you</b></span><b style="color:var(--bl)">${money(credit)}</b></div>`
-          : `<div class="row"><span class="grow">${owed(p) > 0 ? 'Still to pay supplier' : 'Fully paid'}</span><b style="color:${owed(p) > 0 ? 'var(--rd)' : 'var(--gr)'}">${money(owed(p))}</b></div>`}</div>` : ''}
+          : `<div class="row"><span class="grow">${owed(p) > 0 ? 'Still to pay supplier' : K.poAllReturned(p) && !+p.paid_amount ? 'Nothing to pay' : 'Fully paid'}</span><b style="color:${owed(p) > 0 ? 'var(--rd)' : 'var(--gr)'}">${money(owed(p))}</b></div>`}</div>` : ''}
       ${mgr && p.payments.length ? `<div class="card flush">${p.payments.map(x => `<div class="list-item"><div class="ic-av sq" style="background:${x.kind === 'refund' ? 'var(--bls)' : 'var(--grs)'};color:${x.kind === 'refund' ? 'var(--bl)' : 'var(--gr)'}">${icon('cash', 20)}</div><div class="grow"><div class="tt" style="font-size:14px">${x.kind === 'refund' ? 'Money back from supplier · ' : ''}${money(x.amount)} · ${esc(K.SPAY_METHODS[x.method] || x.method)}</div><div class="st">${dstr(x.paid_on)}${x.note ? ' · ' + esc(x.note) : ''}</div></div><button class="btn sm out" data-dp="${x.id}" aria-label="Delete payment">${icon('x', 16)}</button></div>`).join('')}</div>` : ''}
       ${mgr && p.status !== 'cancelled' && owed(p) > 0 ? `<div class="card" style="background:var(--bg)"><b>Pay supplier</b>
         <div class="btns"><label class="f">Amount ($)<input class="inp" id="pa" type="number" step="0.01" inputmode="decimal" value="${owed(p)}"></label><label class="f">Date<input class="inp" id="pd" type="date" value="${K.period ? K.period.today() : ''}"></label></div>
@@ -8499,7 +8507,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="chips" style="padding:0;border:0;background:none">${[['all', 'All'], ['ordered', 'Waiting to arrive'], ['received', 'Received'], ['cancelled', 'Cancelled']].map(([k, l]) => `<button class="chip ${k === stF ? 'on' : ''}" data-s="${k}">${l} <span style="opacity:.7">${k === 'all' ? inP.filter(p => p.status !== 'cancelled').length : inP.filter(p => p.status === k).length}</span></button>`).join('')}</div>
           <div class="card flush">${list.map(p => `<button class="list-item" data-po="${p.id}"><div class="ic-av sq">${icon('truck', 20)}</div><div class="grow"><div class="tt">${esc(p.purchase_no)} · ${esc(p.suppliers.name)}</div>
             <div class="st">${K.poDate(p.ordered_on)} · ${esc(p.warehouses.name)}${p.currency !== 'USD' ? ' · ' + esc(p.currency) : ''}${p.note ? ' · ' + esc(p.note) : ''}</div></div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(p.total)}</b><div class="row" style="gap:4px">${K.poPill(p.status)}${mgr ? K.poOwedPill(p) : ''}</div></div></button>`).join('') || emptyBox('truck', 'No purchases for these dates')}</div>`;
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(p.total)}</b><div class="row" style="gap:4px">${K.poPill(p.status, p)}${mgr ? K.poOwedPill(p) : ''}</div></div></button>`).join('') || emptyBox('truck', 'No purchases for these dates')}</div>`;
       } else if (tab === 'suppliers') {
         h = `<div class="kpis">${A.kpi(sups.filter(s => s.active !== false).length, 'Suppliers')}${A.kpi(money(owedAll), 'We still owe suppliers', owedAll ? 'var(--rd)' : null)}</div>
           <div class="card flush">${sups.map(s => { const mine = pos.filter(p => p.supplier_id === s.id && p.status !== 'cancelled'), ow = mine.reduce((a, p) => a + K.poOwed(p), 0), last = mine.map(p => p.ordered_on).sort().pop();
@@ -8543,7 +8551,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const s = K.sheet(s0.name, `<div class="small muted">${esc([s0.contact_name, s0.phone, s0.telegram, s0.country, s0.currency].filter(Boolean).join(' · '))}</div>
         ${s0.notes ? `<div class="card small" style="background:var(--bg)">${esc(s0.notes)}</div>` : ''}
         <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">${A.kpi(mine.filter(p => p.status !== 'cancelled').length, 'Purchases')}${A.kpi(money(mine.filter(p => p.status !== 'cancelled').reduce((a, p) => a + +p.total, 0)), 'Bought')}${A.kpi(money(ow), 'Still to pay', ow ? 'var(--rd)' : null)}</div>
-        <div class="card flush">${mine.map(p => `<button class="list-item" data-spo="${p.id}"><div class="grow"><div class="tt" style="font-size:14px">${esc(p.purchase_no)} · ${K.poDate(p.ordered_on)}</div><div class="st">${money(p.total)}</div></div><div class="row" style="gap:4px">${K.poPill(p.status)}${K.poOwedPill(p)}</div></button>`).join('') || '<div class="empty">No purchases yet</div>'}</div>
+        <div class="card flush">${mine.map(p => `<button class="list-item" data-spo="${p.id}"><div class="grow"><div class="tt" style="font-size:14px">${esc(p.purchase_no)} · ${K.poDate(p.ordered_on)}</div><div class="st">${money(p.total)}</div></div><div class="row" style="gap:4px">${K.poPill(p.status, p)}${K.poOwedPill(p)}</div></button>`).join('') || '<div class="empty">No purchases yet</div>'}</div>
         <div class="btns"><button class="btn out" id="se">${icon('pen', 18)}Edit supplier</button><button class="btn" id="sn">${icon('plus', 18)}New purchase</button></div>`);
       $$('[data-spo]', s.el).forEach(b => b.onclick = () => { s.close(); K.purchaseSheet(+b.dataset.spo, reload); });
       $('#se', s.el).onclick = () => { s.close(); K.supplierSheet(s0, reload); };
@@ -10828,7 +10836,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const ST = { open: ['Open', 'bl'], delivered: ['Delivered', 'gr'], cancelled: ['Cancelled', 'rd'] };
   const METHOD = { cash: 'Cash', aba: 'ABA', bank: 'Bank', other: 'Other' };
   const day = t => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
-  const pill = o => { const x = ST[o.status] || [o.status, 'gy'];
+  const pill = o => { if (o.status !== 'cancelled' && +o.total > 0 && +(o.returned || 0) >= +o.total - 0.004) return '<span class="pill gy">All returned</span>';
+    const x = ST[o.status] || [o.status, 'gy'];
     return `<span class="pill ${x[1]}">${esc(x[0])}</span>${o.status !== 'cancelled' ? (+o.owed > 0.004 ? '<span class="pill or">Unpaid</span>' : '<span class="pill gr">Paid</span>') : ''}`; };
 
   async function orderSheet(id) {
