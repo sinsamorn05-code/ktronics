@@ -1350,7 +1350,7 @@ window.makeSupabaseApi = function (cfg) {
     setStockUsers: (wid, uids) => q(sb.rpc('set_stock_users', { p_wh: wid, p_users: uids || [] })),
     saveWarehouse: (id, name) => q(sb.rpc('save_warehouse', { p_id: id || null, p_name: name })),
     deleteWarehouse: id => q(sb.rpc('delete_warehouse', { p_id: id })),
-    listWarehouses: () => q(sb.from('warehouses').select('*, rep:profiles!warehouses_rep_id_fkey(full_name, active, role)').order('id')),
+    listWarehouses: () => q(sb.from('warehouses').select('*, rep:profiles!warehouses_rep_id_fkey(full_name, active, role)').is('deleted_at', null).order('id')),
     deleteProduct: id => q(sb.rpc('delete_product', { p_id: id })),
     async listProducts() {
       const [products, stock] = await Promise.all([
@@ -2069,7 +2069,7 @@ window.makeDemoApi = function () {
   const putBack = (o, reason) => { const lines = {}; D.items.filter(i => i.order_id === o.id).forEach(i => { lines[i.product_id] = (lines[i.product_id] || 0) + i.qty; });
     Object.keys(lines).forEach(pid => { setQty(+pid, o.warehouse_id, qty(+pid, o.warehouse_id) + lines[pid]);
       D.moves.push({ id: ++D.seq.move, product_id: +pid, warehouse_id: o.warehouse_id, qty_change: lines[pid], reason, ref: o.order_no, created_by: me.id, created_at: now() }); }); };
-  const setQty = (pid, wid, q) => { D.stock[pid + ':' + wid] = q; };
+  const setQty = (pid, wid, q) => { if (q && (D.warehouses.find(w => w.id === wid) || {}).deleted_at) fail('This stock was deleted. Choose another stock.'); D.stock[pid + ':' + wid] = q; };
 
   function pushMessage(convId, senderId, kind, body, meta) {
     const m = { id: ++D.seq.msg, conversation_id: convId, sender_id: senderId, kind, body: body || '', meta: meta || {}, created_at: now() };
@@ -2150,6 +2150,8 @@ window.makeDemoApi = function () {
   const offCheck = (wh, items) => { if (!wh || allow('stock.manage') || allow('stock.view_main') || wh.rep_id === me.id) return;
     items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); }); };
   function ensureRepStock(u) {
+    const old = u.active && u.role === 'sales' && D.warehouses.find(w => w.rep_id === u.id && w.deleted_at);   // a deleted rep stock comes back
+    if (old) Object.assign(old, { deleted_at: null, deleted_by: null, name: 'Rep stock · ' + u.full_name });
     if (u.active && u.role === 'sales' && !D.warehouses.some(w => w.rep_id === u.id)) {
       D.warehouses.push({ id: Math.max(...D.warehouses.map(w => w.id)) + 1, name: 'Rep stock · ' + u.full_name, rep_id: u.id });
     }
@@ -2409,7 +2411,7 @@ window.makeDemoApi = function () {
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
       const u = user(id); if (r === 'partner' && !u.partner_id) fail('Choose the partner first');
       const wasActive = u.active; u.role = r; u.active = active; if (r !== 'partner') delete u.partner_id;
-      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; D.warehouses.filter(w => w.rep_id === u.id).forEach(w => { w.name = 'Rep stock · ' + fullName; }); } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
+      if (fullName && fullName !== u.full_name) { D.namehist = D.namehist || []; D.namehist.push({ id: D.namehist.length + 1, user_id: u.id, old_name: u.full_name, new_name: fullName, changed_at: now(), changed_by: me.id }); u.full_name = fullName; D.warehouses.filter(w => w.rep_id === u.id && !w.deleted_at).forEach(w => { w.name = 'Rep stock · ' + fullName; }); } if (phone !== undefined) u.phone = phone || null; if (!wasActive) joinChannels(u); ensureRepStock(u); save(); return wait(null);
     },
 
     async setProductsOrderable(ids, on) { if (!allow('stock.manage')) fail('You are not allowed to change products'); let n = 0; D.products.forEach(p => { if (ids.includes(p.id)) { p.staff_orderable = !!on; n++; } }); save(); return wait(n); },
@@ -2455,12 +2457,18 @@ window.makeDemoApi = function () {
       if (!id) { const w = { id: Math.max(...D.warehouses.map(w => w.id)) + 1, name: nm, rep_id: null }; D.warehouses.push(w); save(); return wait(w.id); }
       const w = D.warehouses.find(x => x.id === id); if (!w) fail('Stock not found'); if (w.rep_id) fail('A rep\'s own stock is named after the rep. Change the person\'s name instead.'); w.name = nm; save(); return wait(id); },
     async deleteWarehouse(id) { if (!allow('stock.warehouses')) fail('You are not allowed to create or change stocks');
-      if (id === Math.min(...D.warehouses.filter(w => !w.rep_id).map(w => w.id))) fail('The main warehouse cannot be deleted');
-      const w = D.warehouses.find(x => x.id === id); if (!w) fail('Stock not found'); if (w.rep_id) fail('A rep\'s own stock cannot be deleted. Move the goods back and switch the person off instead.');
-      if (Object.entries(D.stock).some(([k, q]) => k.endsWith(':' + id) && q)) fail('This stock still has goods. Move them to another stock first.');
-      if (D.orders.some(o => o.warehouse_id === id) || D.moves.some(m => m.warehouse_id === id) || (D.purchases || []).some(p => p.warehouse_id === id)) fail('This stock has history (orders or stock moves), so it is kept. You can rename it.');
-      D.warehouses.splice(D.warehouses.indexOf(w), 1); D.stockAccess = (D.stockAccess || []).filter(a => a.warehouse_id !== id); save(); return wait(null); },
-    async listWarehouses() { return wait(clone(D.warehouses).map(w => { const u = w.rep_id && user(w.rep_id); return Object.assign(w, { rep: u ? { full_name: u.full_name, active: u.active, role: u.role } : null }); })); },
+      const w = D.warehouses.find(x => x.id === id && !x.deleted_at); if (!w) fail('Stock not found');
+      if (!w.rep_id && id === Math.min(...D.warehouses.filter(x => !x.rep_id).map(x => x.id))) fail('The main warehouse cannot be deleted');
+      const pcs = Object.entries(D.stock).filter(([k, q]) => k.endsWith(':' + id) && q).reduce((a, [, q]) => a + q, 0);
+      if (Object.entries(D.stock).some(([k, q]) => k.endsWith(':' + id) && q)) fail('This stock still has ' + pcs + ' pieces. Move them to another stock first (Move stock).');
+      const u = w.rep_id && user(w.rep_id); if (u && u.active && u.role === 'sales') fail(u.full_name + ' is still working as a sales rep and needs this stock. Switch the person off first.');
+      D.stockAccess = (D.stockAccess || []).filter(a => a.warehouse_id !== id);
+      if (D.orders.some(o => o.warehouse_id === id) || D.moves.some(m => m.warehouse_id === id) || (D.purchases || []).some(p => p.warehouse_id === id)) {
+        const day = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); let nm = w.name.slice(0, 60) + ' (deleted ' + day + ')';
+        if (D.warehouses.some(x => x.name === nm)) nm = w.name.slice(0, 60) + ' (deleted ' + day + ' #' + id + ')';
+        Object.assign(w, { deleted_at: now(), deleted_by: me.id, name: nm }); save(); return wait(null); }   // used: hidden, history kept
+      D.warehouses.splice(D.warehouses.indexOf(w), 1); save(); return wait(null); },
+    async listWarehouses() { return wait(clone(D.warehouses).filter(w => !w.deleted_at).map(w => { const u = w.rep_id && user(w.rep_id); return Object.assign(w, { rep: u ? { full_name: u.full_name, active: u.active, role: u.role } : null }); })); },
     async deleteProduct(id) {
       if (!allow('stock.manage')) fail('You are not allowed to delete products');
       const p = D.products.find(x => x.id === id); if (!p) fail('Product not found');
@@ -4664,6 +4672,9 @@ Object.assign(window.KT_KM, {"Partner stock": "ស្តុកដៃគូ", "Wh
 // partner warehouses — step 5 (20 Oct)
 Object.assign(window.KT_KM, {"Waiting for partner": "រង់ចាំដៃគូ", "Given": "បានផ្តល់", "Part given": "បានផ្តល់ខ្លះ", "Said no": "បានបដិសេធ", "Request stock": "ស្នើសុំស្តុក", "Pcs": "ចំនួន", "$ each": "$ ក្នុងមួយ", "Note (optional)": "កំណត់ចំណាំ (មិនចាំបាច់)", "This partner has no stock": "ដៃគូនេះគ្មានស្តុក", "Type how many pieces of at least one product": "វាយចំនួនយ៉ាងហោចណាស់ទំនិញមួយ", "Cancel request": "លុបចោលសំណើ", "Cancel this request?": "លុបចោលសំណើនេះ?", "The partner will see it as cancelled.": "ដៃគូនឹងឃើញថាវាត្រូវបានលុបចោល។", "Request cancelled": "បានលុបចោលសំណើ", "Stock requests to partners": "សំណើស្តុកទៅដៃគូ", "No waiting requests": "គ្មានសំណើកំពុងរង់ចាំ", "Stock requests": "សំណើស្តុក", "Request": "ស្នើសុំ", "This partner is switched off": "ដៃគូនេះត្រូវបានបិទ", "Waiting for you": "រង់ចាំអ្នក", "You said no": "អ្នកបានបដិសេធ", "Cancelled by K-TRONiCS": "K-TRONiCS បានលុបចោល", "Requests from K-TRONiCS": "សំណើពី K-TRONiCS", "K-TRONiCS buys goods from you": "K-TRONiCS ទិញទំនិញពីអ្នក", "When K-TRONiCS asks for goods, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on the request.": "ពេល K-TRONiCS ស្នើសុំទំនិញ អ្នកជ្រើសរើសចំនួនដែលត្រូវផ្តល់។ ទំនិញចេញពីស្តុករបស់អ្នក ហើយ K-TRONiCS បង់ប្រាក់ឱ្យអ្នកតាមតម្លៃក្នុងសំណើ។", "Request not found": "រកមិនឃើញសំណើ", "You get": "អ្នកទទួលបាន", "Paid by K-TRONiCS": "K-TRONiCS បានបង់", "K-TRONiCS still owes you": "K-TRONiCS នៅជំពាក់អ្នក", "Message to K-TRONiCS (optional)": "សារទៅ K-TRONiCS (មិនចាំបាច់)", "e.g. only 8 now, more next week": "ឧ. ឥឡូវមានតែ 8 សប្តាហ៍ក្រោយបន្ថែម", "Give these goods": "ផ្តល់ទំនិញទាំងនេះ", "Say no": "បដិសេធ", "The goods you give leave your stock now and go to K-TRONiCS.": "ទំនិញដែលអ្នកផ្តល់ចេញពីស្តុករបស់អ្នកឥឡូវនេះ ហើយទៅ K-TRONiCS។", "Give": "ផ្តល់", "Give at least one piece, or say no": "ផ្តល់យ៉ាងហោចណាស់មួយ ឬបដិសេធ", "Give goods": "ផ្តល់ទំនិញ", "Done. The goods went to K-TRONiCS.": "រួចរាល់។ ទំនិញបានទៅ K-TRONiCS។", "K-TRONiCS will see your reason. Nothing leaves your stock.": "K-TRONiCS នឹងឃើញមូលហេតុរបស់អ្នក។ គ្មានអ្វីចេញពីស្តុករបស់អ្នកទេ។", "Answer sent": "បានផ្ញើចម្លើយ", "K-TRONiCS asks for goods": "K-TRONiCS ស្នើសុំទំនិញ", "e.g. for Phnom Penh shops": "ឧ. សម្រាប់ហាងនៅភ្នំពេញ", "Price per piece": "តម្លៃក្នុងមួយ", "Why cancelled": "ហេតុអ្វីលុបចោល", "Partner says": "ដៃគូនិយាយថា", "Your answer": "ចម្លើយរបស់អ្នក", "You do not have permission to request stock from partners": "អ្នកមិនមានសិទ្ធិស្នើសុំស្តុកពីដៃគូទេ", "Give at least one piece, or reject the request": "ផ្តល់យ៉ាងហោចណាស់មួយ ឬបដិសេធសំណើ", "Write why you say no": "សរសេរហេតុអ្វីអ្នកបដិសេធ", "Each product only once, please": "សូមដាក់ទំនិញនីមួយៗតែម្តង", "Choose an active partner": "ជ្រើសរើសដៃគូដែលកំពុងដំណើរការ", "Only a waiting request can be cancelled": "អាចលុបចោលបានតែសំណើដែលកំពុងរង់ចាំ", "This purchase came from a partner (stock request), so it cannot be edited. You can still pay it.": "ការទិញនេះមកពីដៃគូ (សំណើស្តុក) ដូច្នេះមិនអាចកែបានទេ។ អ្នកនៅតែអាចបង់ប្រាក់បាន។", "These goods came from a partner (stock request), so they cannot be returned here.": "ទំនិញទាំងនេះមកពីដៃគូ (សំណើស្តុក) ដូច្នេះមិនអាចប្រគល់ត្រឡប់នៅទីនេះបានទេ។"});
 
+// delete stocks (20 Oct)
+Object.assign(window.KT_KM, {"The stock disappears from the app. Its old orders and stock history are kept. Goods can no longer go into it.": "ស្តុកនេះនឹងបាត់ពីកម្មវិធី។ ការបញ្ជាទិញ និងប្រវត្តិស្តុកចាស់នៅរក្សាទុក។ មិនអាចដាក់ទំនិញចូលវាទៀតបានទេ។", "Stock deleted": "បានលុបស្តុក", "This stock was deleted. Choose another stock.": "ស្តុកនេះត្រូវបានលុបហើយ។ សូមជ្រើសស្តុកផ្សេង។", "The main warehouse cannot be deleted": "មិនអាចលុបឃ្លាំងធំបានទេ", "Stock not found": "រកមិនឃើញស្តុក"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5582,6 +5593,9 @@ Object.assign(window.KT_ZH, {"Partner stock": "合作伙伴库存", "What each p
 
 // partner warehouses — step 5 (20 Oct)
 Object.assign(window.KT_ZH, {"Waiting for partner": "等待合作伙伴", "Given": "已提供", "Part given": "已提供部分", "Said no": "已拒绝", "Request stock": "申请库存", "Pcs": "件数", "$ each": "每件 $", "Note (optional)": "备注（可选）", "This partner has no stock": "此合作伙伴没有库存", "Type how many pieces of at least one product": "请至少为一个产品输入件数", "Cancel request": "取消申请", "Cancel this request?": "取消此申请？", "The partner will see it as cancelled.": "合作伙伴会看到它已取消。", "Request cancelled": "申请已取消", "Stock requests to partners": "向合作伙伴的库存申请", "No waiting requests": "没有等待中的申请", "Stock requests": "库存申请", "Request": "申请", "This partner is switched off": "此合作伙伴已关闭", "Waiting for you": "等待你", "You said no": "你已拒绝", "Cancelled by K-TRONiCS": "K-TRONiCS 已取消", "Requests from K-TRONiCS": "来自 K-TRONiCS 的申请", "K-TRONiCS buys goods from you": "K-TRONiCS 向你购买货物", "When K-TRONiCS asks for goods, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on the request.": "当 K-TRONiCS 申请货物时，由你决定提供多少。货物从你的库存中扣除，K-TRONiCS 按申请上的价格付款给你。", "Request not found": "找不到申请", "You get": "你将得到", "Paid by K-TRONiCS": "K-TRONiCS 已付", "K-TRONiCS still owes you": "K-TRONiCS 仍欠你", "Message to K-TRONiCS (optional)": "给 K-TRONiCS 的留言（可选）", "e.g. only 8 now, more next week": "例如：现在只有 8 件，下周还有", "Give these goods": "提供这些货物", "Say no": "拒绝", "The goods you give leave your stock now and go to K-TRONiCS.": "你提供的货物会立即从你的库存扣除并送到 K-TRONiCS。", "Give": "提供", "Give at least one piece, or say no": "请至少提供一件，或拒绝", "Give goods": "提供货物", "Done. The goods went to K-TRONiCS.": "完成。货物已送到 K-TRONiCS。", "K-TRONiCS will see your reason. Nothing leaves your stock.": "K-TRONiCS 会看到你的原因。你的库存不会减少。", "Answer sent": "回复已发送", "K-TRONiCS asks for goods": "K-TRONiCS 申请货物", "e.g. for Phnom Penh shops": "例如：给金边的商店", "Price per piece": "每件价格", "Why cancelled": "取消原因", "Partner says": "合作伙伴说", "Your answer": "你的回复", "You do not have permission to request stock from partners": "你没有向合作伙伴申请库存的权限", "Give at least one piece, or reject the request": "请至少提供一件，或拒绝申请", "Write why you say no": "请写拒绝原因", "Each product only once, please": "每个产品只能添加一次", "Choose an active partner": "请选择一个启用的合作伙伴", "Only a waiting request can be cancelled": "只能取消等待中的申请", "This purchase came from a partner (stock request), so it cannot be edited. You can still pay it.": "此采购来自合作伙伴（库存申请），因此不能修改。你仍然可以付款。", "These goods came from a partner (stock request), so they cannot be returned here.": "这些货物来自合作伙伴（库存申请），因此不能在这里退货。"});
+
+// delete stocks (20 Oct)
+Object.assign(window.KT_ZH, {"The stock disappears from the app. Its old orders and stock history are kept. Goods can no longer go into it.": "此库存将从应用中消失。旧订单和库存记录会保留。不能再放入货物。", "Stock deleted": "库存已删除", "This stock was deleted. Choose another stock.": "此库存已删除。请选择其他库存。", "The main warehouse cannot be deleted": "主仓库不能删除", "Stock not found": "找不到库存"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
