@@ -4733,6 +4733,9 @@ Object.assign(window.KT_KM, {"It becomes Delivered when K-TRONiCS receives the g
 // duplicate shop blocked for everyone (20 Oct)
 Object.assign(window.KT_KM, {"Use the shop above, or check the phone number and Telegram.": "សូមប្រើហាងខាងលើ ឬពិនិត្យលេខទូរស័ព្ទ និង Telegram ឡើងវិញ។"});
 
+// new staff dashboard (20 Oct)
+Object.assign(window.KT_KM, {"of target": "នៃគោលដៅ", "Target": "គោលដៅ", "of": "នៃ", "to go": "នៅខ្វះ", "Every extra sale counts!": "ការលក់បន្ថែមនីមួយៗមានតម្លៃ!", "day left": "ថ្ងៃនៅសល់", "days left": "ថ្ងៃនៅសល់", "Sell a day:": "លក់ក្នុងមួយថ្ងៃ៖", "Today's goal": "គោលដៅថ្ងៃនេះ", "Today's goal done ✓": "បានសម្រេចគោលដៅថ្ងៃនេះ ✓", "more today to stay on track": "ទៀតថ្ងៃនេះ ដើម្បីទាន់គោលដៅ", "Target reached! 🎉": "សម្រេចគោលដៅហើយ! 🎉", "Almost there! 💪": "ជិតដល់ហើយ! 💪", "Halfway — keep going!": "ពាក់កណ្តាលផ្លូវ — បន្តទៀត!", "Let's push! 🚀": "តោះខិតខំ! 🚀", "My sales this month · No target yet. Ask your manager to set one.": "ការលក់ខែនេះ · មិនទាន់មានគោលដៅ។ សូមស្នើអ្នកគ្រប់គ្រងកំណត់។", "Reach your target → about": "ដល់គោលដៅ → ប្រហែល", "You are number 1! Keep the lead 🏆": "អ្នកជាលេខ 1! រក្សាកន្លែងនេះ 🏆", "Pass the one above you to move up!": "វ៉ាអ្នកនៅខាងលើ ដើម្បីឡើងចំណាត់ថ្នាក់!", "- - daily goal": "- - គោលដៅប្រចាំថ្ងៃ", "Green days reached the daily goal.": "ថ្ងៃពណ៌បៃតង បានសម្រេចគោលដៅប្រចាំថ្ងៃ។", "My commission · this month": "កម្រៃជើងសារខ្ញុំ · ខែនេះ"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5672,6 +5675,9 @@ Object.assign(window.KT_ZH, {"It becomes Delivered when K-TRONiCS receives the g
 
 // duplicate shop blocked for everyone (20 Oct)
 Object.assign(window.KT_ZH, {"Use the shop above, or check the phone number and Telegram.": "请使用上面的商店，或检查电话号码和 Telegram。"});
+
+// new staff dashboard (20 Oct)
+Object.assign(window.KT_ZH, {"of target": "目标的", "Target": "目标", "of": "共", "to go": "还差", "Every extra sale counts!": "每多卖一笔都算数！", "day left": "天剩余", "days left": "天剩余", "Sell a day:": "每天需卖：", "Today's goal": "今日目标", "Today's goal done ✓": "今日目标已完成 ✓", "more today to stay on track": "今天还需要卖这么多才能跟上", "Target reached! 🎉": "目标达成！🎉", "Almost there! 💪": "快到了！💪", "Halfway — keep going!": "已过半——继续加油！", "Let's push! 🚀": "加油冲！🚀", "My sales this month · No target yet. Ask your manager to set one.": "本月销售 · 还没有目标。请让经理设置。", "Reach your target → about": "达到目标 → 约", "You are number 1! Keep the lead 🏆": "你是第一名！保持领先 🏆", "Pass the one above you to move up!": "超过前一名就能上升！", "- - daily goal": "- - 每日目标", "Green days reached the daily goal.": "绿色的日子达到了每日目标。", "My commission · this month": "我的佣金 · 本月"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -8842,6 +8848,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 })();
 
 // "My dashboard" for staff: own sales, target, team ranking, shops, stock, expenses.
+// 20 Oct 2026: new design that pushes staff to their monthly target (target card on top, daily goal, commission boost).
 (function () {
   const K = window.KT;
   const { api, S, esc, money, $, icon, page, route, go } = K;
@@ -8855,19 +8862,48 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const seller = K.allow('orders.create'), deliver = K.allow('orders.deliver'), stockMgr = K.allow('stock.manage');
     let h = '<div class="pad">';
     if (seller) {
-      const max = Math.max(1, ...d.last7.map(x => +x.total));
-      const now = new Date(), daysLeft = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
-      h += `<a class="card" href="#/orders?p=month" style="text-decoration:none;color:inherit"><div class="row"><div class="grow"><div class="small muted">My sales · ${K.monthName(K.monthKey())}</div><div class="big">${money(d.sales_month)}</div></div>
-          ${d.target ? `<div style="text-align:right"><div class="small muted">Target</div><b>${money(d.target)}</b></div>` : ''}</div>
-          ${d.target ? K.targetBar(+d.sales_month, +d.target) + `<div class="small muted">${daysLeft} day${daysLeft === 1 ? '' : 's'} left this month</div>` : '<div class="small muted">No target set for this month</div>'}</a>
-        <div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>
-        <div class="card"><b>My sales, last 7 days</b>
-          <div style="display:flex;align-items:flex-end;gap:8px;height:120px;border-bottom:1px solid var(--line)">${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:30px;height:${Math.max(2, (+x.total / max) * 95)}px;border-radius:6px 6px 0 0;background:${i === 6 ? 'var(--p)' : 'var(--bar)'}"></div></div>`).join('')}</div>
-          <div style="display:flex;gap:8px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div></div>`;
-      if (d.commission != null) h += `<div class="card" style="background:var(--grs);border-color:#BFE3CC"><div class="row"><div class="grow"><div class="small muted">My commission · this month</div><div class="big" style="color:var(--gr)">${money(d.commission)}</div></div><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('cash')}</div></div>
-        <div class="small muted">${+d.commission_rate}% of your sales${+d.commission_bonus ? ` + ${+d.commission_bonus}% bonus on sales above your target` : ''}. It grows as your orders are approved.</div></div>`;
+      // ---- 20 Oct 2026: new design that pushes staff to their target ----
+      const now = new Date(), dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), daysLeft = dim - now.getDate() + 1;   // today counts
+      const sales = +d.sales_month || 0, target = +d.target || 0, pct = target ? Math.round(sales / target * 100) : 0, left = Math.max(0, target - sales);
+      const perDay = target && left > 0 ? left / daysLeft : 0, today = +d.sales_today || 0;
+      const done = target && pct >= 100, col = done ? '#1E9E55' : null;
+      const msg = !target ? '' : done ? 'Target reached! 🎉' : pct >= 75 ? 'Almost there! 💪' : pct >= 50 ? 'Halfway — keep going!' : 'Let\'s push! 🚀';
+      const R = 46, C = 2 * Math.PI * R, ring = `<svg width="116" height="116" viewBox="0 0 116 116" style="flex-shrink:0"><circle cx="58" cy="58" r="${R}" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="11"/>
+        <circle cx="58" cy="58" r="${R}" fill="none" stroke="${done ? '#7CF0A6' : '#fff'}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - Math.min(1, pct / 100))).toFixed(1)}" transform="rotate(-90 58 58)"/>
+        <text x="58" y="56" text-anchor="middle" fill="#fff" font-size="${pct >= 100 ? 22 : 26}" font-weight="800">${pct}%</text><text x="58" y="76" text-anchor="middle" fill="rgba(255,255,255,.85)" font-size="11" font-weight="600">of target</text></svg>`;
+      const dots = [25, 50, 75, 100].map(m => `<div style="flex:1;text-align:center"><div style="height:8px;border-radius:4px;background:${pct >= m ? '#fff' : 'rgba(255,255,255,.25)'}"></div><div style="font-size:11px;margin-top:3px;opacity:${pct >= m ? 1 : .7}">${m}%</div></div>`).join('');
+      h += `<a class="card" href="#/orders?p=month" style="text-decoration:none;color:#fff;border:0;background:linear-gradient(135deg, ${done ? '#1E7A45, #145C33' : '#E3262D, #9E0F14'});box-shadow:0 8px 24px rgba(215,20,26,.25);gap:12px">
+        <div class="row" style="justify-content:space-between"><b style="font-size:15px">${K.monthName(K.monthKey())} · <span>Target</span></b>${msg ? `<span style="background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;font-size:13px;font-weight:700">${msg}</span>` : ''}</div>
+        ${target ? `<div class="row" style="gap:16px;align-items:center">${ring}<div class="grow" style="min-width:0">
+            <div style="font-size:30px;font-weight:800;line-height:1.1">${money(sales)}</div><div style="opacity:.85;font-size:14px"><span>of</span> ${money(target)}</div>
+            <div style="margin-top:8px;font-size:16px;font-weight:800">${done ? 'Every extra sale counts!' : money(left) + ' <span>to go</span>'}</div>
+            ${!done ? `<div style="opacity:.9;font-size:13px">${daysLeft} <span>${daysLeft === 1 ? 'day left' : 'days left'}</span> · <span>Sell a day:</span> <b>${money(perDay)}</b></div>` : ''}</div></div>
+          <div class="row" style="gap:6px">${dots}</div>
+          ${!done ? `<div><div class="row small" style="justify-content:space-between"><span><span>Today</span> ${money(today)}</span><span><span>Today's goal</span> ${money(perDay)}</span></div>
+            <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.25);margin-top:4px"><div style="height:8px;border-radius:4px;width:${Math.min(100, perDay ? today / perDay * 100 : 0).toFixed(0)}%;background:${today >= perDay ? '#7CF0A6' : '#fff'}"></div></div>
+            <div class="small" style="margin-top:4px;opacity:.9">${today >= perDay ? 'Today\'s goal done ✓' : money(perDay - today) + ' <span>more today to stay on track</span>'}</div></div>` : ''}`
+        : `<div style="font-size:30px;font-weight:800">${money(sales)}</div><div style="opacity:.9">My sales this month · No target yet. Ask your manager to set one.</div>`}
+      </a>`;
+      h += `<div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>`;
+      // commission boost
+      if (d.commission != null) {
+        const rate = +d.commission_rate || 0, bonus = +d.commission_bonus || 0, atTarget = target ? target * rate / 100 : 0;
+        h += `<div class="card" style="background:var(--grs);border-color:transparent"><div class="row"><div class="grow"><div class="small muted">My commission · this month</div><div class="big" style="color:var(--gr)">${money(d.commission)}</div></div><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('cash')}</div></div>
+          ${target && !done && rate ? `<div class="row small" style="gap:8px;background:var(--card);border-radius:10px;padding:8px 10px"><span class="grow">Reach your target → about</span><b style="color:var(--gr);font-size:16px">${money(atTarget)}</b></div>` : ''}
+          <div class="small muted">${rate}% of your sales${bonus ? ` + <b style="color:var(--gr)">${bonus}% bonus</b> on sales above your target` : ''}. It grows as your orders are approved.</div></div>`;
+      }
+      // ranking with a nudge (other reps stay hidden: no names, no amounts)
       const rank = d.ranking.findIndex(r => r.id === S.me.id);
-      if (d.ranking.length) h += `<div class="card"><div class="row"><b class="grow">Team ranking · this month</b>${rank >= 0 ? `<span class="pill" style="background:var(--ps);color:var(--pd)">You are #${rank + 1} of ${d.ranking.length}</span>` : ''}</div>${K.rankingHtml(d.ranking, S.me.id)}</div>`;
+      if (d.ranking.length) h += `<div class="card"><div class="row" style="gap:12px">${rank >= 0 ? `<div style="width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;color:#fff;background:${['#D4A017', '#9AA3AE', '#B87333'][rank] || 'var(--p)'}">#${rank + 1}</div>` : ''}
+          <div class="grow"><b>Team ranking · this month</b><div class="small muted">${rank === 0 ? 'You are number 1! Keep the lead 🏆' : rank > 0 ? `#${rank + 1} / ${d.ranking.length} · <span>Pass the one above you to move up!</span>` : ''}</div></div></div>${K.rankingHtml(d.ranking, S.me.id)}</div>`;
+      // 7-day chart with today's goal line
+      const max = Math.max(1, perDay, ...d.last7.map(x => +x.total)), line = perDay ? (perDay / max * 100) : 0;
+      h += `<div class="card"><div class="row"><b class="grow">My sales, last 7 days</b>${perDay ? '<span class="small muted">- - daily goal</span>' : ''}</div>
+          <div style="position:relative;display:flex;align-items:flex-end;gap:8px;height:120px;border-bottom:1px solid var(--line)">
+            ${line ? `<div style="position:absolute;left:0;right:0;bottom:${line.toFixed(1)}%;border-top:2px dashed var(--p);opacity:.6"></div>` : ''}
+            ${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:30px;height:${Math.max(3, +x.total / max * 100).toFixed(1)}%;border-radius:6px 6px 0 0;background:${perDay && +x.total >= perDay ? 'var(--gr)' : i === 6 ? 'var(--p)' : 'var(--ps)'}"></div></div>`).join('')}</div>
+          <div style="display:flex;gap:8px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div>
+          ${perDay ? '<div class="small muted">Green days reached the daily goal.</div>' : ''}</div>`;
       h += `<div class="sec">My orders</div><div class="stats three">${tile(d.orders_pending, 'Waiting approval', d.orders_pending ? 'var(--or)' : null, '#/orders?f=pending')}${tile(d.orders_approved, 'Approved', null, '#/orders?f=approved')}${tile(d.orders_unpaid, 'Delivered, unpaid', d.orders_unpaid ? 'var(--rd)' : null, '#/orders?f=delivered')}</div>
         <div class="sec">My shops</div><div class="stats">${tile(d.shops, 'Shops', null, '#/customers')}${tile(d.shops_not_visited, 'Not visited 14+ days', d.shops_not_visited ? 'var(--or)' : null, '#/customers')}
           ${tile(money(d.owed_total), d.shops_owing + ' shop' + (d.shops_owing === 1 ? '' : 's') + ' owe money', d.owed_total ? 'var(--rd)' : null, '#/orders?f=delivered')}${tile(d.shops_pending, 'New shops waiting', d.shops_pending ? 'var(--or)' : null, '#/customers?s=pending')}</div>
