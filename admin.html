@@ -10070,10 +10070,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return (list[r] || list.sales).join('');
   }
   route(/^\/home$/, async (_, __, current) => {
-    const hour = new Date().getHours();
+    const hour = new Date().getHours(), sellerDash = K.allow('orders.create') && !K.allow('dashboard.view');   // sales staff: the whole My dashboard on Home (20 Oct 2026)
     const main = page({ head: false, tab: 'home', body: `<div class="hero"><div class="row"><div class="grow"><small>${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}</small><h1>${esc(S.me.full_name)}</h1></div>
       <span class="pill" style="background:rgba(255,255,255,.18);color:#fff">${esc(ROLE_LABEL[S.me.role])}</span><span style="color:#fff">${K.bellHtml()}</span></div></div>
-      <div class="pad lift" id="home"><div id="hbn"></div><div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div><div id="home-rest">${K.loading}</div></div>` });
+      <div class="pad lift" id="home"><div id="hbn"></div>${sellerDash ? '' : `<div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div>`}<div id="home-rest">${K.loading}</div></div>` });
     // banners from the admin (at the top of Home)
     if (K.bannerStrip && api.myBanners) api.myBanners().then(list => {
       if (!current()) return;
@@ -10090,20 +10090,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let seenGuide = false; try { seenGuide = !!localStorage.getItem('kt_guide_seen'); } catch (e) {}
     if (!seenGuide && K.guideTopics) html += `<a class="card" href="#/guide" style="text-decoration:none;color:inherit;margin-bottom:12px;background:var(--bls);border:0"><div class="row" style="gap:12px"><div class="ic-av sq" style="background:#fff;color:var(--bl)">${icon('book', 22)}</div><div class="grow"><b>New to the app?</b><div class="small muted">Read the short guide with pictures</div></div>${icon('right', 18)}</div></a>`;
     try { html += await K.attendanceCard(); } catch (e) {}
-    // my sales target this month (sales reps; managers see all targets on the Dashboard)
-    if (K.allow('orders.create') && !K.allow('dashboard.view')) {
-      try {
-        const d = await api.myDashboard();
-        if (!current()) return;
-        const now = new Date(), left = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
-        const t = +d.target || 0, sold = +d.sales_month || 0, pct = t ? Math.round(sold / t * 100) : 0;
-        const perDay = t > sold && left > 0 ? (t - sold) / (left + 1) : 0;
-        html += `<a class="card" id="tgcard" href="#/mydash" style="text-decoration:none;color:inherit;gap:8px;margin-top:${html ? 12 : 0}px;${pct >= 100 ? 'border-color:#BFE3CC;background:var(--grs)' : ''}">
-          <div class="row"><div class="grow"><div class="small muted">My sales · ${esc(K.monthName(K.monthKey()))}</div><div class="big">${money(sold)}</div></div>
-          ${t ? `<div style="text-align:right"><div class="small muted">Target</div><b>${money(t)}</b></div>` : ''}</div>
-          ${t ? K.targetBar(sold, t) + `<div class="small muted">${pct >= 100 ? '🎉 Well done! Every sale now adds to your bonus.' : `${left} day${left === 1 ? '' : 's'} left · about ${money(perDay)} a day to reach it`}</div>`
-              : '<div class="small muted">No target set for this month yet</div>'}</a>`;
-      } catch (e) {}
+    // sales staff: the top of My dashboard (target card, today, commission, ranking, 7-day chart), then the buttons
+    if (sellerDash) {
+      let top = '';
+      try { const d = await api.myDashboard(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px">${K.sellerDashHtml(d, '#/mydash')}</div>`; } catch (e) {}
+      html = top + `<div class="card" style="padding:18px 10px;margin-top:12px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
     const newShops = custs.filter(c => c.status === 'pending').length;

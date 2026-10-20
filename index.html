@@ -5918,10 +5918,10 @@ Object.assign(window.KT_ZH, {"of target": "目标的", "Target": "目标", "of":
     return (list[r] || list.sales).join('');
   }
   route(/^\/home$/, async (_, __, current) => {
-    const hour = new Date().getHours();
+    const hour = new Date().getHours(), sellerDash = K.allow('orders.create') && !K.allow('dashboard.view');   // sales staff: the whole My dashboard on Home (20 Oct 2026)
     const main = page({ head: false, tab: 'home', body: `<div class="hero"><div class="row"><div class="grow"><small>${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}</small><h1>${esc(S.me.full_name)}</h1></div>
       <span class="pill" style="background:rgba(255,255,255,.18);color:#fff">${esc(ROLE_LABEL[S.me.role])}</span><span style="color:#fff">${K.bellHtml()}</span></div></div>
-      <div class="pad lift" id="home"><div id="hbn"></div><div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div><div id="home-rest">${K.loading}</div></div>` });
+      <div class="pad lift" id="home"><div id="hbn"></div>${sellerDash ? '' : `<div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div>`}<div id="home-rest">${K.loading}</div></div>` });
     // banners from the admin (at the top of Home)
     if (K.bannerStrip && api.myBanners) api.myBanners().then(list => {
       if (!current()) return;
@@ -5938,20 +5938,11 @@ Object.assign(window.KT_ZH, {"of target": "目标的", "Target": "目标", "of":
     let seenGuide = false; try { seenGuide = !!localStorage.getItem('kt_guide_seen'); } catch (e) {}
     if (!seenGuide && K.guideTopics) html += `<a class="card" href="#/guide" style="text-decoration:none;color:inherit;margin-bottom:12px;background:var(--bls);border:0"><div class="row" style="gap:12px"><div class="ic-av sq" style="background:#fff;color:var(--bl)">${icon('book', 22)}</div><div class="grow"><b>New to the app?</b><div class="small muted">Read the short guide with pictures</div></div>${icon('right', 18)}</div></a>`;
     try { html += await K.attendanceCard(); } catch (e) {}
-    // my sales target this month (sales reps; managers see all targets on the Dashboard)
-    if (K.allow('orders.create') && !K.allow('dashboard.view')) {
-      try {
-        const d = await api.myDashboard();
-        if (!current()) return;
-        const now = new Date(), left = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
-        const t = +d.target || 0, sold = +d.sales_month || 0, pct = t ? Math.round(sold / t * 100) : 0;
-        const perDay = t > sold && left > 0 ? (t - sold) / (left + 1) : 0;
-        html += `<a class="card" id="tgcard" href="#/mydash" style="text-decoration:none;color:inherit;gap:8px;margin-top:${html ? 12 : 0}px;${pct >= 100 ? 'border-color:#BFE3CC;background:var(--grs)' : ''}">
-          <div class="row"><div class="grow"><div class="small muted">My sales · ${esc(K.monthName(K.monthKey()))}</div><div class="big">${money(sold)}</div></div>
-          ${t ? `<div style="text-align:right"><div class="small muted">Target</div><b>${money(t)}</b></div>` : ''}</div>
-          ${t ? K.targetBar(sold, t) + `<div class="small muted">${pct >= 100 ? '🎉 Well done! Every sale now adds to your bonus.' : `${left} day${left === 1 ? '' : 's'} left · about ${money(perDay)} a day to reach it`}</div>`
-              : '<div class="small muted">No target set for this month yet</div>'}</a>`;
-      } catch (e) {}
+    // sales staff: the top of My dashboard (target card, today, commission, ranking, 7-day chart), then the buttons
+    if (sellerDash) {
+      let top = '';
+      try { const d = await api.myDashboard(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px">${K.sellerDashHtml(d, '#/mydash')}</div>`; } catch (e) {}
+      html = top + `<div class="card" style="padding:18px 10px;margin-top:12px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
     const newShops = custs.filter(c => c.status === 'pending').length;
@@ -8854,6 +8845,59 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const { api, S, esc, money, $, icon, page, route, go } = K;
   const tile = (v, l, color, href) => `<a class="stat" href="${href || '#/mydash'}" style="text-decoration:none;color:inherit"><b style="${color ? 'color:' + color : ''}">${v}</b><span>${l}</span></a>`;
 
+  // the big red target card (My dashboard and the Home screen): ring, to go, days left, sell a day, steps, today's goal
+  K.targetCard = function (d, href) {
+    const now = new Date(), dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), daysLeft = dim - now.getDate() + 1;   // today counts
+    const sales = +d.sales_month || 0, target = +d.target || 0, pct = target ? Math.round(sales / target * 100) : 0, left = Math.max(0, target - sales);
+    const perDay = target && left > 0 ? left / daysLeft : 0, today = +d.sales_today || 0;
+    const done = target && pct >= 100, col = done ? '#1E9E55' : null;
+    const msg = !target ? '' : done ? 'Target reached! 🎉' : pct >= 75 ? 'Almost there! 💪' : pct >= 50 ? 'Halfway — keep going!' : 'Let\'s push! 🚀';
+    const R = 46, C = 2 * Math.PI * R, ring = `<svg width="116" height="116" viewBox="0 0 116 116" style="flex-shrink:0"><circle cx="58" cy="58" r="${R}" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="11"/>
+      <circle cx="58" cy="58" r="${R}" fill="none" stroke="${done ? '#7CF0A6' : '#fff'}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - Math.min(1, pct / 100))).toFixed(1)}" transform="rotate(-90 58 58)"/>
+      <text x="58" y="56" text-anchor="middle" fill="#fff" font-size="${pct >= 100 ? 22 : 26}" font-weight="800">${pct}%</text><text x="58" y="76" text-anchor="middle" fill="rgba(255,255,255,.85)" font-size="11" font-weight="600">of target</text></svg>`;
+    const dots = [25, 50, 75, 100].map(m => `<div style="flex:1;text-align:center"><div style="height:8px;border-radius:4px;background:${pct >= m ? '#fff' : 'rgba(255,255,255,.25)'}"></div><div style="font-size:11px;margin-top:3px;opacity:${pct >= m ? 1 : .7}">${m}%</div></div>`).join('');
+    return { html: `<a class="card" href="${href || '#/orders?p=month'}" style="text-decoration:none;color:#fff;border:0;background:linear-gradient(135deg, ${done ? '#1E7A45, #145C33' : '#E3262D, #9E0F14'});box-shadow:0 8px 24px rgba(215,20,26,.25);gap:12px">
+      <div class="row" style="justify-content:space-between;gap:8px"><b style="font-size:14px;white-space:nowrap">${K.monthName(K.monthKey())} · <span>Target</span></b>${msg ? `<span style="background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap">${msg}</span>` : ''}</div>
+      ${target ? `<div class="row" style="gap:16px;align-items:center">${ring}<div class="grow" style="min-width:0">
+          <div style="font-size:30px;font-weight:800;line-height:1.1">${money(sales)}</div><div style="opacity:.85;font-size:14px"><span>of</span> ${money(target)}</div>
+          <div style="margin-top:8px;font-size:16px;font-weight:800">${done ? 'Every extra sale counts!' : money(left) + ' <span>to go</span>'}</div>
+          ${!done ? `<div style="opacity:.9;font-size:13px">${daysLeft} <span>${daysLeft === 1 ? 'day left' : 'days left'}</span> · <span>Sell a day:</span> <b>${money(perDay)}</b></div>` : ''}</div></div>
+        <div class="row" style="gap:6px">${dots}</div>
+        ${!done ? `<div><div class="row small" style="justify-content:space-between"><span><span>Today</span> ${money(today)}</span><span><span>Today's goal</span> ${money(perDay)}</span></div>
+          <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.25);margin-top:4px"><div style="height:8px;border-radius:4px;width:${Math.min(100, perDay ? today / perDay * 100 : 0).toFixed(0)}%;background:${today >= perDay ? '#7CF0A6' : '#fff'}"></div></div>
+          <div class="small" style="margin-top:4px;opacity:.9">${today >= perDay ? 'Today\'s goal done ✓' : money(perDay - today) + ' <span>more today to stay on track</span>'}</div></div>` : ''}`
+      : `<div style="font-size:30px;font-weight:800">${money(sales)}</div><div style="opacity:.9">My sales this month · No target yet. Ask your manager to set one.</div>`}
+    </a>`, done, perDay, target };
+  };
+
+  // the top of the staff dashboard (target card, today tiles, commission, ranking, 7-day chart): My dashboard and the Home screen
+  K.sellerDashHtml = function (d, href) {
+    let h = '';
+    const tc = K.targetCard(d, href), done = tc.done, perDay = tc.perDay, target = tc.target;
+    h += tc.html;
+    h += `<div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>`;
+    // commission boost
+    if (d.commission != null) {
+      const rate = +d.commission_rate || 0, bonus = +d.commission_bonus || 0, atTarget = target ? target * rate / 100 : 0;
+      h += `<div class="card" style="background:var(--grs);border-color:transparent"><div class="row"><div class="grow"><div class="small muted">My commission · this month</div><div class="big" style="color:var(--gr)">${money(d.commission)}</div></div><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('cash')}</div></div>
+        ${target && !done && rate ? `<div class="row small" style="gap:8px;background:var(--card);border-radius:10px;padding:8px 10px"><span class="grow">Reach your target → about</span><b style="color:var(--gr);font-size:16px">${money(atTarget)}</b></div>` : ''}
+        <div class="small muted">${rate}% of your sales${bonus ? ` + <b style="color:var(--gr)">${bonus}% bonus</b> on sales above your target` : ''}. It grows as your orders are approved.</div></div>`;
+    }
+    // ranking with a nudge (other reps stay hidden: no names, no amounts)
+    const rank = d.ranking.findIndex(r => r.id === S.me.id);
+    if (d.ranking.length) h += `<div class="card"><div class="row" style="gap:12px">${rank >= 0 ? `<div style="width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;color:#fff;background:${['#D4A017', '#9AA3AE', '#B87333'][rank] || 'var(--p)'}">#${rank + 1}</div>` : ''}
+        <div class="grow"><b>Team ranking · this month</b><div class="small muted">${rank === 0 ? 'You are number 1! Keep the lead 🏆' : rank > 0 ? `#${rank + 1} / ${d.ranking.length} · <span>Pass the one above you to move up!</span>` : ''}</div></div></div>${K.rankingHtml(d.ranking, S.me.id)}</div>`;
+    // 7-day chart with today's goal line
+    const max = Math.max(1, perDay, ...d.last7.map(x => +x.total)), line = perDay ? (perDay / max * 100) : 0;
+    h += `<div class="card"><div class="row"><b class="grow">My sales, last 7 days</b>${perDay ? '<span class="small muted">- - daily goal</span>' : ''}</div>
+        <div style="position:relative;display:flex;align-items:flex-end;gap:8px;height:120px;border-bottom:1px solid var(--line)">
+          ${line ? `<div style="position:absolute;left:0;right:0;bottom:${line.toFixed(1)}%;border-top:2px dashed var(--p);opacity:.6"></div>` : ''}
+          ${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:30px;height:${Math.max(3, +x.total / max * 100).toFixed(1)}%;border-radius:6px 6px 0 0;background:${perDay && +x.total >= perDay ? 'var(--gr)' : i === 6 ? 'var(--p)' : 'var(--ps)'}"></div></div>`).join('')}</div>
+        <div style="display:flex;gap:8px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div>
+        ${perDay ? '<div class="small muted">Green days reached the daily goal.</div>' : ''}</div>`;
+    return h;
+  };
+
   route(/^\/mydash$/, async (_, __, current) => {
     if (K.allow('dashboard.view')) return go('#/dashboard');
     const main = page({ title: 'My dashboard', sub: new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }), back: '#/home' });
@@ -8863,47 +8907,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let h = '<div class="pad">';
     if (seller) {
       // ---- 20 Oct 2026: new design that pushes staff to their target ----
-      const now = new Date(), dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), daysLeft = dim - now.getDate() + 1;   // today counts
-      const sales = +d.sales_month || 0, target = +d.target || 0, pct = target ? Math.round(sales / target * 100) : 0, left = Math.max(0, target - sales);
-      const perDay = target && left > 0 ? left / daysLeft : 0, today = +d.sales_today || 0;
-      const done = target && pct >= 100, col = done ? '#1E9E55' : null;
-      const msg = !target ? '' : done ? 'Target reached! 🎉' : pct >= 75 ? 'Almost there! 💪' : pct >= 50 ? 'Halfway — keep going!' : 'Let\'s push! 🚀';
-      const R = 46, C = 2 * Math.PI * R, ring = `<svg width="116" height="116" viewBox="0 0 116 116" style="flex-shrink:0"><circle cx="58" cy="58" r="${R}" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="11"/>
-        <circle cx="58" cy="58" r="${R}" fill="none" stroke="${done ? '#7CF0A6' : '#fff'}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - Math.min(1, pct / 100))).toFixed(1)}" transform="rotate(-90 58 58)"/>
-        <text x="58" y="56" text-anchor="middle" fill="#fff" font-size="${pct >= 100 ? 22 : 26}" font-weight="800">${pct}%</text><text x="58" y="76" text-anchor="middle" fill="rgba(255,255,255,.85)" font-size="11" font-weight="600">of target</text></svg>`;
-      const dots = [25, 50, 75, 100].map(m => `<div style="flex:1;text-align:center"><div style="height:8px;border-radius:4px;background:${pct >= m ? '#fff' : 'rgba(255,255,255,.25)'}"></div><div style="font-size:11px;margin-top:3px;opacity:${pct >= m ? 1 : .7}">${m}%</div></div>`).join('');
-      h += `<a class="card" href="#/orders?p=month" style="text-decoration:none;color:#fff;border:0;background:linear-gradient(135deg, ${done ? '#1E7A45, #145C33' : '#E3262D, #9E0F14'});box-shadow:0 8px 24px rgba(215,20,26,.25);gap:12px">
-        <div class="row" style="justify-content:space-between"><b style="font-size:15px">${K.monthName(K.monthKey())} · <span>Target</span></b>${msg ? `<span style="background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px;font-size:13px;font-weight:700">${msg}</span>` : ''}</div>
-        ${target ? `<div class="row" style="gap:16px;align-items:center">${ring}<div class="grow" style="min-width:0">
-            <div style="font-size:30px;font-weight:800;line-height:1.1">${money(sales)}</div><div style="opacity:.85;font-size:14px"><span>of</span> ${money(target)}</div>
-            <div style="margin-top:8px;font-size:16px;font-weight:800">${done ? 'Every extra sale counts!' : money(left) + ' <span>to go</span>'}</div>
-            ${!done ? `<div style="opacity:.9;font-size:13px">${daysLeft} <span>${daysLeft === 1 ? 'day left' : 'days left'}</span> · <span>Sell a day:</span> <b>${money(perDay)}</b></div>` : ''}</div></div>
-          <div class="row" style="gap:6px">${dots}</div>
-          ${!done ? `<div><div class="row small" style="justify-content:space-between"><span><span>Today</span> ${money(today)}</span><span><span>Today's goal</span> ${money(perDay)}</span></div>
-            <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.25);margin-top:4px"><div style="height:8px;border-radius:4px;width:${Math.min(100, perDay ? today / perDay * 100 : 0).toFixed(0)}%;background:${today >= perDay ? '#7CF0A6' : '#fff'}"></div></div>
-            <div class="small" style="margin-top:4px;opacity:.9">${today >= perDay ? 'Today\'s goal done ✓' : money(perDay - today) + ' <span>more today to stay on track</span>'}</div></div>` : ''}`
-        : `<div style="font-size:30px;font-weight:800">${money(sales)}</div><div style="opacity:.9">My sales this month · No target yet. Ask your manager to set one.</div>`}
-      </a>`;
-      h += `<div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>`;
-      // commission boost
-      if (d.commission != null) {
-        const rate = +d.commission_rate || 0, bonus = +d.commission_bonus || 0, atTarget = target ? target * rate / 100 : 0;
-        h += `<div class="card" style="background:var(--grs);border-color:transparent"><div class="row"><div class="grow"><div class="small muted">My commission · this month</div><div class="big" style="color:var(--gr)">${money(d.commission)}</div></div><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('cash')}</div></div>
-          ${target && !done && rate ? `<div class="row small" style="gap:8px;background:var(--card);border-radius:10px;padding:8px 10px"><span class="grow">Reach your target → about</span><b style="color:var(--gr);font-size:16px">${money(atTarget)}</b></div>` : ''}
-          <div class="small muted">${rate}% of your sales${bonus ? ` + <b style="color:var(--gr)">${bonus}% bonus</b> on sales above your target` : ''}. It grows as your orders are approved.</div></div>`;
-      }
-      // ranking with a nudge (other reps stay hidden: no names, no amounts)
-      const rank = d.ranking.findIndex(r => r.id === S.me.id);
-      if (d.ranking.length) h += `<div class="card"><div class="row" style="gap:12px">${rank >= 0 ? `<div style="width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;color:#fff;background:${['#D4A017', '#9AA3AE', '#B87333'][rank] || 'var(--p)'}">#${rank + 1}</div>` : ''}
-          <div class="grow"><b>Team ranking · this month</b><div class="small muted">${rank === 0 ? 'You are number 1! Keep the lead 🏆' : rank > 0 ? `#${rank + 1} / ${d.ranking.length} · <span>Pass the one above you to move up!</span>` : ''}</div></div></div>${K.rankingHtml(d.ranking, S.me.id)}</div>`;
-      // 7-day chart with today's goal line
-      const max = Math.max(1, perDay, ...d.last7.map(x => +x.total)), line = perDay ? (perDay / max * 100) : 0;
-      h += `<div class="card"><div class="row"><b class="grow">My sales, last 7 days</b>${perDay ? '<span class="small muted">- - daily goal</span>' : ''}</div>
-          <div style="position:relative;display:flex;align-items:flex-end;gap:8px;height:120px;border-bottom:1px solid var(--line)">
-            ${line ? `<div style="position:absolute;left:0;right:0;bottom:${line.toFixed(1)}%;border-top:2px dashed var(--p);opacity:.6"></div>` : ''}
-            ${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:30px;height:${Math.max(3, +x.total / max * 100).toFixed(1)}%;border-radius:6px 6px 0 0;background:${perDay && +x.total >= perDay ? 'var(--gr)' : i === 6 ? 'var(--p)' : 'var(--ps)'}"></div></div>`).join('')}</div>
-          <div style="display:flex;gap:8px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div>
-          ${perDay ? '<div class="small muted">Green days reached the daily goal.</div>' : ''}</div>`;
+      h += K.sellerDashHtml(d);
       h += `<div class="sec">My orders</div><div class="stats three">${tile(d.orders_pending, 'Waiting approval', d.orders_pending ? 'var(--or)' : null, '#/orders?f=pending')}${tile(d.orders_approved, 'Approved', null, '#/orders?f=approved')}${tile(d.orders_unpaid, 'Delivered, unpaid', d.orders_unpaid ? 'var(--rd)' : null, '#/orders?f=delivered')}</div>
         <div class="sec">My shops</div><div class="stats">${tile(d.shops, 'Shops', null, '#/customers')}${tile(d.shops_not_visited, 'Not visited 14+ days', d.shops_not_visited ? 'var(--or)' : null, '#/customers')}
           ${tile(money(d.owed_total), d.shops_owing + ' shop' + (d.shops_owing === 1 ? '' : 's') + ' owe money', d.owed_total ? 'var(--rd)' : null, '#/orders?f=delivered')}${tile(d.shops_pending, 'New shops waiting', d.shops_pending ? 'var(--or)' : null, '#/customers?s=pending')}</div>
