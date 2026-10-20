@@ -5925,9 +5925,10 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
   }
   route(/^\/home$/, async (_, __, current) => {
     const hour = new Date().getHours(), sellerDash = K.allow('orders.create') && !K.allow('dashboard.view');   // sales staff: the whole My dashboard on Home (20 Oct 2026)
+    const workDash = !sellerDash && !!K.teamCardHtml && (K.allow('dashboard.view') || K.allow('orders.deliver'));   // admin, managers, warehouse, drivers: their red card above the buttons
     const main = page({ head: false, tab: 'home', body: `<div class="hero"><div class="row"><div class="grow"><small>${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}</small><h1>${esc(S.me.full_name)}</h1></div>
       <span class="pill" style="background:rgba(255,255,255,.18);color:#fff">${esc(ROLE_LABEL[S.me.role])}</span><span style="color:#fff">${K.bellHtml()}</span></div></div>
-      <div class="pad lift" id="home"><div id="hbn"></div>${sellerDash ? '' : `<div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div>`}<div id="home-rest">${K.loading}</div></div>` });
+      <div class="pad lift" id="home"><div id="hbn"></div>${sellerDash || workDash ? '' : `<div class="card" style="padding:18px 10px"><div class="grid4">${quickActions()}</div></div>`}<div id="home-rest">${K.loading}</div></div>` });
     // banners from the admin (at the top of Home)
     if (K.bannerStrip && api.myBanners) api.myBanners().then(list => {
       if (!current()) return;
@@ -5945,9 +5946,10 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
     if (!seenGuide && K.guideTopics) html += `<a class="card" href="#/guide" style="text-decoration:none;color:inherit;margin-bottom:12px;background:var(--bls);border:0"><div class="row" style="gap:12px"><div class="ic-av sq" style="background:#fff;color:var(--bl)">${icon('book', 22)}</div><div class="grow"><b>New to the app?</b><div class="small muted">Read the short guide with pictures</div></div>${icon('right', 18)}</div></a>`;
     try { html += await K.attendanceCard(); } catch (e) {}
     // admin / managers: team target card · warehouse / drivers: today's work card (20 Oct 2026)
-    if (!sellerDash && K.teamCardHtml && (K.allow('dashboard.view') || K.allow('orders.deliver'))) {
-      try { const d = await api.myDashboard(); if (!current()) return;
-        html = (K.allow('dashboard.view') ? K.teamCardHtml(d) : K.workCardHtml(d)) + (html ? `<div style="margin-top:12px">${html}</div>` : ''); } catch (e) {}
+    if (workDash) {
+      let top = '';
+      try { const d = await api.myDashboard(); if (!current()) return; top = K.allow('dashboard.view') ? K.teamCardHtml(d) : K.workCardHtml(d); } catch (e) {}
+      html = top + `<div class="card" style="padding:18px 10px;margin-top:${top ? 12 : 0}px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     // sales staff: the top of My dashboard (target card, today, commission, ranking, 7-day chart), then the buttons
     if (sellerDash) {
