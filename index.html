@@ -1410,6 +1410,13 @@ window.makeSupabaseApi = function (cfg) {
     setOrderDue: (id, pay, due) => q(sb.rpc('set_order_due', { p_order: id, p_payment: pay, p_due: due || null })),
     deleteOrder: id => q(sb.rpc('delete_order', { p_order: id })),
     returnOrder: (id, method, note) => q(sb.rpc('return_order', { p_order: id, p_method: method, p_note: note || null })),
+    // exchange a product with a problem (21 Oct 2026)
+    exchangeOrder: (id, out, inn, wh, reason, method) => q(sb.rpc('exchange_order', { p_order: id, p_out: out, p_in: inn, p_warehouse: wh, p_reason: reason, p_refund_method: method || null })),
+    exchangeDecide: (id, ok, note, method) => q(sb.rpc('exchange_decide', { p_id: id, p_approve: !!ok, p_note: note || null, p_refund_method: method || null })),
+    waitingExchanges: () => sb.from('order_exchanges').select('*, profiles!order_exchanges_created_by_fkey(full_name), orders(order_no, customers(name))').eq('status', 'waiting').order('id').then(r => r.data || []),
+    brokenStock: () => q(sb.from('broken_stock').select('product_id, qty, products(name, sku, cost)').gt('qty', 0).order('product_id')),
+    brokenMoves: () => q(sb.from('broken_moves').select('*, products(name, sku), profiles(full_name)').order('id', { ascending: false }).limit(200)),
+    brokenWriteoff: (pid, n, note) => q(sb.rpc('broken_writeoff', { p_product: pid, p_qty: n, p_note: note })),
     assignCustomers: (ids, rep) => q(sb.rpc('assign_customers', { p_ids: ids, p_rep: rep || null })),
 
     // orders
@@ -1418,14 +1425,15 @@ window.makeSupabaseApi = function (cfg) {
     },
     listOrderItems: () => all(() => sb.from('order_items').select('order_id, product_id, qty, price, cost, products(name, sku)').order('id', { ascending: false }), 20000),
     async getOrder(id) {
-      const [order, items, events, conv, payments] = await Promise.all([
+      const [order, items, events, conv, payments, exchanges] = await Promise.all([
         q(sb.from('orders').select('*, customers(*), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name)').eq('id', id).single()),
         q(sb.from('order_items').select('*, products(name, sku, price)').eq('order_id', id).order('id')),
         q(sb.from('order_events').select('*, profiles(full_name)').eq('order_id', id).order('id')),
         q(sb.from('conversations').select('id').eq('order_id', id).maybeSingle()),
-        q(sb.from('payments').select(PAY_SEL).eq('order_id', id).order('id'))
+        q(sb.from('payments').select(PAY_SEL).eq('order_id', id).order('id')),
+        sb.from('order_exchanges').select('*, profiles!order_exchanges_created_by_fkey(full_name), decider:profiles!order_exchanges_decided_by_fkey(full_name)').eq('order_id', id).order('id').then(r => r.data || [])   // [] before the database part is installed
       ]);
-      return Object.assign(order, { items, events, payments, conversation_id: conv && conv.id });
+      return Object.assign(order, { items, events, payments, exchanges, conversation_id: conv && conv.id });
     },
     createOrder: o => q(sb.rpc('create_order', { p_customer: o.customer_id, p_warehouse: o.warehouse_id, p_payment: o.payment_method, p_notes: o.notes || null, p_items: o.items })),
     setOrderStatus: (id, status, note) => q(sb.rpc('set_order_status', { p_order: id, p_status: status, p_note: note || null })),
@@ -1548,7 +1556,7 @@ window.makeSupabaseApi = function (cfg) {
     createPurchase: x => q(sb.rpc('create_purchase', { p_supplier: x.supplier_id, p_warehouse: x.warehouse_id, p_currency: x.currency, p_rate: +x.rate || 1, p_extra: +x.extra_cost || 0, p_note: x.note || null, p_items: x.items, p_receive: !!x.receive, p_ordered_on: x.ordered_on || null })),
     receivePurchase: id => q(sb.rpc('receive_purchase', { p_id: id })),
     editPurchase: (id, x) => q(sb.rpc('edit_purchase', { p_id: id, p_supplier: x.supplier_id, p_warehouse: x.warehouse_id, p_currency: x.currency, p_rate: +x.rate || 1, p_extra: +x.extra_cost || 0, p_note: x.note || null, p_items: x.items, p_ordered_on: x.ordered_on || null })),
-    createPurchaseReturn: (pid, items, settle, note) => q(sb.rpc('create_purchase_return', { p_purchase: pid, p_items: items, p_settle: settle, p_note: note })),
+    createPurchaseReturn: (pid, items, settle, note, fromBroken) => q(sb.rpc('create_purchase_return', { p_purchase: pid, p_items: items, p_settle: settle, p_note: note, p_from_broken: !!fromBroken })),
     purchaseReturnDo: (id, action) => q(sb.rpc('purchase_return_do', { p_id: id, p_action: action })),
     supplierRefund: (pid, amount, method, note, date) => q(sb.rpc('supplier_refund', { p_purchase: pid, p_amount: +amount, p_method: method, p_note: note || null, p_paid_on: date || null })),
     cancelPurchase: id => q(sb.rpc('cancel_purchase', { p_id: id })),
@@ -2195,7 +2203,8 @@ window.makeDemoApi = function () {
   }
   function recalc(oid) {
     const o = D.orders.find(x => x.id === oid);
-    o.paid_amount = +D.payments.filter(p => p.order_id === oid && p.status === 'confirmed').reduce((s, p) => s + p.amount_usd, 0).toFixed(2);
+    o.paid_amount = +(D.payments.filter(p => p.order_id === oid && p.status === 'confirmed').reduce((s, p) => s + p.amount_usd, 0)
+      - (D.exchanges || []).filter(x => x.order_id === oid && x.status === 'approved').reduce((s, x) => s + x.refund, 0)).toFixed(2);   // minus money given back after an exchange
     if (o.status === 'delivered' && o.paid_amount >= o.total) {
       o.status = 'paid'; o.updated_at = now();
       D.events.push({ id: ++D.seq.event, order_id: oid, status: 'paid', note: 'Fully paid', created_by: me.id, created_at: now() });
@@ -2718,6 +2727,7 @@ window.makeDemoApi = function () {
         items: D.items.filter(i => i.order_id === id).sort((a, b) => a.id - b.id).map(i => Object.assign(clone(i), { products: (({ name, sku, price }) => ({ name, sku, price }))(D.products.find(p => p.id === i.product_id)) })),
         events: D.events.filter(e => e.order_id === id).map(e => Object.assign(clone(e), { profiles: { full_name: (user(e.created_by) || {}).full_name } })),
         payments: D.payments.filter(p => p.order_id === id).sort((a, b) => a.id - b.id).map(payOut),
+        exchanges: (D.exchanges || []).filter(x => x.order_id === id).map(x => Object.assign(clone(x), { profiles: { full_name: (user(x.created_by) || {}).full_name }, decider: x.decided_by ? { full_name: (user(x.decided_by) || {}).full_name } : null })),
         conversation_id: (D.convs.find(c => c.order_id === id) || {}).id }));
     },
     async setCustomerTelegram(id, tg) {
@@ -2776,6 +2786,99 @@ window.makeDemoApi = function () {
       D.events.push({ id: ++D.seq.event, order_id: id, status: 'returned', note: n, created_by: me.id, created_at: now() });
       alert('↩️ ' + o.order_no + ' returned · ' + D.customers.find(c => c.id === o.customer_id).name + (refund > 0 ? ' · refund $' + refund.toFixed(2) : ''), { order_id: id }, 'orders');
       save(); notifyOrder(o); return wait(refund);
+    },
+    // exchange a product with a problem (same rules as exchange_order in the database)
+    async exchangeOrder(id, out, inn, wh, reason, method) {
+      const o = D.orders.find(x => x.id === id);
+      if (!canSeeOrder(o)) fail('Order not found');
+      if (!(isBoss() || allow('orders.approve') || allow('orders.deliver') || o.sales_rep_id === me.id || o.created_by === me.id)) fail('You cannot exchange goods on this order');
+      if (o.is_opening) fail('This is an old balance, not real goods');
+      if (!['delivered', 'paid'].includes(o.status)) fail('Only delivered orders can have an exchange. Change or cancel this order instead.');
+      if ((D.exchanges || []).some(x => x.order_id === id && x.status === 'waiting')) fail('This order already has an exchange waiting for approval');
+      if (!String(reason || '').trim()) fail('Write what is wrong with the product');
+      const sum = l => { const m = {}; (l || []).forEach(x => { if (+x.qty > 0) { const k = +x.product_id; m[k] = m[k] || { q: 0, pr: x.price }; m[k].q += Math.floor(+x.qty); } }); return m; };
+      const O = sum(out), I = sum(inn), pname = pid => (D.products.find(p => p.id === pid) || {}).name;
+      if (!Object.keys(O).length) fail('Choose the product with a problem and how many pieces');
+      Object.entries(O).forEach(([pid, x]) => { const have = D.items.filter(i => i.order_id === id && i.product_id === +pid).reduce((a, i) => a + i.qty, 0); if (x.q > have) fail('This order has only ' + have + ' pcs of ' + pname(+pid)); });
+      if (!Object.keys(I).length) fail('Choose the new product to give and how many pieces');
+      const w = D.warehouses.find(x => x.id === wh && !x.deleted_at);
+      if (!w || !(wh === o.warehouse_id || canSellWh(w))) fail('Choose a stock you can take goods from');
+      Object.entries(I).forEach(([pid, x]) => { if (!pname(+pid)) fail('Product not found'); if (x.pr == null || !(+x.pr >= 0)) fail('Write the price per piece for ' + pname(+pid));
+        if (qty(+pid, wh) < x.q) fail('Only ' + qty(+pid, wh) + ' pcs of ' + pname(+pid) + ' are in ' + w.name); });
+      if (method != null && !['cash', 'aba', 'khqr', 'bank', 'other'].includes(method)) fail('Choose how the money is given back');
+      const x = { id: (D.exchanges = D.exchanges || []).length + 1, order_id: id, status: 'waiting', warehouse_id: wh, total_before: o.total, total_after: o.total, refund: 0, refund_method: method || null, reason: reason.trim(), created_by: me.id, created_at: now(),
+        items_out: Object.entries(O).map(([pid, v]) => ({ product_id: +pid, name: pname(+pid), qty: v.q })), items_in: Object.entries(I).map(([pid, v]) => ({ product_id: +pid, name: pname(+pid), qty: v.q, price: +(+v.pr).toFixed(2) })) };
+      if (isBoss()) { D.exchanges.push(x); try { api._exchangeApply(x, method); } catch (e) { D.exchanges.pop(); throw e; } save(); return wait(x.id); }
+      D.exchanges.push(x);
+      const txt = l => l.map(i => i.qty + '× ' + i.name).join(', ');
+      D.events.push({ id: ++D.seq.event, order_id: id, status: o.status, note: 'Exchange asked (waiting for approval): ' + txt(x.items_out) + ' (problem) → ' + txt(x.items_in) + ' · ' + x.reason, created_by: me.id, created_at: now() });
+      alert('🔁 Exchange to approve · ' + o.order_no + ' · ' + D.customers.find(c => c.id === o.customer_id).name + ' · ' + txt(x.items_out) + ' → ' + txt(x.items_in) + ' · ' + x.reason + ' · by ' + me.full_name, { order_id: id }, 'orders');
+      save(); return wait(x.id);
+    },
+    async exchangeDecide(xid, ok, note, method) {
+      if (!isBoss()) fail('Only the admin or a manager can approve exchanges');
+      const x = (D.exchanges || []).find(y => y.id === xid); if (!x) fail('Exchange not found'); if (x.status !== 'waiting') fail('This exchange is already ' + x.status);
+      if (ok) { api._exchangeApply(x, method); save(); return wait(null); }
+      if (!String(note || '').trim()) fail('Write why you say no');
+      const o = D.orders.find(y => y.id === x.order_id);
+      Object.assign(x, { status: 'rejected', decided_by: me.id, decided_at: now(), decide_note: note.trim() });
+      D.events.push({ id: ++D.seq.event, order_id: o.id, status: o.status, note: 'Exchange not approved · ' + note.trim(), created_by: me.id, created_at: now() });
+      if (x.created_by !== me.id) notify(x.created_by, 'Exchange not approved · ' + o.order_no, note.trim(), '#/orders/' + o.id);
+      save(); return wait(null);
+    },
+    async waitingExchanges() {
+      return wait((D.exchanges || []).filter(x => x.status === 'waiting' && canSeeOrder(D.orders.find(o => o.id === x.order_id))).map(x => { const o = D.orders.find(y => y.id === x.order_id);
+        return Object.assign(clone(x), { profiles: { full_name: (user(x.created_by) || {}).full_name }, orders: { order_no: o.order_no, customers: { name: D.customers.find(c => c.id === o.customer_id).name } } }); }));
+    },
+    _exchangeApply(x, method) {
+      const o = D.orders.find(y => y.id === x.order_id), id = o.id, pname = pid => (D.products.find(p => p.id === pid) || {}).name, t = now(), before = o.total;
+      if (!['delivered', 'paid'].includes(o.status)) fail('The order is not delivered any more (' + o.status + '). Reject this exchange.');
+      if (D.payments.some(p => p.order_id === id && p.status === 'pending')) fail('Some payments for this order are waiting for check. Confirm or reject them first.');
+      x.items_out.forEach(v => { const have = D.items.filter(i => i.order_id === id && i.product_id === v.product_id).reduce((a, i) => a + i.qty, 0); if (v.qty > have) fail('This order has only ' + have + ' pcs of ' + pname(v.product_id) + ' now'); });
+      const w = D.warehouses.find(y => y.id === x.warehouse_id && !y.deleted_at); if (!w) fail('That stock was deleted. Reject this exchange and ask again.');
+      x.items_in.forEach(v => { if (qty(v.product_id, w.id) < v.qty) fail('Only ' + qty(v.product_id, w.id) + ' pcs of ' + pname(v.product_id) + ' are in ' + w.name + ' now'); });
+      // money first (nothing changes if the refund method is missing)
+      let vOut = 0; x.items_out.forEach(v => { let left = v.qty; D.items.filter(i => i.order_id === id && i.product_id === v.product_id).sort((a, b) => b.id - a.id).forEach(i => { const take = Math.min(i.qty, left); vOut += take * i.price; left -= take; }); });
+      const after = +(before - vOut + x.items_in.reduce((a, v) => a + v.qty * v.price, 0)).toFixed(2), m = method || x.refund_method;
+      const refund = (o.paid_amount || 0) > after ? +((o.paid_amount || 0) - after).toFixed(2) : 0;
+      if (refund > 0 && !['cash', 'aba', 'khqr', 'bank', 'other'].includes(m)) fail('Choose how the money is given back');
+      const jOut = [];
+      x.items_out.forEach(v => { let left = v.qty;
+        D.items.filter(i => i.order_id === id && i.product_id === v.product_id).sort((a, b) => b.id - a.id).forEach(i => { if (!left) return; const take = Math.min(i.qty, left); jOut.push({ product_id: v.product_id, name: v.name, qty: take, price: i.price }); i.qty -= take; left -= take; });
+        D.items = D.items.filter(i => i.qty > 0);
+        api._brokenChange(v.product_id, v.qty, 'exchange', o.order_no, x.reason); });
+      x.items_in.forEach(v => { const p = D.products.find(y => y.id === v.product_id);
+        setQty(v.product_id, w.id, qty(v.product_id, w.id) - v.qty); D.moves.push({ id: ++D.seq.move, product_id: v.product_id, warehouse_id: w.id, qty_change: -v.qty, reason: 'exchange', ref: o.order_no, note: 'New piece for the shop · ' + x.reason, created_by: me.id, created_at: t });
+        D.items.push({ id: ++D.seq.item, order_id: id, product_id: v.product_id, qty: v.qty, price: v.price, cost: p.cost }); });
+      o.total = after; o.updated_at = t;
+      Object.assign(x, { status: 'approved', items_out: jOut, total_before: before, total_after: after, refund, refund_method: refund > 0 ? m : null, decided_by: me.id, decided_at: t });
+      recalc(id);
+      const m2 = v => '$' + v.toFixed(2), txt = l => Object.entries(l.reduce((mm, i) => { mm[i.name] = (mm[i.name] || 0) + i.qty; return mm; }, {})).map(([k, v]) => v + '× ' + k).join(', ');
+      const n = 'Exchange: ' + txt(jOut) + ' (problem) → ' + txt(x.items_in) + ' · ' + x.reason
+        + (after > before ? ' · shop pays ' + m2(after - before) + ' more' : after < before ? ' · order ' + m2(before - after) + ' less' : '') + (refund > 0 ? ' · ' + m2(refund) + ' given back (' + m.toUpperCase() + ')' : '');
+      D.events.push({ id: ++D.seq.event, order_id: id, status: o.status, note: n + ' · approved', created_by: me.id, created_at: now() });
+      const c = D.convs.find(y => y.order_id === id); if (c) pushMessage(c.id, null, 'system', o.order_no + ' · ' + n, { order_id: id });
+      alert('🔁 ' + o.order_no + ' · ' + D.customers.find(y => y.id === o.customer_id).name + ' · ' + n + ' · approved by ' + me.full_name, { order_id: id }, 'orders');
+      if (x.created_by !== me.id) notify(x.created_by, 'Exchange approved · ' + o.order_no, n, '#/orders/' + id);
+      notifyOrder(o);
+    },
+    async brokenStock() {
+      if (!(allow('stock.manage') || allow('purchases.manage'))) return wait([]);
+      return wait(Object.entries(D.broken || {}).filter(([, q]) => q > 0).map(([pid, q]) => { const p = D.products.find(x => x.id === +pid) || {}; return { product_id: +pid, qty: q, products: { name: p.name, sku: p.sku, cost: p.cost } }; }));
+    },
+    async brokenMoves() {
+      if (!(allow('stock.manage') || allow('purchases.manage'))) return wait([]);
+      return wait([...(D.brokenMoves || [])].reverse().slice(0, 200).map(m => Object.assign(clone(m), { products: (({ name, sku }) => ({ name, sku }))(D.products.find(p => p.id === m.product_id) || {}), profiles: { full_name: (user(m.created_by) || {}).full_name } })));
+    },
+    async brokenWriteoff(pid, n, note) {
+      if (!isBoss()) fail('Only the admin or a manager can write off broken goods');
+      if (!(+n > 0)) fail('Type how many pieces'); if (!String(note || '').trim()) fail('Write why');
+      api._brokenChange(pid, -Math.floor(+n), 'writeoff', null, note.trim()); save(); return wait(null);
+    },
+    _brokenChange(pid, n, reason, ref, note) {
+      D.broken = D.broken || {}; const have = D.broken[pid] || 0;
+      if (have + n < 0) fail('Only ' + have + ' pcs of ' + (D.products.find(p => p.id === pid) || {}).name + ' are in Broken goods');
+      D.broken[pid] = have + n; (D.brokenMoves = D.brokenMoves || []).push({ id: D.brokenMoves.length + 1, product_id: pid, qty_change: n, reason, ref, note, created_by: me.id, created_at: now() });
     },
     async deleteOrder(id) {
       const o = D.orders.find(x => x.id === id);
@@ -3674,7 +3777,7 @@ window.makeDemoApi = function () {
       (D.pedits = D.pedits || []).push({ id: (D.pedits.length + 1), purchase_id: id, summary: 'Edited · total ' + oldTotal.toFixed(2) + ' → ' + p.total.toFixed(2) + (chg ? ' · stock: ' + chg : ''), created_by: me.id, created_at: now() });
       save(); return wait(null);
     },
-    async createPurchaseReturn(pid, items, settle, note) {
+    async createPurchaseReturn(pid, items, settle, note, fromBroken) {
       if (!allow('purchases.manage')) fail('You are not allowed to return goods to suppliers');
       const p = D.purchases.find(y => y.id === pid); if (!p) fail('Purchase not found');
       if (p.status !== 'received') fail('Only goods that arrived can be returned. For goods not arrived yet, edit or cancel the purchase.');
@@ -3684,10 +3787,13 @@ window.makeDemoApi = function () {
       L.forEach(x => { const its = D.pitems.filter(i => i.purchase_id === pid && i.product_id === x.product_id), got = its.reduce((s, i) => s + i.qty, 0), pr = D.products.find(y => y.id === x.product_id);
         if (!got) fail('That product is not in this purchase');
         if (x.qty > got - api._poBack(pid, x.product_id)) fail('You can return at most ' + (got - api._poBack(pid, x.product_id)) + ' pcs of ' + pr.name);
-        if (qty(x.product_id, p.warehouse_id) < x.qty) fail('Only ' + qty(x.product_id, p.warehouse_id) + ' pcs of ' + pr.name + ' are in that warehouse now');
+        if (fromBroken) { if (((D.broken || {})[x.product_id] || 0) < x.qty) fail('Only ' + ((D.broken || {})[x.product_id] || 0) + ' pcs of ' + pr.name + ' are in Broken goods'); }
+        else if (qty(x.product_id, p.warehouse_id) < x.qty) fail('Only ' + qty(x.product_id, p.warehouse_id) + ' pcs of ' + pr.name + ' are in that warehouse now');
         const each = its.reduce((s, i) => s + i.qty * i.landed_cost, 0) / got; r.items.push({ product_id: x.product_id, qty: x.qty, unit_value: +each.toFixed(4) }); r.amount += x.qty * each; });
       r.amount = +r.amount.toFixed(2);
-      r.items.forEach(x => { setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) - x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: -x.qty, reason: 'out', ref: r.return_no, note: 'Returned to supplier · ' + p.purchase_no, created_by: me.id, created_at: now() }); });
+      r.from_broken = !!fromBroken;
+      r.items.forEach(x => { if (fromBroken) return api._brokenChange(x.product_id, -x.qty, 'supplier', r.return_no, 'Returned to supplier · ' + p.purchase_no);
+        setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) - x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: -x.qty, reason: 'out', ref: r.return_no, note: 'Returned to supplier · ' + p.purchase_no, created_by: me.id, created_at: now() }); });
       D.preturns.push(r); pPurchaseReturn(r, 1); api._poRecalc(p);
       alert('↩️ Returned to supplier: ' + r.return_no + ' · ' + (D.suppliers.find(s => s.id === p.supplier_id) || {}).name + ' · ' + r.items.map(x => D.products.find(y => y.id === x.product_id).name + ' ×' + x.qty).join(', ') + ' · ' + (settle === 'money' ? 'money back' : 'new goods coming') + ' · ' + r.note, {}, 'stock');
       save(); return wait(id);
@@ -3698,7 +3804,8 @@ window.makeDemoApi = function () {
       if (action === 'replaced' && r.settle !== 'replace') fail('This return is for money back, not new goods');
       const p = D.purchases.find(y => y.id === r.purchase_id);
       pPurchaseReturn(r, -1);   // goods from a partner: the partner sends them again (refused first if it has not got them)
-      r.items.forEach(x => { setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) + x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: x.qty, reason: 'in', ref: r.return_no, note: (action === 'replaced' ? 'New goods from supplier for ' : 'Return undone · ') + p.purchase_no, created_by: me.id, created_at: now() }); });
+      r.items.forEach(x => { if (action === 'undo' && r.from_broken) return api._brokenChange(x.product_id, x.qty, 'undo', r.return_no, 'Return undone · ' + p.purchase_no);
+        setQty(x.product_id, p.warehouse_id, qty(x.product_id, p.warehouse_id) + x.qty); D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: p.warehouse_id, qty_change: x.qty, reason: 'in', ref: r.return_no, note: (action === 'replaced' ? 'New goods from supplier for ' : 'Return undone · ') + p.purchase_no, created_by: me.id, created_at: now() }); });
       r.status = action === 'replaced' ? 'replaced' : 'undone'; r.done_at = now(); api._poRecalc(p); save(); return wait(null);
     },
     async supplierRefund(pid, amount, method, note, date) {
@@ -4739,6 +4846,12 @@ Object.assign(window.KT_KM, {"of target": "នៃគោលដៅ", "Target": "�
 // team / work cards (20 Oct)
 Object.assign(window.KT_KM, {"Team target": "គោលដៅក្រុម", "Team needs a day:": "ក្រុមត្រូវលក់ក្នុងមួយថ្ងៃ៖", "Team sales this month · No targets set yet (HR → Commission / targets).": "ការលក់ក្រុមខែនេះ · មិនទាន់កំណត់គោលដៅ (HR → កម្រៃជើងសារ / គោលដៅ)។", "Top sellers": "អ្នកលក់ល្អបំផុត", "Today's work": "ការងារថ្ងៃនេះ", "All delivered! 🎉": "បានដឹកទាំងអស់! 🎉", "Let's start! 🚚": "តោះចាប់ផ្តើម! 🚚", "Keep going!": "បន្តទៀត!", "delivered": "បានដឹក", "order waiting to deliver": "ការបញ្ជាទិញរង់ចាំដឹក", "orders waiting to deliver": "ការបញ្ជាទិញរង់ចាំដឹក", "Delivered, last 7 days:": "បានដឹក ៧ ថ្ងៃចុងក្រោយ៖", "Low or out of stock:": "ស្តុកតិច ឬអស់៖"});
 
+// exchange a product with a problem, broken goods (21 Oct)
+Object.assign(window.KT_KM, {"🔁 Exchange (product has a problem)": "🔁 ប្តូរទំនិញ (ទំនិញមានបញ្ហា)", "🔁 Exchange": "🔁 ប្តូរទំនិញ", "🔁 Exchanges": "🔁 ការប្តូរទំនិញ", "The shop gives back pieces with a problem and gets new pieces. The broken pieces go to": "ហាងប្រគល់ទំនិញដែលមានបញ្ហាមកវិញ ហើយទទួលបានទំនិញថ្មី។ ទំនិញខូចចូលទៅ", "Broken goods": "ទំនិញខូច", "(never sold; later back to the supplier).": "(មិនលក់ទៀតទេ; ក្រោយមកប្រគល់ទៅអ្នកផ្គត់ផ្គង់)។", "1. Pieces with a problem": "1. ទំនិញដែលមានបញ្ហា", "2. New pieces for the shop": "2. ទំនិញថ្មីសម្រាប់ហាង", "Type the broken pieces above first.": "សូមវាយចំនួនទំនិញខូចខាងលើជាមុនសិន។", "Take the new pieces from": "យកទំនិញថ្មីពី", "What is wrong with the product?": "ទំនិញមានបញ្ហាអ្វី?", "e.g. does not charge, screen cracked": "ឧ. សាកថ្មមិនចូល អេក្រង់បែក", "Change the product if the shop takes another one. The price is per piece.": "ប្តូរទំនិញ ប្រសិនបើហាងយកទំនិញផ្សេង។ តម្លៃគឺក្នុងមួយគ្រឿង។", "Order total": "សរុបការបញ្ជាទិញ", "No money change": "មិនមានការប្តូរប្រាក់", "Give back to the shop": "ប្រគល់ប្រាក់ទៅហាងវិញ", "(problem) →": "(មានបញ្ហា) →", "Exchange saved": "បានរក្សាទុកការប្តូរ", "Type how many pieces have a problem": "សូមវាយចំនួនទំនិញដែលមានបញ្ហា", "Type how many new pieces the shop gets": "សូមវាយចំនួនទំនិញថ្មីដែលហាងទទួលបាន", "Write the price per piece": "សូមសរសេរតម្លៃក្នុងមួយគ្រឿង", "Write what is wrong with the product": "សូមសរសេរថាទំនិញមានបញ្ហាអ្វី", "Choose the product with a problem and how many pieces": "សូមជ្រើសទំនិញដែលមានបញ្ហា និងចំនួន", "Choose the new product to give and how many pieces": "សូមជ្រើសទំនិញថ្មីដែលត្រូវឲ្យ និងចំនួន", "Choose a stock you can take goods from": "សូមជ្រើសស្តុកដែលអ្នកអាចយកទំនិញបាន", "You cannot exchange goods on this order": "អ្នកមិនអាចប្តូរទំនិញលើការបញ្ជាទិញនេះទេ", "This is an old balance, not real goods": "នេះជាសមតុល្យចាស់ មិនមែនទំនិញពិតទេ", "Only delivered orders can have an exchange. Change or cancel this order instead.": "មានតែការបញ្ជាទិញដែលបានដឹករួចទេ ទើបអាចប្តូរបាន។ សូមកែ ឬលុបចោលការបញ្ជាទិញនេះជំនួសវិញ។", "Choose how the money is given back": "សូមជ្រើសរបៀបប្រគល់ប្រាក់វិញ", "🔁 Broken goods": "🔁 ទំនិញខូច", "🔁 Broken goods (pieces shops gave back)": "🔁 ទំនិញខូច (ទំនិញដែលហាងប្រគល់មកវិញ)", "Pieces shops gave back with a problem. They are not in any stock and never sold. To send them to the supplier: Purchasing → open the purchase → Return to supplier → from": "ទំនិញដែលហាងប្រគល់មកវិញដោយមានបញ្ហា។ វាមិននៅក្នុងស្តុកណាមួយ ហើយមិនលក់ទៀតទេ។ ដើម្បីប្រគល់ទៅអ្នកផ្គត់ផ្គង់៖ ការទិញចូល → បើកការទិញ → ប្រគល់ទៅអ្នកផ្គត់ផ្គង់ → ពី", "No broken goods": "មិនមានទំនិញខូច", "History": "ប្រវត្តិ", "Write off": "បោះចោល", "Written off": "បានបោះចោល", "From a shop (exchange)": "ពីហាង (ប្តូរទំនិញ)", "Sent back to supplier": "បានប្រគល់ទៅអ្នកផ្គត់ផ្គង់", "Supplier return undone": "បានលុបការប្រគល់ទៅអ្នកផ្គត់ផ្គង់", "These pieces are thrown away (cannot be repaired or sent back).": "ទំនិញទាំងនេះត្រូវបោះចោល (មិនអាចជួសជុល ឬប្រគល់វិញបាន)។", "How many pieces": "ចំនួនគ្រឿង", "Why": "មូលហេតុ", "Write why": "សូមសរសេរមូលហេតុ", "e.g. supplier does not take it back": "ឧ. អ្នកផ្គត់ផ្គង់មិនទទួលយកវិញ", "Take the pieces from": "យកទំនិញពី", "The pieces leave": "ទំនិញចេញពី", "(pieces shops gave back). Type how many go back.": "(ទំនិញដែលហាងប្រគល់មកវិញ)។ សូមវាយចំនួនដែលត្រូវប្រគល់។", "now. Type how many go back.": "ឥឡូវនេះ។ សូមវាយចំនួនដែលត្រូវប្រគល់។"});
+window.KT_KM_PATTERNS.push([/^(\d+) pcs on this order$/, "$1 គ្រឿងក្នុងការបញ្ជាទិញនេះ"], [/^For (\d+) × (.+):$/, "សម្រាប់ $1 × $2៖"], [/^The shop pays (\$[\d,.]+) more$/, "ហាងបង់បន្ថែម $1"], [/^The order goes down (\$[\d,.]+)$/, "ការបញ្ជាទិញថយចុះ $1"], [/^The shop already paid (\$[\d,.]+)\. How do you give it back\?$/, "ហាងបានបង់ $1 រួចហើយ។ តើប្រគល់ប្រាក់វិញដោយរបៀបណា?"], [/^Exchange · (.+)$/, "ប្តូរទំនិញ · $1"], [/^Write off · (.+)$/, "បោះចោល · $1"], [/^(.+): only (\d+) pcs in this stock$/, "$1៖ នៅសល់តែ $2 គ្រឿងក្នុងស្តុកនេះ"], [/^(\d+) pcs in Broken goods\.$/, "$1 គ្រឿងក្នុងទំនិញខូច។"]);
+Object.assign(window.KT_KM, {"🔁 Send for approval": "🔁 ផ្ញើសុំការអនុម័ត", "The admin or a manager must approve it. Nothing changes until then.": "អ្នកគ្រប់គ្រង ឬម្ចាស់ត្រូវអនុម័ត។ គ្មានអ្វីផ្លាស់ប្តូរទេរហូតដល់ពេលនោះ។", "Sent to the admin / manager for approval": "បានផ្ញើទៅម្ចាស់ / អ្នកគ្រប់គ្រង ដើម្បីអនុម័ត", "Waiting for approval": "រង់ចាំការអនុម័ត", "Not approved": "មិនអនុម័ត", "Approve or say no": "អនុម័ត ឬបដិសេធ", "Approve: the new pieces leave the stock, the broken pieces go to Broken goods, and the order changes.": "អនុម័ត៖ ទំនិញថ្មីចេញពីស្តុក ទំនិញខូចចូលទំនិញខូច ហើយការបញ្ជាទិញផ្លាស់ប្តូរ។", "Note (needed if you say no)": "កំណត់ចំណាំ (ត្រូវការបើបដិសេធ)", "e.g. the shop broke it": "ឧ. ហាងធ្វើខូចខ្លួនឯង", "Say no": "បដិសេធ", "✓ Approve": "✓ អនុម័ត", "Exchange approved": "បានអនុម័តការប្តូរ", "Exchange not approved": "មិនបានអនុម័តការប្តូរ", "Write why you say no": "សូមសរសេរមូលហេតុដែលបដិសេធ", "Exchanges to approve": "ការប្តូរទំនិញរង់ចាំអនុម័ត", "Nothing waiting": "គ្មានអ្វីរង់ចាំ", "Products with a problem · tap to approve or say no": "ទំនិញមានបញ្ហា · ចុចដើម្បីអនុម័ត ឬបដិសេធ", "This order already has an exchange waiting for approval": "ការបញ្ជាទិញនេះមានការប្តូររង់ចាំអនុម័តរួចហើយ", "Only the admin or a manager can approve exchanges": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចអនុម័តការប្តូរបាន", "Only the admin or a manager can write off broken goods": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចបោះចោលទំនិញខូចបាន"});
+window.KT_KM_PATTERNS.push([/^(\d+) exchanges? to approve$/, "ការប្តូរទំនិញ $1 រង់ចាំអនុម័ត"], [/^Approved by (.+)$/, "អនុម័តដោយ $1"], [/^Not approved by (.+)$/, "មិនអនុម័តដោយ $1"]);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5685,6 +5798,12 @@ Object.assign(window.KT_ZH, {"of target": "目标的", "Target": "目标", "of":
 // team / work cards (20 Oct)
 Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:": "团队每天需卖：", "Team sales this month · No targets set yet (HR → Commission / targets).": "本月团队销售 · 还没有设置目标（人事 → 佣金 / 目标）。", "Top sellers": "最佳销售", "Today's work": "今日工作", "All delivered! 🎉": "全部送达！🎉", "Let's start! 🚚": "开始吧！🚚", "Keep going!": "继续加油！", "delivered": "已送达", "order waiting to deliver": "个订单等待送货", "orders waiting to deliver": "个订单等待送货", "Delivered, last 7 days:": "最近 7 天已送达：", "Low or out of stock:": "库存不足或缺货："});
 
+// exchange a product with a problem, broken goods (21 Oct)
+Object.assign(window.KT_ZH, {"🔁 Exchange (product has a problem)": "🔁 换货（产品有问题）", "🔁 Exchange": "🔁 换货", "🔁 Exchanges": "🔁 换货记录", "The shop gives back pieces with a problem and gets new pieces. The broken pieces go to": "店铺退回有问题的产品并换取新产品。坏的产品进入", "Broken goods": "坏货", "(never sold; later back to the supplier).": "（不再销售；以后退给供应商）。", "1. Pieces with a problem": "1. 有问题的产品", "2. New pieces for the shop": "2. 给店铺的新产品", "Type the broken pieces above first.": "请先在上面输入坏的数量。", "Take the new pieces from": "新产品从哪里出", "What is wrong with the product?": "产品有什么问题？", "e.g. does not charge, screen cracked": "例如：不能充电、屏幕裂了", "Change the product if the shop takes another one. The price is per piece.": "如果店铺换别的产品，请更改产品。价格为每件。", "Order total": "订单总额", "No money change": "金额不变", "Give back to the shop": "退还给店铺", "(problem) →": "（有问题）→", "Exchange saved": "换货已保存", "Type how many pieces have a problem": "请输入有问题的数量", "Type how many new pieces the shop gets": "请输入店铺得到的新产品数量", "Write the price per piece": "请填写每件价格", "Write what is wrong with the product": "请写明产品的问题", "Choose the product with a problem and how many pieces": "请选择有问题的产品和数量", "Choose the new product to give and how many pieces": "请选择要给的新产品和数量", "Choose a stock you can take goods from": "请选择你可以出货的库存", "You cannot exchange goods on this order": "你不能在这个订单上换货", "This is an old balance, not real goods": "这是旧余额，不是真实货物", "Only delivered orders can have an exchange. Change or cancel this order instead.": "只有已送达的订单才能换货。请改为修改或取消这个订单。", "Choose how the money is given back": "请选择退款方式", "🔁 Broken goods": "🔁 坏货", "🔁 Broken goods (pieces shops gave back)": "🔁 坏货（店铺退回的产品）", "Pieces shops gave back with a problem. They are not in any stock and never sold. To send them to the supplier: Purchasing → open the purchase → Return to supplier → from": "店铺退回的有问题产品。它们不在任何库存中，也不再销售。要退给供应商：采购 → 打开采购单 → 退给供应商 → 从", "No broken goods": "没有坏货", "History": "记录", "Write off": "报废", "Written off": "已报废", "From a shop (exchange)": "来自店铺（换货）", "Sent back to supplier": "已退给供应商", "Supplier return undone": "已撤销退给供应商", "These pieces are thrown away (cannot be repaired or sent back).": "这些产品将被丢弃（不能修理或退回）。", "How many pieces": "数量", "Why": "原因", "Write why": "请写原因", "e.g. supplier does not take it back": "例如：供应商不收回", "Take the pieces from": "从哪里出货", "The pieces leave": "产品出自", "(pieces shops gave back). Type how many go back.": "（店铺退回的产品）。请输入退回数量。", "now. Type how many go back.": "现在出库。请输入退回数量。"});
+window.KT_ZH_PATTERNS.push([/^(\d+) pcs on this order$/, "此订单有 $1 件"], [/^For (\d+) × (.+):$/, "对应 $1 × $2："], [/^The shop pays (\$[\d,.]+) more$/, "店铺多付 $1"], [/^The order goes down (\$[\d,.]+)$/, "订单减少 $1"], [/^The shop already paid (\$[\d,.]+)\. How do you give it back\?$/, "店铺已付 $1。用什么方式退还？"], [/^Exchange · (.+)$/, "换货 · $1"], [/^Write off · (.+)$/, "报废 · $1"], [/^(.+): only (\d+) pcs in this stock$/, "$1：此库存只有 $2 件"], [/^(\d+) pcs in Broken goods\.$/, "坏货中有 $1 件。"]);
+Object.assign(window.KT_ZH, {"🔁 Send for approval": "🔁 提交审批", "The admin or a manager must approve it. Nothing changes until then.": "需要老板或经理批准。批准前不会有任何变化。", "Sent to the admin / manager for approval": "已提交给老板 / 经理审批", "Waiting for approval": "等待批准", "Not approved": "未批准", "Approve or say no": "批准或拒绝", "Approve: the new pieces leave the stock, the broken pieces go to Broken goods, and the order changes.": "批准后：新产品出库，坏的产品进入坏货，订单随之更改。", "Note (needed if you say no)": "备注（拒绝时必填）", "e.g. the shop broke it": "例如：店铺自己弄坏的", "Say no": "拒绝", "✓ Approve": "✓ 批准", "Exchange approved": "换货已批准", "Exchange not approved": "换货未批准", "Write why you say no": "请写拒绝原因", "Exchanges to approve": "待批准的换货", "Nothing waiting": "没有待处理", "Products with a problem · tap to approve or say no": "有问题的产品 · 点击批准或拒绝", "This order already has an exchange waiting for approval": "此订单已有一个等待批准的换货", "Only the admin or a manager can approve exchanges": "只有老板或经理可以批准换货", "Only the admin or a manager can write off broken goods": "只有老板或经理可以报废坏货"});
+window.KT_ZH_PATTERNS.push([/^(\d+) exchanges? to approve$/, "$1 个换货待批准"], [/^Approved by (.+)$/, "由 $1 批准"], [/^Not approved by (.+)$/, "由 $1 拒绝"]);
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -5975,7 +6094,8 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
     html += mine.length ? `<div class="card flush" style="margin-top:10px">${mine.map(orderRow).join('')}</div>` : `<div class="card" style="margin-top:10px">${emptyBox('check', !todo.length ? 'No orders yet. Tap New order to start.' : 'Nothing waiting for you right now.')}</div>`;
     const unreadConvs = convs.filter(c => c.unread).slice(0, 3);
     if (unreadConvs.length) html += `<div class="sec" style="margin-top:18px"><span>New messages</span><a href="#/chat">Open chat</a></div><div class="card flush" style="margin-top:10px">${unreadConvs.map(K.convRow).join('')}</div>`;
-    if ($('#home-rest')) $('#home-rest').innerHTML = html;   // the person may have left the home screen meanwhile
+    if ($('#home-rest')) { $('#home-rest').innerHTML = html;   // the person may have left the home screen meanwhile
+      if (K.exchangeWaitingCard && K.isBoss()) { $('#home-rest').insertAdjacentHTML('afterbegin', '<div id="xwait"></div>'); K.exchangeWaitingCard($('#xwait')); } }
   });
 
   function orderRow(o) {
@@ -6582,13 +6702,14 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
         ${acts.length ? `<div class="btns" style="flex-wrap:wrap">${acts.map(a => `<button class="btn ${a.cls}" data-st="${a.status}" style="flex:1 0 40%">${icon(a.ic, 20)}${a.label}</button>`).join('')}</div>` : ''}</div>
       ${K.canInvoice(o) ? `<button class="btn out block" id="inv">${icon('receipt', 20)} Invoice · save or send to shop</button>` : ''}
       <a class="card" href="#/customers/${o.customer_id}" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(o.customers.name)}</div><div class="st">${esc([o.customers.area, o.customers.phone].filter(Boolean).join(' · '))}</div></div>${icon('right', 18)}</div></a>
-      ${K.openingLine(o)}${K.refundLine(o)}${payCard}
+      ${K.openingLine(o)}${K.refundLine(o)}${K.exchangeCard(o)}${payCard}
       <div class="sec">Items</div>
       <div class="card">${o.items.map(i => `<div class="row"><div class="grow"><div style="font-weight:600">${esc(i.products.name)}</div><div class="small muted">${i.qty} × ${money(i.price)}${K.priceNote(i)}</div></div><b>${money(i.qty * i.price)}</b></div>`).join('')}
         <div class="row" style="border-top:1px solid var(--line);padding-top:10px"><b class="grow">Total</b><b style="font-size:17px">${money(o.total)}</b></div>
         ${o.notes ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:10px">${esc(o.notes)}</div>` : ''}</div>
       <div class="sec">Progress</div><div class="card" style="gap:0">${timeline}</div>
       ${o.status === 'pending' && (o.created_by === S.me.id || K.allow('orders.edit_any')) ? `<div class="btns"><button class="btn red" id="del">${icon('x', 18)}Delete order</button><a class="btn out" href="#/orders/new?edit=${o.id}">${icon('pen', 18)}Edit order</a></div>` : ''}
+      ${K.canExchange(o) ? `<button class="btn out block" id="exch">🔁 Exchange (product has a problem)</button>` : ''}
       ${K.canReturn(o) ? `<button class="btn out block" id="ret" style="color:var(--rd);border-color:#F1C4BF">${icon('x', 18)}Return order (shop gives it back)</button>` : ''}
       ${(o.status === 'cancelled' && K.allow('orders.edit_any')) || K.canDeleteAny(o) ? `<button class="btn red block" id="del">${icon('x', 18)}Delete order</button>` : ''}
       ${o.conversation_id ? `<a class="btn ghost block" href="#/chat/${o.conversation_id}">${icon('chat', 20)} Discuss this order</a>` : ''}</div>`;
@@ -6597,6 +6718,8 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
       await busy(_btn, () => api.deleteOrder(id)); forget('orders', 'products', 'customers', 'payments'); toast('Order deleted'); go('#/orders');
     };
     if ($('#ret')) $('#ret').onclick = () => K.returnSheet(o, () => K.render());
+    if ($('#exch')) $('#exch').onclick = () => K.exchangeSheet(o, () => K.render());
+    K.bindExchangeCard(main, o, () => K.render());
     if ($('#inv')) $('#inv').onclick = () => K.invoiceSheet(o);
     if ($('#chdue')) $('#chdue').onclick = () => K.dueSheet(o, () => K.render());
     if ($('#collect')) $('#collect').onclick = () => K.paymentSheet(o, () => K.render());
@@ -6729,6 +6852,7 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
       ${!manage && mine && warehouses.length === 1 ? '<div class="small muted">Your stock: the goods you carry. Ask the warehouse or admin to give you more.</div>' : ''}
       ${K.catalogMode() && mine ? `<a class="btn ghost block" href="#/stock?cat=1">${icon('list', 20)} Product list (order from main warehouse)</a>` : ''}
       ${manage || K.allow('stock.move') ? `<button class="btn ghost block" id="loadrep">${icon('swap', 20)} Move stock (to a rep, back, or between stocks)</button>` : ''}
+      ${K.canSeeBroken && K.canSeeBroken() ? `<button class="btn ghost block" id="brk">🔁 Broken goods (pieces shops gave back)</button>` : ''}
       <div class="stats three" id="sum"></div>
       <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
       <div class="btns"><select class="inp" id="pcf" aria-label="Category"><option value="">All categories</option>${[...new Set(products.map(p => p.category).filter(Boolean))].sort().map(c => `<option>${esc(c)}</option>`).join('')}</select>${manage ? `<button class="btn out" id="pcats" style="flex:0 0 auto">${icon('list', 18)}Categories</button>` : ''}</div>
@@ -6740,6 +6864,7 @@ Object.assign(window.KT_ZH, {"Team target": "团队目标", "Team needs a day:":
     $$('[data-w]').forEach(b => b.onclick = () => { wh = +b.dataset.w; $$('[data-w]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
     $('#ps').oninput = e => { search = e.target.value; draw(); };
     if ($('#loadrep')) $('#loadrep').onclick = () => K.loadRepSheet(() => K.render());
+    if ($('#brk')) $('#brk').onclick = () => K.brokenSheet();
     draw();
   });
 
@@ -8232,6 +8357,174 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   };
 })();
 
+// Exchange a product with a problem (21 Oct 2026), staff app and admin web.
+// The shop gives back broken pieces and gets new ones (same product or another one) on a delivered order.
+// New pieces leave a stock; broken pieces go to "Broken goods" (never sold). The order total follows; extra money paid goes back.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy, money } = K;
+  const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
+  const when = t => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  K.canExchange = o => !!K.S.me && !o.is_opening && ['delivered', 'paid'].includes(o.status) && !(o.exchanges || []).some(x => x.status === 'waiting')
+    && (K.isBoss() || K.allow('orders.approve') || K.allow('orders.deliver') || o.sales_rep_id === K.S.me.id || o.created_by === K.S.me.id);
+  // money after an exchange: broken pieces come off at the order's own price (newest lines first, like the server)
+  const estimate = (o, out, inn) => {
+    const vout = out.reduce((a, x) => { let left = x.qty, v = 0; (o.items || []).filter(i => i.product_id === +x.product_id).sort((p, q) => q.id - p.id).forEach(i => { const t = Math.min(i.qty, left); v += t * i.price; left -= t; }); return a + v; }, 0);
+    const vin = inn.reduce((a, x) => a + x.qty * (+(+x.price || 0).toFixed(2)), 0), after = +(+o.total - vout + vin).toFixed(2), paid = +o.paid_amount || 0;
+    return { after, d: +(after - o.total).toFixed(2), paid, back: paid > after ? +(paid - after).toFixed(2) : 0 };
+  };
+  const moneyHtml = (o, e, method) => `<div class="row"><span class="grow">Order total</span><span>${money(o.total)} → <b>${money(e.after)}</b></span></div>
+        <div class="small" style="font-weight:700;color:${e.d > 0 ? 'var(--or)' : e.d < 0 ? 'var(--bl)' : 'var(--gr)'}">${e.d > 0 ? 'The shop pays ' + money(e.d) + ' more' : e.d < 0 ? 'The order goes down ' + money(-e.d) : 'No money change'}</div>
+        ${e.back > 0 ? `<div class="row"><b class="grow">Give back to the shop</b><b style="font-size:18px;color:var(--rd)">${money(e.back)}</b></div><div class="small muted">The shop already paid ${money(e.paid)}. How do you give it back?</div>
+          <div class="seg">${['cash', 'aba', 'khqr', 'bank'].map(k => `<button type="button" data-xm="${k}" class="${k === method ? 'on' : ''}">${K.PAY_METHODS[k]}</button>`).join('')}</div>` : ''}`;
+  K.canSeeBroken = () => K.allow('stock.manage') || K.allow('purchases.manage');
+
+  K.exchangeSheet = async function (o, onDone) {
+    const s = K.sheet('Exchange · ' + o.order_no, K.loading);
+    const [products, warehouses] = await Promise.all([K.data.products(true), K.data.warehouses()]);
+    if (!s.el.isConnected) return;
+    const whs = K.sellFrom(warehouses); if (!whs.some(w => w.id === o.warehouse_id)) { const w = warehouses.find(x => x.id === o.warehouse_id); if (w) whs.unshift(w); }
+    const prod = id => products.find(p => p.id === id) || {};
+    // what is on the order now, by product
+    const on = []; (o.items || []).forEach(i => { let r = on.find(x => x.pid === i.product_id); if (!r) on.push(r = { pid: i.product_id, name: i.products.name, qty: 0, val: 0 }); r.qty += i.qty; r.val += i.qty * i.price; });
+    const L = {};   // pid -> { out, inPid, inQty, inPrice }
+    let wh = (whs.find(w => w.id === o.warehouse_id) || whs[0] || {}).id, method = 'cash';
+    const pend = (o.payments || []).some(p => p.status === 'pending');
+    $('.sb', s.el).innerHTML = `<div class="small muted" style="line-height:1.5">The shop gives back pieces with a problem and gets new pieces. The broken pieces go to <b>Broken goods</b> (never sold; later back to the supplier).</div>
+      ${pend ? `<div class="small" style="color:var(--rd);font-weight:700">This order has payments waiting for check. Confirm or reject them first.</div>` : ''}
+      <div class="sec" style="margin:4px 0 0">1. Pieces with a problem</div>
+      <div class="card flush">${on.map(r => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(r.name)}</div><div class="st">${r.qty} pcs on this order</div></div>
+        <input class="inp" data-bq="${r.pid}" type="number" inputmode="numeric" min="0" max="${r.qty}" placeholder="0" style="width:76px;text-align:center" aria-label="Broken pieces of ${esc(r.name)}"></div>`).join('')}</div>
+      <div class="sec" style="margin:4px 0 0">2. New pieces for the shop</div>
+      <div id="xin"><div class="small muted">Type the broken pieces above first.</div></div>
+      <label class="f">Take the new pieces from<select class="inp" id="xwh">${whs.map(w => `<option value="${w.id}" ${w.id === wh ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>
+      <div id="xsum"></div>
+      <label class="f">What is wrong with the product?<input class="inp" id="xwhy" placeholder="e.g. does not charge, screen cracked"></label>
+      ${K.isBoss() ? '' : '<div class="small muted">The admin or a manager must approve it. Nothing changes until then.</div>'}
+      <button class="btn block" id="xgo" ${pend || !whs.length ? 'disabled' : ''}>${K.isBoss() ? '🔁 Exchange' : '🔁 Send for approval'}</button>`;
+    const el = s.el;
+    const opts = sel => products.map(p => `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.name)}${p.sku ? ' · ' + esc(p.sku) : ''}</option>`).join('');
+    const rows = () => Object.entries(L).filter(([, l]) => l.out > 0);
+    const drawIn = () => {
+      $('#xin', el).innerHTML = rows().length ? `<div class="card flush">${rows().map(([pid, l]) => `<div class="list-item" style="flex-wrap:wrap;gap:8px">
+          <div class="small muted" style="width:100%">For ${l.out} × ${esc((on.find(r => r.pid === +pid) || {}).name)}:</div>
+          <select class="inp grow" data-ip="${pid}" style="min-width:150px" aria-label="New product">${opts(l.inPid)}</select>
+          <input class="inp" data-iq="${pid}" type="number" inputmode="numeric" min="1" value="${l.inQty}" style="width:66px;text-align:center" aria-label="New pieces">
+          <input class="inp" data-ipr="${pid}" type="number" inputmode="decimal" min="0" step="0.01" value="${l.inPrice === '' ? '' : (+l.inPrice).toFixed(2)}" style="width:84px" aria-label="Price per piece"></div>`).join('')}</div>
+          <div class="small muted">Change the product if the shop takes another one. The price is per piece.</div>`
+        : '<div class="small muted">Type the broken pieces above first.</div>';
+      $$('[data-ip]', el).forEach(i => i.onchange = () => { const l = L[i.dataset.ip]; l.inPid = +i.value; l.inPrice = +i.value === +i.dataset.ip ? l.oldPrice : +(prod(+i.value).price || 0); drawIn(); });
+      $$('[data-iq]', el).forEach(i => i.oninput = () => { L[i.dataset.iq].inQty = Math.max(0, Math.floor(+i.value || 0)); sum(); });
+      $$('[data-ipr]', el).forEach(i => i.oninput = () => { L[i.dataset.ipr].inPrice = i.value; sum(); });
+      sum();
+    };
+    const sum = () => {
+      const R = rows(); if (!R.length) { $('#xsum', el).innerHTML = ''; return; }
+      const e = estimate(o, R.map(([pid, l]) => ({ product_id: +pid, qty: l.out })), R.filter(([, l]) => l.inQty > 0).map(([, l]) => ({ qty: l.inQty, price: l.inPrice })));
+      const short = {}; R.forEach(([, l]) => { if (l.inQty > 0) short[l.inPid] = (short[l.inPid] || 0) + l.inQty; });
+      const warn = Object.entries(short).filter(([pid, n]) => (prod(+pid).stock || {})[wh] !== undefined && prod(+pid).stock[wh] < n).map(([pid]) => `${esc(prod(+pid).name)}: only ${(prod(+pid).stock || {})[wh] || 0} pcs in this stock`);
+      $('#xsum', el).innerHTML = `<div class="card" style="gap:8px;background:var(--bg)">${moneyHtml(o, e, method)}
+        ${warn.length ? `<div class="small" style="color:var(--rd);font-weight:700">${warn.join('<br>')}</div>` : ''}</div>`;
+      $$('[data-xm]', el).forEach(b => b.onclick = () => { method = b.dataset.xm; $$('[data-xm]', el).forEach(x => x.classList.toggle('on', x === b)); });
+    };
+    $$('[data-bq]', el).forEach(i => i.oninput = () => {
+      const pid = +i.dataset.bq, r = on.find(x => x.pid === pid); let n = Math.max(0, Math.floor(+i.value || 0)); if (n > r.qty) { n = r.qty; i.value = n; }
+      const l = L[pid] = L[pid] || { inPid: pid, oldPrice: +(r.val / r.qty).toFixed(2) }; l.inPrice = l.inPrice != null ? l.inPrice : l.oldPrice;
+      if (l.inQty == null || l.inQty === l.out) l.inQty = n;   // keep the same count unless it was changed
+      l.out = n; drawIn(); });
+    $('#xwh', el).onchange = e => { wh = +e.target.value; sum(); };
+    $('#xgo', el).onclick = async e => {
+      const R = rows(), why = $('#xwhy', el).value.trim();
+      if (!R.length) return toast('Type how many pieces have a problem');
+      if (!R.some(([, l]) => l.inQty > 0)) return toast('Type how many new pieces the shop gets');
+      if (R.some(([, l]) => l.inQty > 0 && !(+l.inPrice >= 0 && String(l.inPrice).trim() !== ''))) return toast('Write the price per piece');
+      if (!why) return toast('Write what is wrong with the product');
+      await busy(e.currentTarget, () => api.exchangeOrder(o.id, R.map(([pid, l]) => ({ product_id: +pid, qty: l.out })),
+        R.filter(([, l]) => l.inQty > 0).map(([, l]) => ({ product_id: l.inPid, qty: l.inQty, price: +l.inPrice })), wh, why, method));
+      s.close(); K.forget('orders', 'products', 'customers', 'payments'); toast(K.isBoss() ? 'Exchange saved' : 'Sent to the admin / manager for approval'); onDone && onDone();
+    };
+  };
+
+  // exchanges on this order (asked, approved, not approved)
+  const txt = l => Object.entries((l || []).reduce((m, i) => { const k = i.name || ''; m[k] = (m[k] || 0) + i.qty; return m; }, {})).map(([k, n]) => n + ' × ' + esc(k)).join(', ');
+  const XST = { waiting: ['Waiting for approval', 'or'], approved: ['Approved', 'gr'], rejected: ['Not approved', 'rd'] };
+  K.exchangeCard = o => (o.exchanges || []).length ? `<div class="card" style="gap:8px;border-color:#C9DBF5"><b>🔁 Exchanges</b>${o.exchanges.map(x => {
+      const d = +(x.total_after - x.total_before).toFixed(2), st = XST[x.status] || XST.approved;
+      return `<div style="border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:3px"><div class="row"><span class="grow small muted">${when(x.created_at)}${x.profiles ? ' · ' + esc(x.profiles.full_name) : ''}</span><span class="pill ${st[1]}">${st[0]}</span></div>
+        <div class="small"><b style="color:var(--rd)">${txt(x.items_out)}</b> (problem) → <b style="color:var(--gr)">${txt(x.items_in)}</b></div>
+        <div class="small muted">${esc(x.reason)}${x.status === 'approved' && d ? ' · ' + (d > 0 ? 'shop pays ' + money(d) + ' more' : 'order ' + money(-d) + ' less') : ''}${+x.refund ? ' · ' + money(x.refund) + ' given back' + (x.refund_method ? ' by ' + (K.PAY_METHODS[x.refund_method] || x.refund_method) : '') : ''}</div>
+        ${x.status !== 'waiting' && x.decider ? `<div class="small muted">${x.status === 'approved' ? 'Approved' : 'Not approved'} by ${esc(x.decider.full_name)}${x.decided_at ? ' · ' + when(x.decided_at) : ''}${x.decide_note ? ' · ' + esc(x.decide_note) : ''}</div>` : ''}
+        ${x.status === 'waiting' && K.isBoss() ? `<button class="btn sm" data-xdec="${x.id}" style="align-self:flex-start">Approve or say no</button>` : ''}</div>`; }).join('')}</div>` : '';
+  K.bindExchangeCard = (el, o, onDone) => $$('[data-xdec]', el).forEach(b => b.onclick = () => K.exchangeDecideSheet((o.exchanges || []).find(x => x.id === +b.dataset.xdec), o, onDone));
+
+  // the admin / a manager: approve or say no
+  K.exchangeDecideSheet = function (x, o, onDone) {
+    let method = x.refund_method || 'cash';
+    const e = estimate(o, x.items_out, x.items_in);
+    const s = K.sheet('Exchange · ' + o.order_no, `<div class="small muted">${esc(o.customers ? o.customers.name : '')} · asked by ${esc(x.profiles ? x.profiles.full_name : '')} · ${when(x.created_at)}</div>
+      <div class="card" style="gap:6px"><div class="small"><b style="color:var(--rd)">${txt(x.items_out)}</b> (problem) → <b style="color:var(--gr)">${txt(x.items_in)}</b></div>
+        <div class="small muted">${x.items_in.map(i => esc(i.name) + ' ' + money(i.price)).join(' · ')}</div>
+        <div class="small">${esc(x.reason)}</div></div>
+      <div class="card" style="gap:8px;background:var(--bg)">${moneyHtml(o, e, method)}</div>
+      <div class="small muted">Approve: the new pieces leave the stock, the broken pieces go to Broken goods, and the order changes.</div>
+      <label class="f">Note (needed if you say no)<input class="inp" id="xdn" placeholder="e.g. the shop broke it"></label>
+      <div class="btns"><button class="btn red out" id="xno">Say no</button><button class="btn green" id="xok">✓ Approve</button></div>`);
+    $$('[data-xm]', s.el).forEach(b => b.onclick = () => { method = b.dataset.xm; $$('[data-xm]', s.el).forEach(y => y.classList.toggle('on', y === b)); });
+    $('#xok', s.el).onclick = async ev => { await busy(ev.currentTarget, () => api.exchangeDecide(x.id, true, null, e.back > 0 ? method : null)); s.close(); K.forget('orders', 'products', 'payments'); toast('Exchange approved'); onDone && onDone(); };
+    $('#xno', s.el).onclick = async ev => { const n = $('#xdn', s.el).value.trim(); if (!n) return toast('Write why you say no');
+      await busy(ev.currentTarget, () => api.exchangeDecide(x.id, false, n)); s.close(); toast('Exchange not approved'); onDone && onDone(); };
+  };
+
+  // all exchanges waiting for approval (admin / managers)
+  K.exchangesWaitingSheet = async function () {
+    const s = K.sheet('Exchanges to approve', K.loading);
+    const draw = async () => {
+      const list = await api.waitingExchanges();
+      if (!s.el.isConnected) return;
+      $('.sb', s.el).innerHTML = list.map(x => `<button class="card" data-xw="${x.id}" style="text-align:left;gap:4px;cursor:pointer;font:inherit;color:inherit"><div class="row"><b class="grow">${esc(x.orders.order_no)} · ${esc(x.orders.customers.name)}</b><span class="small muted">${when(x.created_at)}</span></div>
+        <div class="small"><b style="color:var(--rd)">${txt(x.items_out)}</b> (problem) → <b style="color:var(--gr)">${txt(x.items_in)}</b></div><div class="small muted">${esc(x.reason)} · ${esc(x.profiles ? x.profiles.full_name : '')}</div></button>`).join('') || '<div class="empty">Nothing waiting</div>';
+      $$('[data-xw]', s.el).forEach(b => b.onclick = async () => { const x = list.find(y => y.id === +b.dataset.xw), o = await api.getOrder(x.order_id);
+        K.exchangeDecideSheet((o.exchanges || []).find(y => y.id === x.id) || x, o, () => { draw(); K.refreshExchangeBadges && K.refreshExchangeBadges(); }); });
+    };
+    await draw();
+  };
+  // a card for the admin / managers when exchanges wait (Home in the phone app, Dashboard on the admin web)
+  K.exchangeWaitingCard = async el => {
+    if (!el || !K.isBoss()) return;
+    const n = (await api.waitingExchanges().catch(() => [])).length;
+    el.innerHTML = n ? `<button class="card" data-xwall style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;border-color:#F3D2A8;background:var(--ors);margin-bottom:12px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">🔁</div><div class="grow"><div class="tt">${n} exchange${n > 1 ? 's' : ''} to approve</div><div class="st">Products with a problem · tap to approve or say no</div></div>${icon('right', 20)}</div></button>` : '';
+  };
+  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-xwall]')) K.exchangesWaitingSheet(); });
+
+  // Broken goods: pieces shops gave back; never sold. Write off, or send back to the supplier in Purchasing.
+  K.brokenSheet = async function () {
+    const s = K.sheet('Broken goods', K.loading);
+    const draw = async () => {
+      const [rows, moves] = await Promise.all([api.brokenStock(), api.brokenMoves()]);
+      if (!s.el.isConnected) return;
+      const pcs = rows.reduce((a, r) => a + r.qty, 0), val = rows.reduce((a, r) => a + r.qty * (+(r.products || {}).cost || 0), 0);
+      const R = { exchange: 'From a shop (exchange)', supplier: 'Sent back to supplier', undo: 'Supplier return undone', writeoff: 'Written off' };
+      $('.sb', s.el).innerHTML = `<div class="small muted" style="line-height:1.5">Pieces shops gave back with a problem. They are not in any stock and never sold. To send them to the supplier: Purchasing → open the purchase → Return to supplier → from <b>Broken goods</b>.</div>
+        <div class="card"><div class="row"><span class="grow">${pcs} pcs</span><b>${K.allow('purchases.manage') ? money(val) + ' at cost' : ''}</b></div></div>
+        <div class="card flush">${rows.map(r => `<div class="list-item"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(r.products.name)}</div><div class="st">${esc(r.products.sku || '')}</div></div>
+          <b>${r.qty} pcs</b>${K.isBoss() ? `<button class="btn sm out" data-wo="${r.product_id}" style="margin-left:8px">Write off</button>` : ''}</div>`).join('') || '<div class="empty">No broken goods</div>'}</div>
+        ${moves.length ? `<div class="sec" style="margin:4px 0 0">History</div><div class="card flush">${moves.slice(0, 60).map(m => `<div class="list-item"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(m.products.name)}</div>
+          <div class="st">${esc(R[m.reason] || m.reason)}${m.ref ? ' · ' + esc(m.ref) : ''}${m.note ? ' · ' + esc(m.note) : ''} · ${when(m.created_at)}${m.profiles && m.profiles.full_name ? ' · ' + esc(m.profiles.full_name) : ''}</div></div>
+          <b style="color:${m.qty_change > 0 ? 'var(--rd)' : 'var(--gr)'}">${m.qty_change > 0 ? '+' : ''}${m.qty_change}</b></div>`).join('')}</div>` : ''}`;
+      $$('[data-wo]', s.el).forEach(b => b.onclick = () => {
+        const r = rows.find(x => x.product_id === +b.dataset.wo);
+        const w = K.sheet('Write off · ' + r.products.name, `<div class="small muted"><span>These pieces are thrown away (cannot be repaired or sent back).</span> <span>${r.qty} pcs in Broken goods.</span></div>
+          <label class="f">How many pieces<input class="inp" id="won" type="number" inputmode="numeric" min="1" max="${r.qty}" value="${r.qty}"></label>
+          <label class="f">Why<input class="inp" id="wow" placeholder="e.g. supplier does not take it back"></label>
+          <button class="btn red block" id="wogo">Write off</button>`);
+        $('#wogo', w.el).onclick = async e => { await busy(e.currentTarget, () => api.brokenWriteoff(r.product_id, Math.floor(+$('#won', w.el).value || 0), $('#wow', w.el).value.trim())); w.close(); toast('Written off'); draw(); };
+      });
+    };
+    await draw();
+  };
+})();
+
 // Invoices: drawn as a picture (PNG), saved as PDF, or shared (Telegram etc.).
 // The layout lives in drawInvoice() so a new design only changes this one function.
 (function () {
@@ -8673,7 +8966,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (K.$('#cx', s.el)) K.$('#cx', s.el).onclick = async e => { const _b = e.currentTarget; if (!(await K.confirmSheet('Cancel this purchase?', 'Nothing will be added to stock.', 'Cancel purchase', true))) return;
       await K.busy(_b, () => K.api.cancelPurchase(p.id)); done('Purchase cancelled'); };
     if (K.$('#ped', s.el)) K.$('#ped', s.el).onclick = () => { s.close(); K.newPurchaseSheet(() => K.reopenPurchase(p.id, onDone), null, p); };
-    if (K.$('#pret', s.el)) K.$('#pret', s.el).onclick = () => K.returnSheet(p, () => reopen('Goods returned to supplier'));
+    if (K.$('#pret', s.el)) K.$('#pret', s.el).onclick = () => K.poReturnSheet(p, () => reopen('Goods returned to supplier'));
     K.$$('[data-rtok]', s.el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('New goods arrived?', 'The pieces are added back into stock.', 'Add to stock'))) return;
       await K.busy(b, () => K.api.purchaseReturnDo(+b.dataset.rtok, 'replaced')); reopen('New goods added to stock'); });
     K.$$('[data-rtundo]', s.el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Undo this return?', 'Use this if the return was a mistake. The pieces go back into stock.', 'Undo return', true))) return;
@@ -8688,32 +8981,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   };
 
   // ---- return goods to the supplier ----
-  K.returnSheet = function (p, onDone) {
+  K.poReturnSheet = async function (p, onDone) {
+    const broken = {}; ((await (K.api.brokenStock ? K.api.brokenStock().catch(() => []) : [])) || []).forEach(r => { broken[r.product_id] = r.qty; });
+    let fromBroken = false;
     const back = {}; (p.returns || []).filter(r => r.status === 'returned').forEach(r => (r.items || []).forEach(x => { back[x.product_id] = (back[x.product_id] || 0) + x.qty; }));
     const byProd = {}; p.items.forEach(i => { const b = byProd[i.product_id] = byProd[i.product_id] || { name: i.products.name, sku: i.products.sku, q: 0, v: 0 }; b.q += i.qty; b.v += i.qty * i.landed_cost; });
     const rows = Object.entries(byProd).map(([pid, b]) => ({ pid: +pid, name: b.name, sku: b.sku, max: b.q - (back[pid] || 0), each: b.q ? b.v / b.q : 0 }));
     let settle = 'money';
     const s = K.sheet('Return to supplier · ' + p.purchase_no, `
-      <div class="small muted">The pieces leave <b>${esc(p.warehouses ? p.warehouses.name : 'stock')}</b> now. Type how many go back.</div>
-      <div class="card flush">${rows.map(r => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(r.name)}</div><div class="st">${esc(r.sku || '')} · can return ${r.max} pcs · ${money(r.each)} each</div></div>
-        <input class="inp" data-rq="${r.pid}" type="number" inputmode="numeric" min="0" max="${r.max}" placeholder="0" style="width:84px;text-align:center" ${r.max ? '' : 'disabled'} aria-label="Pieces to return ${esc(r.name)}"></div>`).join('')}</div>
+      ${rows.some(r => broken[r.pid]) ? `<div class="f"><span>Take the pieces from</span><div class="seg" id="rtf"><button data-fb="0" class="on">${esc(p.warehouses ? p.warehouses.name : 'Stock')}</button><button data-fb="1">Broken goods</button></div></div>` : ''}
+      <div class="small muted" id="rtfrom"></div>
+      <div class="card flush" id="rtrows"></div>
       <div class="f"><span>What does the supplier do?</span><div class="seg" id="rts"><button data-st="money" class="on">Money back / take off what we owe</button><button data-st="replace">Sends new goods</button></div></div>
       <label class="f">Why do you return it?<input class="inp" id="rtn" placeholder="e.g. quality not good, wrong colour, broken"></label>
       <div class="card" id="rtt" style="background:var(--bg)"></div>
       <button class="btn block" id="rtgo">↩️ Return these goods</button>`);
     const el = s.el;
+    const maxOf = r => fromBroken ? Math.min(r.max, broken[r.pid] || 0) : r.max;
+    const drawRows = () => {
+      K.$('#rtfrom', el).innerHTML = fromBroken ? 'The pieces leave <b>Broken goods</b> (pieces shops gave back). Type how many go back.' : `The pieces leave <b>${esc(p.warehouses ? p.warehouses.name : 'stock')}</b> now. Type how many go back.`;
+      K.$('#rtrows', el).innerHTML = rows.map(r => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(r.name)}</div><div class="st">${esc(r.sku || '')} · can return ${maxOf(r)} pcs${fromBroken ? ' (broken)' : ''} · ${money(r.each)} each</div></div>
+        <input class="inp" data-rq="${r.pid}" type="number" inputmode="numeric" min="0" max="${maxOf(r)}" placeholder="0" style="width:84px;text-align:center" ${maxOf(r) ? '' : 'disabled'} aria-label="Pieces to return ${esc(r.name)}"></div>`).join('');
+      K.$$('[data-rq]', el).forEach(i => i.oninput = () => { const r = rows.find(x => x.pid === +i.dataset.rq); if (+i.value > maxOf(r)) i.value = maxOf(r); tot(); });
+    };
+    K.$$('#rtf [data-fb]', el).forEach(b => b.onclick = () => { fromBroken = b.dataset.fb === '1'; K.$$('#rtf [data-fb]', el).forEach(x => x.classList.toggle('on', x === b)); drawRows(); tot(); });
     const lines = () => K.$$('[data-rq]', el).map(i => ({ product_id: +i.dataset.rq, qty: Math.max(0, Math.floor(+i.value || 0)) })).filter(x => x.qty > 0);
     const tot = () => { const L = lines(), v = L.reduce((a, x) => a + x.qty * (rows.find(r => r.pid === x.product_id) || {}).each, 0), n = L.reduce((a, x) => a + x.qty, 0);
       K.$('#rtt', el).innerHTML = n ? `<div class="row"><span class="grow">${n} pcs go back</span><b>${money(v)}</b></div><div class="small muted">${settle === 'money' ? 'This is taken off what you owe the supplier. If you already paid, the supplier owes you this money back.' : 'Nothing changes in money. When the new goods arrive, tap "New goods arrived" and they go back into stock.'}</div>` : '<div class="small muted">Type the pieces above.</div>'; };
-    K.$$('[data-rq]', el).forEach(i => i.oninput = () => { const r = rows.find(x => x.pid === +i.dataset.rq); if (+i.value > r.max) i.value = r.max; tot(); });
     K.$$('#rts [data-st]', el).forEach(b => b.onclick = () => { settle = b.dataset.st; K.$$('#rts [data-st]', el).forEach(x => x.classList.toggle('on', x === b)); tot(); });
     K.$('#rtgo', el).onclick = async e => {
       const L = lines(), why = K.$('#rtn', el).value.trim();
       if (!L.length) return K.toast('Type how many pieces go back');
       if (!why) return K.toast('Write why you return the goods');
-      await K.busy(e.currentTarget, () => K.api.createPurchaseReturn(p.id, L, settle, why)); s.close(); onDone && onDone();
+      await K.busy(e.currentTarget, () => K.api.createPurchaseReturn(p.id, L, settle, why, fromBroken)); s.close(); onDone && onDone();
     };
-    tot();
+    drawRows(); tot();
   };
 
   // ---- add / edit supplier ----
