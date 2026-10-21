@@ -1412,6 +1412,8 @@ window.makeSupabaseApi = function (cfg) {
     returnOrder: (id, method, note) => q(sb.rpc('return_order', { p_order: id, p_method: method, p_note: note || null })),
     // exchange a product with a problem (21 Oct 2026)
     exchangeOrder: (id, out, inn, wh, reason, method) => q(sb.rpc('exchange_order', { p_order: id, p_out: out, p_in: inn, p_warehouse: wh, p_reason: reason, p_refund_method: method || null })),
+    backupTables: () => q(sb.rpc('backup_tables')),
+    backupRows: (t, off, lim) => q(sb.rpc('backup_rows', { p_table: t, p_offset: off || 0, p_limit: lim || 2000 })),
     exchangeDecide: (id, ok, note, method) => q(sb.rpc('exchange_decide', { p_id: id, p_approve: !!ok, p_note: note || null, p_refund_method: method || null })),
     waitingExchanges: () => sb.from('order_exchanges').select('*, profiles!order_exchanges_created_by_fkey(full_name), orders(order_no, customers(name))').eq('status', 'waiting').order('id').then(r => r.data || []),
     brokenStock: () => q(sb.from('broken_stock').select('product_id, qty, products(name, sku, cost)').gt('qty', 0).order('product_id')),
@@ -2861,6 +2863,16 @@ window.makeDemoApi = function () {
       alert('🔁 ' + o.order_no + ' · ' + D.customers.find(y => y.id === o.customer_id).name + ' · ' + n + ' · approved by ' + me.full_name, { order_id: id }, 'orders');
       if (x.created_by !== me.id) notify(x.created_by, 'Exchange approved · ' + o.order_no, n, '#/orders/' + id);
       notifyOrder(o);
+    },
+    // Export everything: in the demo, every list of the demo data
+    async backupTables() {
+      if (!me || me.role !== 'admin') fail('Only the admin can export everything');
+      return wait(Object.keys(D).filter(k => Array.isArray(D[k]) && D[k].length && typeof D[k][0] === 'object').sort().map(k => ({ name: k, rows: D[k].length })));
+    },
+    async backupRows(t, off, lim) {
+      if (!me || me.role !== 'admin') fail('Only the admin can export everything');
+      if (!Array.isArray(D[t])) fail('Unknown table');
+      return wait(clone(D[t].slice(off || 0, (off || 0) + Math.min(lim || 2000, 5000))));
     },
     async brokenStock() {
       if (!(allow('stock.manage') || allow('purchases.manage'))) return wait([]);
@@ -4852,6 +4864,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) pcs on this order$/, "$1 គ្រឿងក�
 Object.assign(window.KT_KM, {"🔁 Send for approval": "🔁 ផ្ញើសុំការអនុម័ត", "The admin or a manager must approve it. Nothing changes until then.": "អ្នកគ្រប់គ្រង ឬម្ចាស់ត្រូវអនុម័ត។ គ្មានអ្វីផ្លាស់ប្តូរទេរហូតដល់ពេលនោះ។", "Sent to the admin / manager for approval": "បានផ្ញើទៅម្ចាស់ / អ្នកគ្រប់គ្រង ដើម្បីអនុម័ត", "Waiting for approval": "រង់ចាំការអនុម័ត", "Not approved": "មិនអនុម័ត", "Approve or say no": "អនុម័ត ឬបដិសេធ", "Approve: the new pieces leave the stock, the broken pieces go to Broken goods, and the order changes.": "អនុម័ត៖ ទំនិញថ្មីចេញពីស្តុក ទំនិញខូចចូលទំនិញខូច ហើយការបញ្ជាទិញផ្លាស់ប្តូរ។", "Note (needed if you say no)": "កំណត់ចំណាំ (ត្រូវការបើបដិសេធ)", "e.g. the shop broke it": "ឧ. ហាងធ្វើខូចខ្លួនឯង", "Say no": "បដិសេធ", "✓ Approve": "✓ អនុម័ត", "Exchange approved": "បានអនុម័តការប្តូរ", "Exchange not approved": "មិនបានអនុម័តការប្តូរ", "Write why you say no": "សូមសរសេរមូលហេតុដែលបដិសេធ", "Exchanges to approve": "ការប្តូរទំនិញរង់ចាំអនុម័ត", "Nothing waiting": "គ្មានអ្វីរង់ចាំ", "Products with a problem · tap to approve or say no": "ទំនិញមានបញ្ហា · ចុចដើម្បីអនុម័ត ឬបដិសេធ", "This order already has an exchange waiting for approval": "ការបញ្ជាទិញនេះមានការប្តូររង់ចាំអនុម័តរួចហើយ", "Only the admin or a manager can approve exchanges": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចអនុម័តការប្តូរបាន", "Only the admin or a manager can write off broken goods": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចបោះចោលទំនិញខូចបាន"});
 window.KT_KM_PATTERNS.push([/^(\d+) exchanges? to approve$/, "ការប្តូរទំនិញ $1 រង់ចាំអនុម័ត"], [/^Approved by (.+)$/, "អនុម័តដោយ $1"], [/^Not approved by (.+)$/, "មិនអនុម័តដោយ $1"]);
 
+// export everything (21 Oct)
+Object.assign(window.KT_KM, {"🛟 Export everything (full backup)": "🛟 នាំចេញទាំងអស់ (ការបម្រុងទុកពេញលេញ)", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "មិនរួមបញ្ចូល៖ រូបថត (មានតែតំណ) ពាក្យសម្ងាត់បុគ្គលិក និងកូនសោ Telegram bot។", "🛟 Export everything": "🛟 នាំចេញទាំងអស់", "Last full export on this device:": "ការនាំចេញពេញលេញចុងក្រោយលើឧបករណ៍នេះ៖", "Saved": "បានរក្សាទុក", "lists": "បញ្ជី", "rows": "ជួរ", "Full backup downloaded": "បានទាញយកការបម្រុងទុកពេញលេញ", "Only the admin can export everything": "មានតែម្ចាស់ទេ ដែលអាចនាំចេញទាំងអស់បាន", "Saves": "រក្សាទុក", "every": "គ្រប់", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "បញ្ជីទាំងអស់នៃកម្មវិធីរបស់អ្នក ក្នុងឯកសារ Excel មួយ៖ ហាង ការបញ្ជាទិញ ស្តុក និងប្រវត្តិស្តុក ការទិញចូល អ្នកផ្គត់ផ្គង់ ការបង់ប្រាក់ បុគ្គលិក HR និងប្រាក់ខែ ចំណាយ ដៃគូ ការជជែក ការកំណត់… មួយសន្លឹកសម្រាប់មួយបញ្ជី។ សូមរក្សាទុកឲ្យមានសុវត្ថិភាពលើកុំព្យូទ័រ ឬ Google Drive (មានប្រាក់ខែ និងលេខទូរស័ព្ទ)។ សូមធ្វើរៀងរាល់សប្តាហ៍។"});
+window.KT_KM_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "កំពុងរក្សាទុក $1 ($2 ក្នុង $3)…"]);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5803,6 +5819,10 @@ Object.assign(window.KT_ZH, {"🔁 Exchange (product has a problem)": "🔁 换�
 window.KT_ZH_PATTERNS.push([/^(\d+) pcs on this order$/, "此订单有 $1 件"], [/^For (\d+) × (.+):$/, "对应 $1 × $2："], [/^The shop pays (\$[\d,.]+) more$/, "店铺多付 $1"], [/^The order goes down (\$[\d,.]+)$/, "订单减少 $1"], [/^The shop already paid (\$[\d,.]+)\. How do you give it back\?$/, "店铺已付 $1。用什么方式退还？"], [/^Exchange · (.+)$/, "换货 · $1"], [/^Write off · (.+)$/, "报废 · $1"], [/^(.+): only (\d+) pcs in this stock$/, "$1：此库存只有 $2 件"], [/^(\d+) pcs in Broken goods\.$/, "坏货中有 $1 件。"]);
 Object.assign(window.KT_ZH, {"🔁 Send for approval": "🔁 提交审批", "The admin or a manager must approve it. Nothing changes until then.": "需要老板或经理批准。批准前不会有任何变化。", "Sent to the admin / manager for approval": "已提交给老板 / 经理审批", "Waiting for approval": "等待批准", "Not approved": "未批准", "Approve or say no": "批准或拒绝", "Approve: the new pieces leave the stock, the broken pieces go to Broken goods, and the order changes.": "批准后：新产品出库，坏的产品进入坏货，订单随之更改。", "Note (needed if you say no)": "备注（拒绝时必填）", "e.g. the shop broke it": "例如：店铺自己弄坏的", "Say no": "拒绝", "✓ Approve": "✓ 批准", "Exchange approved": "换货已批准", "Exchange not approved": "换货未批准", "Write why you say no": "请写拒绝原因", "Exchanges to approve": "待批准的换货", "Nothing waiting": "没有待处理", "Products with a problem · tap to approve or say no": "有问题的产品 · 点击批准或拒绝", "This order already has an exchange waiting for approval": "此订单已有一个等待批准的换货", "Only the admin or a manager can approve exchanges": "只有老板或经理可以批准换货", "Only the admin or a manager can write off broken goods": "只有老板或经理可以报废坏货"});
 window.KT_ZH_PATTERNS.push([/^(\d+) exchanges? to approve$/, "$1 个换货待批准"], [/^Approved by (.+)$/, "由 $1 批准"], [/^Not approved by (.+)$/, "由 $1 拒绝"]);
+
+// export everything (21 Oct)
+Object.assign(window.KT_ZH, {"🛟 Export everything (full backup)": "🛟 导出全部（完整备份）", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "不包含：照片（只有链接）、员工密码和 Telegram 机器人密钥。", "🛟 Export everything": "🛟 导出全部", "Last full export on this device:": "本设备上次完整导出：", "lists": "个列表", "rows": "行", "Full backup downloaded": "完整备份已下载", "Only the admin can export everything": "只有老板可以导出全部", "Saves": "保存", "every": "所有", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "列表到一个 Excel 文件：店铺、订单、库存和库存记录、采购、供应商、付款、员工、人事和工资、费用、合作伙伴、聊天、设置……每个一张表。请安全保存在电脑或 Google Drive（含工资和电话号码）。请每周做一次。"});
+window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存 $1（$2 / $3）…"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
