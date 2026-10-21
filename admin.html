@@ -1510,6 +1510,7 @@ window.makeSupabaseApi = function (cfg) {
     // settings (company info, commission, work hours)
     async getSettings() { const rows = await q(sb.from('app_settings').select('key, value')); const o = {}; rows.forEach(r => { o[r.key] = r.value; }); return o; },
     saveSettings: obj => q(sb.rpc('save_settings', { p: obj })),
+    alertSettingsSave: obj => q(sb.rpc('alert_settings_save', { p: obj })),
 
     // commission
     commissionReport: month => q(sb.rpc('commission_report', { p_month: month })),
@@ -1704,7 +1705,11 @@ window.makeDemoApi = function () {
       order_returned: ['↩️', 'Order returned'], order_deleted: ['🗑', 'Order deleted'], payment_new: ['💵', 'Payment collected'], payment_confirmed: ['✔️', 'Payment checked'], payment_rejected: ['❌', 'Payment rejected'],
       shop_new: ['🏪', 'New shop'], shop_approved: ['✅', 'Shop approved'], shop_rejected: ['❌', 'Shop rejected'], visit_checkin: ['📍', 'Shop visit started'], visit_finish: ['🏁', 'Shop visit finished'],
       stock_low: ['📦', 'Low stock'], goods_received: ['🚛', 'Goods received'], expense_new: ['🧾', 'New expense'], expense_approved: ['✅', 'Expense approved'], expense_rejected: ['❌', 'Expense rejected'],
-      leave_new: ['🏖', 'Leave request'], leave_approved: ['✅', 'Leave approved'], leave_rejected: ['❌', 'Leave rejected'], staff_checkin: ['🕗', 'Started work'], staff_late: ['⏰', 'Late for work'], staff_checkout: ['🏠', 'Finished work'] },
+      leave_new: ['🏖', 'Leave request'], leave_approved: ['✅', 'Leave approved'], leave_rejected: ['❌', 'Leave rejected'], staff_checkin: ['🕗', 'Started work'], staff_late: ['⏰', 'Late for work'], staff_checkout: ['🏠', 'Finished work'],
+      below_price: ['🏷', 'Sold below price / free items'], over_credit_limit: ['🚨', 'Shop over its credit limit'], stock_moved: ['🔀', 'Stock moved between stocks'],
+      stock_adjusted: ['✏️', 'Stock count changed by hand'], goods_returned: ['↩️', 'Returned to supplier'], data_cleared: ['🧹', 'Clear data was used'], staff_account: ['👤', 'Staff account or permissions changed'],
+      price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
+      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
     ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
@@ -2069,7 +2074,17 @@ window.makeDemoApi = function () {
   const canSeeOrder = o => !!o && !!role() && (allow('orders.view_all') || o.created_by === me.id || o.sales_rep_id === me.id || inMyTeam(o.sales_rep_id) || inMyTeam(o.created_by));
   const isMember = (cid, uid) => D.members.some(m => m.conversation_id === cid && m.user_id === uid);
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
-  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance'];
+  const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance', 'shops', 'expenses', 'leave', 'below_price', 'over_credit_limit',
+    'stock_moved', 'stock_adjusted', 'goods_returned', 'data_cleared', 'staff_account', 'price_changed', 'order_changed', 'credit_overdue',
+    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent'];   // same as alert_kinds in the database
+  if (D && D.convs && !D.alertsMore) {   // like the database: the new alerts start ticked in the built-in channel that fits
+    D.convs.forEach(c => { if (c.slug === 'alerts') c.alert_types = ['below_price', 'over_credit_limit', 'data_cleared', 'staff_account', 'price_changed', 'order_changed'];
+      if (c.slug === 'stock_alerts') c.alert_types = ['stock_moved', 'stock_adjusted']; });
+    D.alertsMore = 1; }
+  if (D && D.convs && !D.alertsMore2) {
+    D.convs.forEach(c => { const add = c.slug === 'visit_alerts' ? ['shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list'] : c.slug === 'alerts' ? ['credit_overdue'] : c.slug === 'attendance_alerts' ? ['staff_absent'] : [];
+      if (add.length) c.alert_types = [...new Set((c.alert_types || []).concat(add))]; });
+    D.alertsMore2 = 1; }
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
   const canPost = c => !c ? false : SYS_ALERT.includes(c.slug) || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
@@ -3128,6 +3143,8 @@ window.makeDemoApi = function () {
     },
     async setConvAlerts(id, types) {
       const c = D.convs.find(x => x.id === id);
+      if (c && SYS_ALERT.includes(c.slug)) { if (!hasRole('admin')) fail('Only the admin can change the alerts of this channel');
+        const t = [...new Set(types || [])].filter(x => ALERT_TYPES.slice(5).includes(x)); c.alert_types = t.length ? t : null; save(); return wait(null); }
       if (!c || c.kind !== 'channel' || c.slug || !convAdmin(c)) fail('Only the channel admins can change its alerts');
       const t = [...new Set(types || [])].filter(x => ALERT_TYPES.includes(x)); c.alert_types = t.length ? t : null; save(); return wait(null);
     },
@@ -3667,6 +3684,13 @@ window.makeDemoApi = function () {
 
     // ---------- settings ----------
     async getSettings() { return wait(Object.assign({}, D.settings || {}, { khr_per_usd: String(D.khr), payroll_rules: JSON.stringify(D.payRules || {}) })); },
+    async alertSettingsSave(obj) { if (!hasRole('admin')) fail('Only the admin can change alert settings');
+      Object.entries(obj || {}).forEach(([k, v]) => { v = String(v ?? '').trim();
+        if (['alert_not_visited_days', 'alert_sleeping_days', 'alert_new_unvisited_days'].includes(k)) { if (!/^\d+$/.test(v) || +v < 1 || +v > 365) fail('Days: type a number from 1 to 365'); }
+        else if (k === 'alert_absent_time') { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:30'); }
+        else if (k === 'alert_to_rep') { if (!['on', 'off'].includes(v)) fail('Unknown value'); }
+        else fail('Unknown setting ' + k); });
+      D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     // ---------- commission ----------
     async commissionReport(month) {
@@ -4614,6 +4638,12 @@ window.KT_KM_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "កំពុ
 Object.assign(window.KT_KM, {"Exchange a product": "ប្តូរទំនិញ", "Find the order": "រកការបញ្ជាទិញ", "1. Which shop?": "1. ហាងណា?", "2. Which product has a problem?": "2. ទំនិញណាមានបញ្ហា?", "3. Which order?": "3. ការបញ្ជាទិញណា?", "No delivered orders": "មិនមានការបញ្ជាទិញដែលបានដឹក", "No products": "មិនមានទំនិញ", "Exchange": "ប្តូរទំនិញ", "🔁 Exchange a product (find the order)": "🔁 ប្តូរទំនិញ (រកការបញ្ជាទិញ)", "Search shop, order number or product": "ស្វែងរកហាង លេខការបញ្ជាទិញ ឬទំនិញ", "Searching all dates": "ស្វែងរកគ្រប់កាលបរិច្ឆេទ", "No orders found": "រកមិនឃើញការបញ្ជាទិញ"});
 window.KT_KM_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 ការបញ្ជាទិញបានដឹក"], [/^(.+ · )?(\d+) pcs bought$/, "$1បានទិញ $2 គ្រឿង"]);
 Object.assign(window.KT_KM, {"🔁 Exchange": "🔁 ប្តូរទំនិញ"});
+
+// more alerts step 1 (22 Oct)
+Object.assign(window.KT_KM, {"Shops": "ហាង", "New shop, approved, rejected": "ហាងថ្មី អនុម័ត បដិសេធ", "Expenses": "ចំណាយ", "New expense, approved, rejected, paid": "ចំណាយថ្មី អនុម័ត បដិសេធ បានបង់", "Leave": "ច្បាប់ឈប់សម្រាក", "Leave request, approved, rejected": "សំណើច្បាប់ អនុម័ត បដិសេធ", "🏷 Sold below price / free items": "🏷 លក់ក្រោមតម្លៃ / ទំនិញឥតគិតថ្លៃ", "Products sold under the list price": "ទំនិញលក់ក្រោមតម្លៃក្នុងបញ្ជី", "💎 Big order": "💎 ការបញ្ជាទិញធំ", "Orders over the amount in Settings → Alerts": "ការបញ្ជាទិញលើសចំនួនក្នុង ការកំណត់ → ការជូនដំណឹង", "🚨 Shop over its credit limit": "🚨 ហាងលើសដែនកំណត់ឥណទាន", "An order takes the shop over its limit": "ការបញ្ជាទិញធ្វើឲ្យហាងលើសដែនកំណត់", "🔀 Stock moved between stocks": "🔀 ផ្លាស់ស្តុករវាងស្តុក", "Move stock (to a rep, back, between stocks)": "ផ្លាស់ស្តុក (ទៅអ្នកលក់ ត្រឡប់ រវាងស្តុក)", "✏️ Stock count changed by hand": "✏️ ចំនួនស្តុកត្រូវបានកែដោយដៃ", "Adjust and Stock count: old → new": "កែ និងរាប់ស្តុក៖ ចាស់ → ថ្មី", "↩️ Returned to supplier": "↩️ ប្រគល់ទៅអ្នកផ្គត់ផ្គង់", "Goods sent back to a supplier": "ទំនិញប្រគល់ទៅអ្នកផ្គត់ផ្គង់វិញ", "🧹 Clear data was used": "🧹 មានការប្រើ លុបទិន្នន័យ", "Who, which dates, what was removed": "អ្នកណា ថ្ងៃណា អ្វីត្រូវបានលុប", "👤 Staff account or permissions changed": "👤 គណនីបុគ្គលិក ឬសិទ្ធិត្រូវបានផ្លាស់ប្តូរ", "New account, switched off/on, role, permissions": "គណនីថ្មី បិទ/បើក តួនាទី សិទ្ធិ", "💲 Product price changed": "💲 តម្លៃទំនិញត្រូវបានប្តូរ", "Old → new price, who": "តម្លៃចាស់ → ថ្មី អ្នកណា", "✏️ Order changed after approval": "✏️ ការបញ្ជាទិញត្រូវបានកែក្រោយអនុម័ត", "Payment or due date changed on an approved order": "ការបង់ប្រាក់ ឬថ្ងៃផុតកំណត់ត្រូវបានប្តូរលើការបញ្ជាទិញដែលបានអនុម័ត", "Main alerts": "ការជូនដំណឹងចម្បង", "Shops, expenses & leave": "ហាង ចំណាយ និងច្បាប់", "Money": "ប្រាក់", "Security": "សុវត្ថិភាព", "Extra alerts": "ការជូនដំណឹងបន្ថែម", "This channel always gets its own alerts. Tick extra alerts to post here too.": "ឆានែលនេះតែងទទួលការជូនដំណឹងរបស់ខ្លួន។ ធីកការជូនដំណឹងបន្ថែមដើម្បីបង្ហោះនៅទីនេះដែរ។", "💎 Big order (amount in Settings → Alerts)": "💎 ការបញ្ជាទិញធំ (ចំនួនក្នុង ការកំណត់ → ការជូនដំណឹង)", "Money, the new stock alerts and Security always send their full message.": "ប្រាក់ ការជូនដំណឹងស្តុកថ្មី និងសុវត្ថិភាព តែងផ្ញើសារពេញ។", "Alerts": "ការជូនដំណឹង", "Choose which alerts go where in": "ជ្រើសថាការជូនដំណឹងណាទៅកន្លែងណា ក្នុង", "Telegram alerts": "ការជូនដំណឹង Telegram", "Big order: alert when an order is $ or more": "ការបញ្ជាទិញធំ៖ ជូនដំណឹងពេលការបញ្ជាទិញចាប់ពី $", "Only the admin can change alert settings": "មានតែម្ចាស់ទេ ដែលអាចប្តូរការកំណត់ការជូនដំណឹង", "Big order: type an amount in dollars, e.g. 500": "ការបញ្ជាទិញធំ៖ សូមវាយចំនួនជាដុល្លារ ឧ. 500", "Only the admin can change the alerts of this channel": "មានតែម្ចាស់ទេ ដែលអាចប្តូរការជូនដំណឹងរបស់ឆានែលនេះ"});
+
+// more alerts steps 2+3 (22 Oct)
+Object.assign(window.KT_KM, {"⏰ Credit overdue": "⏰ ឥណទានហួសកំណត់", "The day after an order passes its due date": "ថ្ងៃបន្ទាប់ពីការបញ្ជាទិញហួសថ្ងៃកំណត់", "📍 Shop not visited": "📍 ហាងមិនបានទៅលេង", "Every morning: shops not visited for the days in Settings → Alerts": "រៀងរាល់ព្រឹក៖ ហាងមិនបានទៅលេងតាមចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "😴 Sleeping shop (no order)": "😴 ហាងដេកលក់ (គ្មានការបញ្ជាទិញ)", "Every morning: shops with no order for the days in Settings → Alerts": "រៀងរាល់ព្រឹក៖ ហាងគ្មានការបញ្ជាទិញតាមចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "🆕 New shop never visited": "🆕 ហាងថ្មីមិនទាន់បានទៅលេង", "A new shop still not visited after the days in Settings → Alerts": "ហាងថ្មីនៅតែមិនទាន់បានទៅលេង ក្រោយចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "🗓 Monday: shops to visit this week": "🗓 ថ្ងៃច័ន្ទ៖ ហាងត្រូវទៅលេងសប្តាហ៍នេះ", "Each rep's list, every Monday morning": "បញ្ជីរបស់អ្នកលក់ម្នាក់ៗ រៀងរាល់ព្រឹកថ្ងៃច័ន្ទ", "🚫 Staff not at work": "🚫 បុគ្គលិកមិនមកធ្វើការ", "Staff who did not start work by the time in Settings → Alerts": "បុគ្គលិកមិនទាន់ចាប់ផ្តើមធ្វើការ ត្រឹមម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង", "Shop checks & staff (every morning)": "ពិនិត្យហាង និងបុគ្គលិក (រៀងរាល់ព្រឹក)", "📍 Shop not visited (every morning)": "📍 ហាងមិនបានទៅលេង (រៀងរាល់ព្រឹក)", "😴 Sleeping shop: no order (every morning)": "😴 ហាងដេកលក់៖ គ្មានការបញ្ជាទិញ (រៀងរាល់ព្រឹក)", "⏰ Credit overdue (the day after the due date)": "⏰ ឥណទានហួសកំណត់ (ថ្ងៃបន្ទាប់ពីថ្ងៃកំណត់)", "🚫 Staff not at work (time in Settings → Alerts)": "🚫 បុគ្គលិកមិនមកធ្វើការ (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "Every morning at 08:00": "រៀងរាល់ព្រឹកម៉ោង 08:00", "Shop not visited for how many days": "ហាងមិនបានទៅលេងប៉ុន្មានថ្ងៃ", "Sleeping shop: no order for how many days": "ហាងដេកលក់៖ គ្មានការបញ្ជាទិញប៉ុន្មានថ្ងៃ", "New shop never visited: how many days after it was added": "ហាងថ្មីមិនទាន់បានទៅលេង៖ ប៉ុន្មានថ្ងៃក្រោយបន្ថែម", "Also send each sales rep their own shops (bell + their Telegram)": "ផ្ញើហាងរបស់អ្នកលក់ម្នាក់ៗទៅពួកគេផងដែរ (កណ្តឹង + Telegram របស់ពួកគេ)", "A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets \"shops to visit this week\".": "ហាងនឹងផ្ញើម្តងទៀតតែក្រោយពេលបានទៅលេង (ឬបញ្ជាទិញ) ហើយហួសកំណត់ម្តងទៀត។ ថ្ងៃច័ន្ទ៖ អ្នកលក់ម្នាក់ៗក៏ទទួល \"ហាងត្រូវទៅលេងសប្តាហ៍នេះ\"។", "Staff": "បុគ្គលិក", "\"Not at work\" check time (Sundays, holidays and staff on leave are skipped)": "ម៉ោងពិនិត្យ \"មិនមកធ្វើការ\" (មិនរាប់ថ្ងៃអាទិត្យ ថ្ងៃឈប់សម្រាក និងបុគ្គលិកសុំច្បាប់)", "Days: type a number from 1 to 365": "ថ្ងៃ៖ សូមវាយលេខពី 1 ដល់ 365", "Time: type it like 08:30": "ម៉ោង៖ សូមវាយដូចជា 08:30"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -5575,6 +5605,12 @@ window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存
 Object.assign(window.KT_ZH, {"Exchange a product": "换货", "Find the order": "查找订单", "1. Which shop?": "1. 哪个店铺？", "2. Which product has a problem?": "2. 哪个产品有问题？", "3. Which order?": "3. 哪个订单？", "No delivered orders": "没有已送达的订单", "No products": "没有产品", "Exchange": "换货", "🔁 Exchange a product (find the order)": "🔁 换货（查找订单）", "Search shop, order number or product": "搜索店铺、订单号或产品", "Searching all dates": "搜索所有日期", "No orders found": "没有找到订单"});
 window.KT_ZH_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 个已送达订单"], [/^(.+ · )?(\d+) pcs bought$/, "$1已买 $2 件"]);
 Object.assign(window.KT_ZH, {"🔁 Exchange": "🔁 换货"});
+
+// more alerts step 1 (22 Oct)
+Object.assign(window.KT_ZH, {"New shop, approved, rejected": "新店铺、已批准、已拒绝", "New expense, approved, rejected, paid": "新费用、已批准、已拒绝、已支付", "Leave request, approved, rejected": "请假申请、已批准、已拒绝", "🏷 Sold below price / free items": "🏷 低于价格出售 / 免费产品", "Products sold under the list price": "低于价目表价格出售的产品", "💎 Big order": "💎 大订单", "Orders over the amount in Settings → Alerts": "超过 设置 → 提醒 中金额的订单", "🚨 Shop over its credit limit": "🚨 店铺超过信用额度", "An order takes the shop over its limit": "一个订单使店铺超过额度", "🔀 Stock moved between stocks": "🔀 库存之间调货", "Move stock (to a rep, back, between stocks)": "调货（给销售、退回、库存之间）", "✏️ Stock count changed by hand": "✏️ 库存数量被手动修改", "Adjust and Stock count: old → new": "调整和盘点：旧 → 新", "↩️ Returned to supplier": "↩️ 退给供应商", "Goods sent back to a supplier": "退回给供应商的货物", "🧹 Clear data was used": "🧹 使用了清除数据", "Who, which dates, what was removed": "谁、哪些日期、删除了什么", "👤 Staff account or permissions changed": "👤 员工账号或权限被更改", "New account, switched off/on, role, permissions": "新账号、关闭/开启、角色、权限", "💲 Product price changed": "💲 产品价格被更改", "Old → new price, who": "旧 → 新价格，谁改的", "✏️ Order changed after approval": "✏️ 订单批准后被修改", "Payment or due date changed on an approved order": "已批准订单的付款方式或到期日被更改", "Main alerts": "主要提醒", "Shops, expenses & leave": "店铺、费用和请假", "Money": "钱", "Security": "安全", "Extra alerts": "额外提醒", "This channel always gets its own alerts. Tick extra alerts to post here too.": "此频道总会收到自己的提醒。勾选额外提醒也会发到这里。", "💎 Big order (amount in Settings → Alerts)": "💎 大订单（金额在 设置 → 提醒）", "Money, the new stock alerts and Security always send their full message.": "钱、新的库存提醒和安全提醒总是发送完整消息。", "Alerts": "提醒", "Choose which alerts go where in": "在以下位置选择提醒发到哪里：", "Telegram alerts": "Telegram 提醒", "Big order: alert when an order is $ or more": "大订单：订单达到 $ 或以上时提醒", "Only the admin can change alert settings": "只有老板可以更改提醒设置", "Big order: type an amount in dollars, e.g. 500": "大订单：请输入美元金额，例如 500", "Only the admin can change the alerts of this channel": "只有老板可以更改此频道的提醒"});
+
+// more alerts steps 2+3 (22 Oct)
+Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day after an order passes its due date": "订单过了到期日的第二天", "📍 Shop not visited": "📍 店铺未拜访", "Every morning: shops not visited for the days in Settings → Alerts": "每天早上：超过 设置 → 提醒 中天数未拜访的店铺", "😴 Sleeping shop (no order)": "😴 沉睡店铺（没有订单）", "Every morning: shops with no order for the days in Settings → Alerts": "每天早上：超过 设置 → 提醒 中天数没有订单的店铺", "🆕 New shop never visited": "🆕 新店铺从未拜访", "A new shop still not visited after the days in Settings → Alerts": "新店铺在 设置 → 提醒 中的天数后仍未拜访", "🗓 Monday: shops to visit this week": "🗓 周一：本周要拜访的店铺", "Each rep's list, every Monday morning": "每位销售的清单，每周一早上", "🚫 Staff not at work": "🚫 员工未上班", "Staff who did not start work by the time in Settings → Alerts": "在 设置 → 提醒 中的时间前还未开始上班的员工", "Shop checks & staff (every morning)": "店铺检查和员工（每天早上）", "📍 Shop not visited (every morning)": "📍 店铺未拜访（每天早上）", "😴 Sleeping shop: no order (every morning)": "😴 沉睡店铺：没有订单（每天早上）", "⏰ Credit overdue (the day after the due date)": "⏰ 赊账逾期（到期日的第二天）", "🚫 Staff not at work (time in Settings → Alerts)": "🚫 员工未上班（时间在 设置 → 提醒）", "Every morning at 08:00": "每天早上 08:00", "Shop not visited for how many days": "店铺多少天未拜访", "Sleeping shop: no order for how many days": "沉睡店铺：多少天没有订单", "New shop never visited: how many days after it was added": "新店铺从未拜访：添加后多少天", "Also send each sales rep their own shops (bell + their Telegram)": "也把每位销售自己的店铺发给他们（铃铛 + 他们的 Telegram）", "A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets \"shops to visit this week\".": "店铺只有在拜访（或下单）后再次超过界限时才会再次发送。每周一：每位销售也会收到“本周要拜访的店铺”。", "\"Not at work\" check time (Sundays, holidays and staff on leave are skipped)": "“未上班”检查时间（不包括周日、节假日和请假员工）", "Days: type a number from 1 to 365": "天数：请输入 1 到 365", "Time: type it like 08:30": "时间：请输入例如 08:30"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -9933,7 +9969,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = A.shell('settings', 'Settings', '', 'Only the admin can change these');
     const [st, rate] = await Promise.all([api.getSettings(), api.getKhrRate()]);
     if (!current()) return;
-    const tabs = [['company', 'Company & invoice'], ['money', 'Riel rate'], ['device', 'Language & notifications'], ['telegram', 'Telegram alerts'], ['data', 'Backup & clear data']];
+    const tabs = [['company', 'Company & invoice'], ['money', 'Riel rate'], ['device', 'Language & notifications'], ['telegram', 'Telegram alerts'], ['alerts', 'Alerts'], ['data', 'Backup & clear data']];
     if (q.t === 'commission' || q.t === 'work') return go('#/hr?t=' + q.t);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : 'company', logo = st.company_logo || '', khqr = st.company_khqr || '';
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
@@ -9968,6 +10004,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="small muted">Commission and work hours are now in HR &amp; attendance.</div></div>`;
       } else if (tab === 'telegram') {
         $('#body').innerHTML = '<div class="loading"><div class="spin"></div></div>'; K.telegramCard($('#body')).catch(e => { $('#body').innerHTML = `<div class="card" style="color:var(--rd)">${esc(e.message || e)}</div>`; }); return;
+      } else if (tab === 'alerts') {
+        // numbers for the alerts (21 Oct 2026). Which alert goes where: Telegram alerts (each rule) and each chat channel ("Automatic alerts").
+        h = `<div class="card" style="max-width:560px;gap:10px"><b>Alerts</b>
+          <div class="small muted" style="line-height:1.5">Choose which alerts go where in <b>Telegram alerts</b> (tick events in each Telegram alert) and in the app (open an alert channel → <b>Automatic alerts</b> / <b>Extra alerts</b>). Untick an alert to switch it off.</div>
+          <div class="sec" style="margin:6px 0 0">Every morning at 08:00</div>
+          <label class="f">Shop not visited for how many days<input class="inp" data-al="alert_not_visited_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_not_visited_days || '14')}"></label>
+          <label class="f">Sleeping shop: no order for how many days<input class="inp" data-al="alert_sleeping_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_sleeping_days || '30')}"></label>
+          <label class="f">New shop never visited: how many days after it was added<input class="inp" data-al="alert_new_unvisited_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_new_unvisited_days || '7')}"></label>
+          <label class="row small" style="gap:10px"><input type="checkbox" id="al_rep" ${(st.alert_to_rep || 'on') === 'on' ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)"><span>Also send each sales rep their own shops (bell + their Telegram)</span></label>
+          <div class="small muted">A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets "shops to visit this week".</div>
+          <div class="sec" style="margin:6px 0 0">Staff</div>
+          <label class="f">"Not at work" check time (Sundays, holidays and staff on leave are skipped)<input class="inp" data-al="alert_absent_time" type="time" value="${esc(st.alert_absent_time || '08:30')}"></label>
+          <button class="btn" id="alsave">Save</button></div>`;
       } else if (tab === 'data') {
         $('#body').innerHTML = '<div id="fbk" style="margin-bottom:14px"></div><div id="bkp" style="margin-bottom:14px"></div><div id="clr"></div>'; K.fullBackupCard($('#fbk')); K.backupCard($('#bkp')); K.clearDataCard($('#clr')); return;
       } else {
@@ -9981,6 +10030,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         await busy(b, () => api.saveSettings(obj)); Object.assign(st, obj); await K.loadSettings(); toast('Saved');
       });
       if ($('#skhr')) $('#skhr').onclick = async e => { await busy(e.currentTarget, () => api.setKhrRate(+$('#khr').value)); toast('Rate saved'); };
+      if ($('#alsave')) $('#alsave').onclick = async e => { const o = { alert_to_rep: $('#al_rep').checked ? 'on' : 'off' };
+        $$('[data-al]').forEach(i => { o[i.dataset.al] = i.value.trim(); });
+        await busy(e.currentTarget, () => api.alertSettingsSave(o)); Object.assign(st, o); toast('Saved'); };
       if ($('#lgb')) { $('#lgb').onclick = () => $('#lgf').click();
         $('#lgf').onchange = async e => { const f = e.target.files[0]; if (!f) return; const url = await busy($('#lgb'), () => api.uploadPhoto(f, 'logo')); await api.saveSettings({ company_logo: url }); logo = st.company_logo = url; await K.loadSettings(); toast('Logo saved'); draw(); }; }
       if ($('#qrb')) { $('#qrb').onclick = () => $('#qrf').click();
@@ -10163,12 +10215,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['Orders', [['order_new', '🧾', 'New order'], ['order_approved', '✅', 'Order approved'], ['order_delivered', '🚚', 'Order delivered'], ['order_paid', '💰', 'Order fully paid'],
       ['order_cancelled', '⛔', 'Order cancelled'], ['order_returned', '↩️', 'Order returned'], ['order_deleted', '🗑', 'Order deleted']]],
     ['Payments & debt', [['payment_new', '💵', 'Payment collected'], ['payment_confirmed', '✔️', 'Payment checked'], ['payment_rejected', '❌', 'Payment rejected']]],
-    ['Shops', [['shop_new', '🏪', 'New shop added'], ['shop_approved', '✅', 'Shop approved'], ['shop_rejected', '❌', 'Shop rejected']]],
+    ['Shops', [['shop_new', '🏪', 'New shop added'], ['shop_approved', '✅', 'Shop approved'], ['shop_rejected', '❌', 'Shop rejected'],
+      ['shop_not_visited', '📍', 'Shop not visited (every morning)'], ['shop_sleeping', '😴', 'Sleeping shop: no order (every morning)'], ['shop_new_unvisited', '🆕', 'New shop never visited'], ['shop_week_list', '🗓', 'Monday: shops to visit this week']]],
     ['Shop visits', [['visit_checkin', '📍', 'Visit started (check-in)'], ['visit_finish', '🏁', 'Visit finished']]],
-    ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier']]],
+    ['Money', [['below_price', '🏷', 'Sold below price / free items'], ['over_credit_limit', '🚨', 'Shop over its credit limit'], ['credit_overdue', '⏰', 'Credit overdue (the day after the due date)']]],
+    ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier'], ['stock_moved', '🔀', 'Stock moved between stocks'], ['stock_adjusted', '✏️', 'Stock count changed by hand'], ['goods_returned', '↩️', 'Returned to supplier']]],
     ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
     ['Leave & attendance', [['leave_new', '🏖', 'Leave request'], ['leave_approved', '✅', 'Leave approved'], ['leave_rejected', '❌', 'Leave rejected'],
-      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work']]]
+      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)']]],
+    ['Security', [['data_cleared', '🧹', 'Clear data was used'], ['staff_account', '👤', 'Staff account or permissions changed'], ['price_changed', '💲', 'Product price changed'], ['order_changed', '✏️', 'Order changed after approval']]]
   ];
   const EV = {}; GROUPS.forEach(([, l]) => l.forEach(([k, ic, t]) => { EV[k] = [ic, t]; }));
   // the details a message can show (only the ones that exist for that event are shown)
@@ -10282,7 +10337,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             ${GROUPS.map(([g, list], gi) => `<div style="border:1px solid var(--line);border-radius:12px;padding:8px 12px">
               <div class="row"><b class="grow small">${g}</b><button class="linkbtn small" data-all="${gi}" style="border:0;background:none;color:var(--p);font-weight:700;cursor:pointer">All</button></div>
               ${list.map(([k, ic, t]) => chk('data-ev', k, (cur.events || []).includes(k), ic + ' ' + t)).join('')}</div>`).join('')}</div></div>
-          <div class="f" style="gap:4px"><b>What the message shows</b><div class="small muted">Only details that exist for that event are shown (e.g. a leave request has no shop).</div>
+          <div class="f" style="gap:4px"><b>What the message shows</b><div class="small muted">Only details that exist for that event are shown (e.g. a leave request has no shop).</div><div class="small muted">Money, the new stock alerts and Security always send their full message.</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 12px">${FIELDS.map(([k, l]) => chk('data-fl', k, (cur.fields || []).includes(k), l)).join('')}</div></div>
         </div>
         <div id="tgsm" style="display:${type === 'summary' ? 'flex' : 'none'};flex-direction:column;gap:12px">
