@@ -4610,6 +4610,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) exchanges? to approve$/, "ការប្ត
 Object.assign(window.KT_KM, {"🛟 Export everything (full backup)": "🛟 នាំចេញទាំងអស់ (ការបម្រុងទុកពេញលេញ)", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "មិនរួមបញ្ចូល៖ រូបថត (មានតែតំណ) ពាក្យសម្ងាត់បុគ្គលិក និងកូនសោ Telegram bot។", "🛟 Export everything": "🛟 នាំចេញទាំងអស់", "Last full export on this device:": "ការនាំចេញពេញលេញចុងក្រោយលើឧបករណ៍នេះ៖", "Saved": "បានរក្សាទុក", "lists": "បញ្ជី", "rows": "ជួរ", "Full backup downloaded": "បានទាញយកការបម្រុងទុកពេញលេញ", "Only the admin can export everything": "មានតែម្ចាស់ទេ ដែលអាចនាំចេញទាំងអស់បាន", "Saves": "រក្សាទុក", "every": "គ្រប់", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "បញ្ជីទាំងអស់នៃកម្មវិធីរបស់អ្នក ក្នុងឯកសារ Excel មួយ៖ ហាង ការបញ្ជាទិញ ស្តុក និងប្រវត្តិស្តុក ការទិញចូល អ្នកផ្គត់ផ្គង់ ការបង់ប្រាក់ បុគ្គលិក HR និងប្រាក់ខែ ចំណាយ ដៃគូ ការជជែក ការកំណត់… មួយសន្លឹកសម្រាប់មួយបញ្ជី។ សូមរក្សាទុកឲ្យមានសុវត្ថិភាពលើកុំព្យូទ័រ ឬ Google Drive (មានប្រាក់ខែ និងលេខទូរស័ព្ទ)។ សូមធ្វើរៀងរាល់សប្តាហ៍។"});
 window.KT_KM_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "កំពុងរក្សាទុក $1 ($2 ក្នុង $3)…"]);
 
+// find the order for an exchange (21 Oct)
+Object.assign(window.KT_KM, {"Exchange a product": "ប្តូរទំនិញ", "Find the order": "រកការបញ្ជាទិញ", "1. Which shop?": "1. ហាងណា?", "2. Which product has a problem?": "2. ទំនិញណាមានបញ្ហា?", "3. Which order?": "3. ការបញ្ជាទិញណា?", "No delivered orders": "មិនមានការបញ្ជាទិញដែលបានដឹក", "No products": "មិនមានទំនិញ", "Exchange": "ប្តូរទំនិញ", "🔁 Exchange a product (find the order)": "🔁 ប្តូរទំនិញ (រកការបញ្ជាទិញ)", "Search shop, order number or product": "ស្វែងរកហាង លេខការបញ្ជាទិញ ឬទំនិញ", "Searching all dates": "ស្វែងរកគ្រប់កាលបរិច្ឆេទ", "No orders found": "រកមិនឃើញការបញ្ជាទិញ"});
+window.KT_KM_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 ការបញ្ជាទិញបានដឹក"], [/^(.+ · )?(\d+) pcs bought$/, "$1បានទិញ $2 គ្រឿង"]);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5565,6 +5569,10 @@ window.KT_ZH_PATTERNS.push([/^(\d+) exchanges? to approve$/, "$1 个换货待批
 // export everything (21 Oct)
 Object.assign(window.KT_ZH, {"🛟 Export everything (full backup)": "🛟 导出全部（完整备份）", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "不包含：照片（只有链接）、员工密码和 Telegram 机器人密钥。", "🛟 Export everything": "🛟 导出全部", "Last full export on this device:": "本设备上次完整导出：", "lists": "个列表", "rows": "行", "Full backup downloaded": "完整备份已下载", "Only the admin can export everything": "只有老板可以导出全部", "Saves": "保存", "every": "所有", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "列表到一个 Excel 文件：店铺、订单、库存和库存记录、采购、供应商、付款、员工、人事和工资、费用、合作伙伴、聊天、设置……每个一张表。请安全保存在电脑或 Google Drive（含工资和电话号码）。请每周做一次。"});
 window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存 $1（$2 / $3）…"]);
+
+// find the order for an exchange (21 Oct)
+Object.assign(window.KT_ZH, {"Exchange a product": "换货", "Find the order": "查找订单", "1. Which shop?": "1. 哪个店铺？", "2. Which product has a problem?": "2. 哪个产品有问题？", "3. Which order?": "3. 哪个订单？", "No delivered orders": "没有已送达的订单", "No products": "没有产品", "Exchange": "换货", "🔁 Exchange a product (find the order)": "🔁 换货（查找订单）", "Search shop, order number or product": "搜索店铺、订单号或产品", "Searching all dates": "搜索所有日期", "No orders found": "没有找到订单"});
+window.KT_ZH_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 个已送达订单"], [/^(.+ · )?(\d+) pcs bought$/, "$1已买 $2 件"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -6863,9 +6871,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small" style="font-weight:700;color:${e.d > 0 ? 'var(--or)' : e.d < 0 ? 'var(--bl)' : 'var(--gr)'}">${e.d > 0 ? 'The shop pays ' + money(e.d) + ' more' : e.d < 0 ? 'The order goes down ' + money(-e.d) : 'No money change'}</div>
         ${e.back > 0 ? `<div class="row"><b class="grow">Give back to the shop</b><b style="font-size:18px;color:var(--rd)">${money(e.back)}</b></div><div class="small muted">The shop already paid ${money(e.paid)}. How do you give it back?</div>
           <div class="seg">${['cash', 'aba', 'khqr', 'bank'].map(k => `<button type="button" data-xm="${k}" class="${k === method ? 'on' : ''}">${K.PAY_METHODS[k]}</button>`).join('')}</div>` : ''}`;
+  // who may start an exchange at all (the Exchange button on Home / Orders)
+  K.canFindExchange = () => !!K.S.me && (K.isBoss() || K.allow('orders.approve') || K.allow('orders.deliver') || K.allow('orders.create'));
   K.canSeeBroken = () => K.allow('stock.manage') || K.allow('purchases.manage');
 
-  K.exchangeSheet = async function (o, onDone) {
+  K.exchangeSheet = async function (o, onDone, preset) {
     const s = K.sheet('Exchange · ' + o.order_no, K.loading);
     const [products, warehouses] = await Promise.all([K.data.products(true), K.data.warehouses()]);
     if (!s.el.isConnected) return;
@@ -6919,6 +6929,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (l.inQty == null || l.inQty === l.out) l.inQty = n;   // keep the same count unless it was changed
       l.out = n; drawIn(); });
     $('#xwh', el).onchange = e => { wh = +e.target.value; sum(); };
+    if (preset && preset.pid) { const i = $(`[data-bq="${preset.pid}"]`, el); if (i) { i.value = 1; i.oninput(); i.scrollIntoView({ block: 'center' }); } }   // came from "Exchange a product"
     $('#xgo', el).onclick = async e => {
       const R = rows(), why = $('#xwhy', el).value.trim();
       if (!R.length) return toast('Type how many pieces have a problem');

@@ -4868,6 +4868,10 @@ window.KT_KM_PATTERNS.push([/^(\d+) exchanges? to approve$/, "ការប្ត
 Object.assign(window.KT_KM, {"🛟 Export everything (full backup)": "🛟 នាំចេញទាំងអស់ (ការបម្រុងទុកពេញលេញ)", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "មិនរួមបញ្ចូល៖ រូបថត (មានតែតំណ) ពាក្យសម្ងាត់បុគ្គលិក និងកូនសោ Telegram bot។", "🛟 Export everything": "🛟 នាំចេញទាំងអស់", "Last full export on this device:": "ការនាំចេញពេញលេញចុងក្រោយលើឧបករណ៍នេះ៖", "Saved": "បានរក្សាទុក", "lists": "បញ្ជី", "rows": "ជួរ", "Full backup downloaded": "បានទាញយកការបម្រុងទុកពេញលេញ", "Only the admin can export everything": "មានតែម្ចាស់ទេ ដែលអាចនាំចេញទាំងអស់បាន", "Saves": "រក្សាទុក", "every": "គ្រប់", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "បញ្ជីទាំងអស់នៃកម្មវិធីរបស់អ្នក ក្នុងឯកសារ Excel មួយ៖ ហាង ការបញ្ជាទិញ ស្តុក និងប្រវត្តិស្តុក ការទិញចូល អ្នកផ្គត់ផ្គង់ ការបង់ប្រាក់ បុគ្គលិក HR និងប្រាក់ខែ ចំណាយ ដៃគូ ការជជែក ការកំណត់… មួយសន្លឹកសម្រាប់មួយបញ្ជី។ សូមរក្សាទុកឲ្យមានសុវត្ថិភាពលើកុំព្យូទ័រ ឬ Google Drive (មានប្រាក់ខែ និងលេខទូរស័ព្ទ)។ សូមធ្វើរៀងរាល់សប្តាហ៍។"});
 window.KT_KM_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "កំពុងរក្សាទុក $1 ($2 ក្នុង $3)…"]);
 
+// find the order for an exchange (21 Oct)
+Object.assign(window.KT_KM, {"Exchange a product": "ប្តូរទំនិញ", "Find the order": "រកការបញ្ជាទិញ", "1. Which shop?": "1. ហាងណា?", "2. Which product has a problem?": "2. ទំនិញណាមានបញ្ហា?", "3. Which order?": "3. ការបញ្ជាទិញណា?", "No delivered orders": "មិនមានការបញ្ជាទិញដែលបានដឹក", "No products": "មិនមានទំនិញ", "Exchange": "ប្តូរទំនិញ", "🔁 Exchange a product (find the order)": "🔁 ប្តូរទំនិញ (រកការបញ្ជាទិញ)", "Search shop, order number or product": "ស្វែងរកហាង លេខការបញ្ជាទិញ ឬទំនិញ", "Searching all dates": "ស្វែងរកគ្រប់កាលបរិច្ឆេទ", "No orders found": "រកមិនឃើញការបញ្ជាទិញ"});
+window.KT_KM_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 ការបញ្ជាទិញបានដឹក"], [/^(.+ · )?(\d+) pcs bought$/, "$1បានទិញ $2 គ្រឿង"]);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -5824,6 +5828,10 @@ window.KT_ZH_PATTERNS.push([/^(\d+) exchanges? to approve$/, "$1 个换货待批
 Object.assign(window.KT_ZH, {"🛟 Export everything (full backup)": "🛟 导出全部（完整备份）", "Not inside: photos (only their links), staff passwords and the Telegram bot key.": "不包含：照片（只有链接）、员工密码和 Telegram 机器人密钥。", "🛟 Export everything": "🛟 导出全部", "Last full export on this device:": "本设备上次完整导出：", "lists": "个列表", "rows": "行", "Full backup downloaded": "完整备份已下载", "Only the admin can export everything": "只有老板可以导出全部", "Saves": "保存", "every": "所有", "list of your app into one Excel file: shops, orders, stock and stock history, purchases, suppliers, payments, staff, HR and payroll, expenses, partners, chat, settings… one sheet each. Keep it safe on your computer or Google Drive (it has salaries and phone numbers). Do it every week.": "列表到一个 Excel 文件：店铺、订单、库存和库存记录、采购、供应商、付款、员工、人事和工资、费用、合作伙伴、聊天、设置……每个一张表。请安全保存在电脑或 Google Drive（含工资和电话号码）。请每周做一次。"});
 window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存 $1（$2 / $3）…"]);
 
+// find the order for an exchange (21 Oct)
+Object.assign(window.KT_ZH, {"Exchange a product": "换货", "Find the order": "查找订单", "1. Which shop?": "1. 哪个店铺？", "2. Which product has a problem?": "2. 哪个产品有问题？", "3. Which order?": "3. 哪个订单？", "No delivered orders": "没有已送达的订单", "No products": "没有产品", "Exchange": "换货", "🔁 Exchange a product (find the order)": "🔁 换货（查找订单）", "Search shop, order number or product": "搜索店铺、订单号或产品", "Searching all dates": "搜索所有日期", "No orders found": "没有找到订单"});
+window.KT_ZH_PATTERNS.push([/^(.+ · )?(\d+) delivered orders?$/, "$1$2 个已送达订单"], [/^(.+ · )?(\d+) pcs bought$/, "$1已买 $2 件"]);
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -6679,18 +6687,34 @@ window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存
     const sold = list.filter(o => K.isSale(o)).reduce((s, o) => s + Number(o.total), 0);
     $('#stchips').innerHTML = FILTERS.map(([k, l]) => { const n = k === 'all' ? inP.filter(o => !K.isVoid(o.status)).length : inP.filter(o => o.status === k).length;
       return `<a class="chip ${f === k ? 'on' : ''}" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${k !== 'all' ? '&f=' + k : ''}" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">${l} <span style="opacity:.7">${n}</span></a>`; }).join('');
-    main.innerHTML = `<div class="pad" style="gap:10px">${P.html(st.p, st.from, st.to)}
+    main.innerHTML = `<div class="pad" style="gap:10px">
+      <div class="search">${icon('search', 18)}<input id="osq" placeholder="Search shop, order number or product" aria-label="Search orders" value="${esc(S.oSearch || '')}"></div>
+      ${K.canFindExchange && K.canFindExchange() ? `<a class="btn ghost block" href="#/exchange">🔁 Exchange a product (find the order)</a>` : ''}
+      <div id="olist" style="display:flex;flex-direction:column;gap:10px">${P.html(st.p, st.from, st.to)}
       <div class="small muted">${esc(P.label(st))}</div>
       <div class="stats"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Sales (approved)</span></div><div class="stat"><b style="color:var(--or)">${money(total - sold)}</b><span>Waiting approval</span></div></div>`
       + (list.length ? `<div class="row small muted"><span class="grow">${list.length} order${list.length > 1 ? 's' : ''}</span><b style="color:var(--ink)">${money(total)}</b></div><div class="card flush">${list.map(K.orderRow).join('')}</div>`
-        : emptyBox('order', 'No orders for these dates')) + '</div>';
+        : emptyBox('order', 'No orders for these dates')) + '</div><div id="osres" style="display:none;flex-direction:column;gap:10px"></div></div>';
     P.bind(main, st, () => go(url()));
+    if (S.oItemsAt && Date.now() - S.oItemsAt > 60000) S.oItems = null;
+    // search: every date, by shop, order number or product (products are loaded the first time)
+    const osq = $('#osq'), runSearch = async () => {
+      const t = osq.value.trim().toLowerCase(); S.oSearch = osq.value;
+      $('#olist').style.display = t ? 'none' : 'flex'; $('#osres').style.display = t ? 'flex' : 'none'; if (!t) return;
+      if (!S.oItems) { $('#osres').innerHTML = K.loading; S.oItems = await api.listOrderItems().catch(() => []); S.oItemsAt = Date.now(); if (!current()) return; }
+      const hit = new Set(S.oItems.filter(i => i.products && (i.products.name || '').toLowerCase().includes(t) || (i.products && (i.products.sku || '').toLowerCase().includes(t))).map(i => i.order_id));
+      const found = orders.filter(o => (o.order_no || '').toLowerCase().includes(t) || (o.customers && (o.customers.name || '').toLowerCase().includes(t)) || hit.has(o.id)).slice(0, 100);
+      if (osq.value.trim().toLowerCase() !== t) return;
+      $('#osres').innerHTML = `<div class="small muted"><span>Searching all dates</span> · ${found.length}${found.length === 100 ? '+' : ''}</div>` + (found.length ? `<div class="card flush">${found.map(K.orderRow).join('')}</div>` : emptyBox('search', 'No orders found'));
+    };
+    osq.oninput = () => { clearTimeout(osq.t); osq.t = setTimeout(runSearch, 250); };
+    if (S.oSearch) runSearch();
     const fn = () => { if (!current()) { K.liveHandlers.order = K.liveHandlers.order.filter(h => h !== fn); return; } clearTimeout(fn.t); fn.t = setTimeout(() => current() && K.render(), 500); };
     K.liveHandlers.order.push(fn);
   });
 
   // ---------- detail ----------
-  route(/^\/orders\/(\d+)$/, async ([idStr], _, current) => {
+  route(/^\/orders\/(\d+)$/, async ([idStr], oq, current) => {
     const id = +idStr;
     const main = page({ title: 'Order', back: '#/orders' });
     const [o, whs] = await Promise.all([api.getOrder(id), data.warehouses()]);
@@ -6739,6 +6763,7 @@ window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存
     };
     if ($('#ret')) $('#ret').onclick = () => K.returnSheet(o, () => K.render());
     if ($('#exch')) $('#exch').onclick = () => K.exchangeSheet(o, () => K.render());
+    if (oq && oq.x && K.canExchange(o)) { history.replaceState(null, '', '#/orders/' + id); K.exchangeSheet(o, () => K.render(), { pid: +oq.x }); }
     K.bindExchangeCard(main, o, () => K.render());
     if ($('#inv')) $('#inv').onclick = () => K.invoiceSheet(o);
     if ($('#chdue')) $('#chdue').onclick = () => K.dueSheet(o, () => K.render());
@@ -6754,6 +6779,49 @@ window.KT_ZH_PATTERNS.push([/^Saving (.+) \((\d+) of (\d+)\)…$/, "正在保存
   });
 
   // ---------- new order ----------
+  // ---------- find the order for an exchange (21 Oct 2026): shop → product with a problem → its delivered orders ----------
+  route(/^\/exchange$/, async (_, q, current) => {
+    const main = page({ title: 'Exchange a product', sub: 'Find the order', back: '#/orders' });
+    const [orders, items] = await Promise.all([data.orders(true), api.listOrderItems()]);
+    if (!current()) return;
+    const ok = orders.filter(o => K.canExchange(Object.assign({}, o, { exchanges: [] })));   // delivered / paid orders this person may exchange on
+    const byOrder = {}; items.forEach(i => { (byOrder[i.order_id] = byOrder[i.order_id] || []).push(i); });
+    const st = { shop: null, pid: null, t: '' };
+    const day = t => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    const draw = () => {
+      if (!st.shop) {   // 1. the shop
+        const shops = []; ok.forEach(o => { let x = shops.find(y => y.id === o.customer_id); if (!x) shops.push(x = { id: o.customer_id, name: o.customers ? o.customers.name : '?', area: o.customers ? o.customers.area : '', n: 0, last: o.created_at }); x.n++; if (o.created_at > x.last) x.last = o.created_at; });
+        const t = st.t.toLowerCase(), list = shops.filter(x => !t || x.name.toLowerCase().includes(t) || String(x.area || '').toLowerCase().includes(t)).sort((a, b) => String(b.last).localeCompare(String(a.last)));
+        main.innerHTML = `<div class="pad" style="gap:10px"><div class="sec" style="margin:0">1. Which shop?</div>
+          <div class="search">${icon('search', 18)}<input id="xq" placeholder="Search shops" aria-label="Search shops" value="${esc(st.t)}"></div>
+          <div class="card flush">${list.slice(0, 80).map(x => `<button class="list-item" data-xs="${x.id}"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.area || '')}${x.area ? ' · ' : ''}${x.n} delivered order${x.n > 1 ? 's' : ''}</div></div>${icon('right', 18)}</button>`).join('') || emptyBox('store', 'No delivered orders')}</div></div>`;
+        const qi = $('#xq'); qi.oninput = () => { st.t = qi.value; const pos = qi.selectionStart; draw(); const n = $('#xq'); n.focus(); n.setSelectionRange(pos, pos); };
+        $$('[data-xs]').forEach(b => b.onclick = () => { const x = shops.find(y => y.id === +b.dataset.xs); st.shop = x; draw(); scrollTo(0, 0); });
+        return;
+      }
+      const mine = ok.filter(o => o.customer_id === st.shop.id);
+      if (!st.pid) {    // 2. the product with a problem
+        const prods = []; mine.forEach(o => (byOrder[o.id] || []).forEach(i => { let x = prods.find(y => y.pid === i.product_id); if (!x) prods.push(x = { pid: i.product_id, name: i.products ? i.products.name : '?', sku: i.products ? i.products.sku : '', q: 0, n: 0 }); x.q += i.qty; x.n++; }));
+        prods.sort((a, b) => a.name.localeCompare(b.name));
+        main.innerHTML = `<div class="pad" style="gap:10px"><button class="btn ghost" id="xback" style="align-self:flex-start">← ${esc(st.shop.name)}</button>
+          <div class="sec" style="margin:0">2. Which product has a problem?</div>
+          <div class="card flush">${prods.map(x => `<button class="list-item" data-xp="${x.pid}"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')}${x.sku ? ' · ' : ''}${x.q} pcs bought</div></div>${icon('right', 18)}</button>`).join('') || emptyBox('box', 'No products')}</div></div>`;
+        $('#xback').onclick = () => { st.shop = null; draw(); };
+        $$('[data-xp]').forEach(b => b.onclick = () => { st.pid = +b.dataset.xp; draw(); scrollTo(0, 0); });
+        return;
+      }
+      // 3. the orders with that product, newest first
+      const list = mine.filter(o => (byOrder[o.id] || []).some(i => i.product_id === st.pid)).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      const pn = ((byOrder[list[0] && list[0].id] || []).find(i => i.product_id === st.pid) || {}).products || {};
+      main.innerHTML = `<div class="pad" style="gap:10px"><button class="btn ghost" id="xback" style="align-self:flex-start">← ${esc(st.shop.name)}</button>
+        <div class="sec" style="margin:0">3. Which order?</div><div class="small muted">${esc(pn.name || '')}</div>
+        <div class="card flush">${list.map(o => { const n = (byOrder[o.id] || []).filter(i => i.product_id === st.pid).reduce((a, i) => a + i.qty, 0);
+          return `<a class="list-item" href="#/orders/${o.id}?x=${st.pid}" style="text-decoration:none;color:inherit"><div class="grow"><div class="tt">${esc(o.order_no)} · ${day(o.created_at)}</div><div class="st">${n} pcs · ${money(o.total)}</div></div>${statusPill(o.status)}</a>`; }).join('')}</div></div>`;
+      $('#xback').onclick = () => { st.pid = null; draw(); };
+    };
+    draw();
+  });
+
   route(/^\/orders\/new$/, async (_, q, current) => {
     const editId = q.edit ? +q.edit : null;
     if (editId) {
@@ -8398,9 +8466,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small" style="font-weight:700;color:${e.d > 0 ? 'var(--or)' : e.d < 0 ? 'var(--bl)' : 'var(--gr)'}">${e.d > 0 ? 'The shop pays ' + money(e.d) + ' more' : e.d < 0 ? 'The order goes down ' + money(-e.d) : 'No money change'}</div>
         ${e.back > 0 ? `<div class="row"><b class="grow">Give back to the shop</b><b style="font-size:18px;color:var(--rd)">${money(e.back)}</b></div><div class="small muted">The shop already paid ${money(e.paid)}. How do you give it back?</div>
           <div class="seg">${['cash', 'aba', 'khqr', 'bank'].map(k => `<button type="button" data-xm="${k}" class="${k === method ? 'on' : ''}">${K.PAY_METHODS[k]}</button>`).join('')}</div>` : ''}`;
+  // who may start an exchange at all (the Exchange button on Home / Orders)
+  K.canFindExchange = () => !!K.S.me && (K.isBoss() || K.allow('orders.approve') || K.allow('orders.deliver') || K.allow('orders.create'));
   K.canSeeBroken = () => K.allow('stock.manage') || K.allow('purchases.manage');
 
-  K.exchangeSheet = async function (o, onDone) {
+  K.exchangeSheet = async function (o, onDone, preset) {
     const s = K.sheet('Exchange · ' + o.order_no, K.loading);
     const [products, warehouses] = await Promise.all([K.data.products(true), K.data.warehouses()]);
     if (!s.el.isConnected) return;
@@ -8454,6 +8524,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (l.inQty == null || l.inQty === l.out) l.inQty = n;   // keep the same count unless it was changed
       l.out = n; drawIn(); });
     $('#xwh', el).onchange = e => { wh = +e.target.value; sum(); };
+    if (preset && preset.pid) { const i = $(`[data-bq="${preset.pid}"]`, el); if (i) { i.value = 1; i.oninput(); i.scrollIntoView({ block: 'center' }); } }   // came from "Exchange a product"
     $('#xgo', el).onclick = async e => {
       const R = rows(), why = $('#xwhy', el).value.trim();
       if (!R.length) return toast('Type how many pieces have a problem');
