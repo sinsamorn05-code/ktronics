@@ -1532,6 +1532,7 @@ window.makeSupabaseApi = function (cfg) {
     commissionReport: month => q(sb.rpc('commission_report', { p_month: month })),
     listCommissionRates: () => q(sb.from('commission_rates').select('*')),
     setCommissionRate: (uid, rate) => q(sb.rpc('set_commission_rate', { p_user: uid, p_rate: rate === '' || rate == null ? null : +rate })),
+    setCommission: (uid, rate, bonus) => q(sb.rpc('set_commission', { p_user: uid, p_rate: rate === '' || rate == null ? null : +rate, p_bonus: bonus === '' || bonus == null ? null : +bonus })),
 
     // attendance, leave, HR
     listAttendance: (from, to) => all(() => sb.from('attendance').select('*, profiles(full_name)').gte('work_date', from).lte('work_date', to).order('work_date', { ascending: false }).order('id', { ascending: false }), 10000),
@@ -3866,22 +3867,28 @@ window.makeDemoApi = function () {
       D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     // ---------- commission ----------
+    // commission set for each rep (22 Oct 2026): own % and own bonus % on sales above target; nothing set = 0%
+    _crate(u) { const x = (D.crates || {})[u]; return x == null ? { rate: 0, bonus: 0 } : typeof x === 'object' ? { rate: +x.rate || 0, bonus: +x.bonus || 0 } : { rate: +x || 0, bonus: 0 }; },
     _commissionLines(month) {
-      const m = String(month).slice(0, 7), def = +(D.settings || {}).commission_default || 0, rateOf = u => (D.crates || {})[u] ?? def;
+      const m = String(month).slice(0, 7);
       const L = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening && localDay(o.created_at).slice(0, 7) === m)
         .map(o => ({ user_id: o.sales_rep_id || o.created_by, kind: 'order', ref_id: o.id, ref_no: o.order_no, customer: shopName(o.customer_id), day: localDay(o.created_at), amount: o.total, cr: o.commission_rate }));   // sales without products: no commission
-      return L.map(l => { const rate = l.cr != null ? +l.cr : rateOf(l.user_id); return { user_id: l.user_id, kind: l.kind, ref_id: l.ref_id, ref_no: l.ref_no, customer: l.customer, day: l.day, amount: l.amount, rate, own_rate: l.cr != null, commission: +(l.amount * rate / 100).toFixed(2) }; });
+      return L.map(l => { const rate = l.cr != null ? +l.cr : api._crate(l.user_id).rate; return { user_id: l.user_id, kind: l.kind, ref_id: l.ref_id, ref_no: l.ref_no, customer: l.customer, day: l.day, amount: l.amount, rate, own_rate: l.cr != null, commission: +(l.amount * rate / 100).toFixed(2) }; });
     },
     async commissionLines(month, uid) { if (!role()) return wait([]);
       return wait(api._commissionLines(month).filter(l => (!uid || l.user_id === uid) && (l.user_id === me.id || allow('hr.manage') || allow('dashboard.view'))).sort((a, b) => a.day.localeCompare(b.day) || a.ref_id - b.ref_id)); },
     async commissionReport(month) {
-      const st = D.settings || {}, def = +st.commission_default || 0, bonus = +st.commission_bonus || 0, lines = api._commissionLines(month);
-      const rows = (await api.teamSales(month)).map(r => { const rate = (D.crates || {})[r.user_id] ?? def; return { user_id: r.user_id, full_name: r.full_name, sales: r.total, target: r.target, rate, bonus_rate: bonus,
-        commission: +(lines.filter(l => l.user_id === r.user_id).reduce((a, l) => a + l.commission, 0) + (r.target > 0 ? Math.max(0, r.total - r.target) * bonus / 100 : 0)).toFixed(2) }; });
+      const lines = api._commissionLines(month);
+      const rows = (await api.teamSales(month)).map(r => { const c = api._crate(r.user_id); return { user_id: r.user_id, full_name: r.full_name, sales: r.total, target: r.target, rate: c.rate, bonus_rate: c.bonus,
+        commission: +(lines.filter(l => l.user_id === r.user_id).reduce((a, l) => a + l.commission, 0) + (r.target > 0 ? Math.max(0, r.total - r.target) * c.bonus / 100 : 0)).toFixed(2) }; });
       return wait(allow('hr.manage') || allow('dashboard.view') ? rows : rows.filter(r => r.user_id === me.id));
     },
-    async listCommissionRates() { return wait(Object.entries(D.crates || {}).filter(([u]) => allow('hr.manage') || u === me.id).map(([user_id, rate]) => ({ user_id, rate }))); },
-    async setCommissionRate(uid, rate) { if (!allow('hr.manage')) fail('You are not allowed to change commission'); D.crates = D.crates || {}; if (rate === '' || rate == null) delete D.crates[uid]; else D.crates[uid] = +rate; save(); return wait(null); },
+    async listCommissionRates() { return wait(Object.keys(D.crates || {}).filter(u => allow('hr.manage') || u === me.id).map(u => { const c = api._crate(u), x = D.crates[u]; return { user_id: u, rate: c.rate, bonus: typeof x === 'object' ? x.bonus ?? null : null }; })); },
+    async setCommissionRate(uid, rate) { return api.setCommission(uid, rate, (api._crate(uid) || {}).bonus || null); },
+    async setCommission(uid, rate, bonus) { if (!allow('hr.manage')) fail('You are not allowed to change commission');
+      const n = v => v === '' || v == null ? null : +v; rate = n(rate); bonus = n(bonus);
+      if ([rate, bonus].some(v => v != null && !(v >= 0 && v <= 100))) fail('Commission % must be 0–100');
+      D.crates = D.crates || {}; if (rate == null && bonus == null) delete D.crates[uid]; else D.crates[uid] = { rate: rate || 0, bonus }; save(); return wait(null); },
     // ---------- attendance, leave, HR ----------
     async listAttendance(from, to) { if (!role()) return []; return wait(D.attendance.filter(a => a.work_date >= from && a.work_date <= to && (a.staff_id === me.id || allow('attendance.view') || allow('hr.manage') || headOf(a.staff_id)))
       .sort((a, b) => b.work_date.localeCompare(a.work_date)).map(a => Object.assign(clone(a), { profiles: { full_name: (user(a.staff_id) || {}).full_name } }))); },
@@ -4845,6 +4852,9 @@ Object.assign(window.KT_KM, {"Sales (stock orders)": "ការលក់ (កា
 
 // sales without products kept apart (22 Oct)
 Object.assign(window.KT_KM, {"Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.": "សម្រាប់តែផលិតផលដែលមិនមានក្នុងកម្មវិធីនេះ (លក់ក្នុងប្រព័ន្ធផ្សេង)។ ស្តុកមិនប្តូរ។ ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ចំណាត់ថ្នាក់ ឬកម្រៃជើងសារទេ។", "It will be removed from the list of sales without products.": "វានឹងត្រូវដកចេញពីបញ្ជីការលក់គ្មានផលិតផល។", "Each order with its commission %.": "ការបញ្ជាទិញនីមួយៗ ជាមួយកម្រៃជើងសារ %។", "= set on that order by admin/manager.": "= ម្ចាស់/អ្នកគ្រប់គ្រងកំណត់លើការបញ្ជាទិញនោះ។", "A new customer counts after the first follow-up. Orders today = orders with stock products.": "អតិថិជនថ្មីរាប់ក្រោយការតាមដានលើកដំបូង។ ការបញ្ជាទិញថ្ងៃនេះ = ការបញ្ជាទិញផលិតផលមានស្តុក។", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders with stock products). Empty = the number for everyone.": "បង្ហាញលើទំព័រដើម៖ \"អតិថិជនថ្មីថ្ងៃនេះ X / Y\" (រាប់ក្រោយការតាមដានលើកដំបូង) និង \"ការបញ្ជាទិញថ្ងៃនេះ X / Y\" (ការបញ្ជាទិញផលិតផលមានស្តុក)។ ទទេ = ចំនួនសម្រាប់គ្រប់គ្នា។", "Only for products that are not in this app. They are kept apart: not added to sales, targets, ranking or commission. Admin and managers can change or delete them.": "សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។ ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ចំណាត់ថ្នាក់ ឬកម្រៃជើងសារ។ ម្ចាស់ និងអ្នកគ្រប់គ្រងអាចកែ ឬលុបបាន។", "Kept apart: not added to your sales, target or commission.": "ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ឬកម្រៃជើងសាររបស់អ្នក។"});
+
+// commission for each rep (22 Oct)
+Object.assign(window.KT_KM, {"Commission for each rep": "កម្រៃជើងសារសម្រាប់អ្នកលក់ម្នាក់ៗ", "Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.": "កម្រៃជើងសារ = ការបញ្ជាទិញដែលបានអនុម័តក្នុងខែ × % របស់គេ។ ប្រាក់រង្វាន់ % = បន្ថែមលើការលក់លើសគោលដៅ។ ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។", "Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.": "ឧទាហរណ៍៖ 2% និងប្រាក់រង្វាន់ 1% គោលដៅ $5,000 លក់បាន $6,000 → $6,000 × 2% + $1,000 × 1% = $130។", "Bonus % above target": "ប្រាក់រង្វាន់ % លើសគោលដៅ", "Save commission": "រក្សាទុកកម្រៃជើងសារ", "Commission saved": "បានរក្សាទុកកម្រៃជើងសារ", "No sales reps yet": "មិនទាន់មានអ្នកលក់"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -5832,6 +5842,9 @@ Object.assign(window.KT_ZH, {"Sales (stock orders)": "销售额（库存订单�
 
 // sales without products kept apart (22 Oct)
 Object.assign(window.KT_ZH, {"Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.": "只用于不在本应用里的产品（在另一个系统销售）。库存不变。单独记录：不计入销售额、目标、排名或提成。", "It will be removed from the list of sales without products.": "它将从无产品销售列表中删除。", "Each order with its commission %.": "每个订单及其提成 %。", "= set on that order by admin/manager.": "= 老板/经理在该订单上设置。", "A new customer counts after the first follow-up. Orders today = orders with stock products.": "新客户在第一次跟进后才计算。今天订单 = 有库存产品的订单。", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders with stock products). Empty = the number for everyone.": "显示在他们的首页：“今天新客户 X / Y”（第一次跟进后才计算）和“今天订单 X / Y”（有库存产品的订单）。空 = 所有人的数字。", "Only for products that are not in this app. They are kept apart: not added to sales, targets, ranking or commission. Admin and managers can change or delete them.": "只用于不在本应用里的产品。单独记录：不计入销售额、目标、排名或提成。老板和经理可以修改或删除。", "Kept apart: not added to your sales, target or commission.": "单独记录：不计入你的销售额、目标或提成。"});
+
+// commission for each rep (22 Oct)
+Object.assign(window.KT_ZH, {"Commission for each rep": "每位销售的提成", "Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.": "提成 = 该销售本月已批准的订单 × 其 %。奖金 % = 超出目标部分的额外提成。空 = 0%。某个订单上设置的 % 用于该订单。", "Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.": "例如：2%，奖金 1%，目标 $5,000，销售 $6,000 → $6,000 × 2% + $1,000 × 1% = $130。", "Bonus % above target": "超目标奖金 %", "Save commission": "保存提成", "Commission saved": "提成已保存", "No sales reps yet": "还没有销售"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -9788,7 +9801,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), month = K.monthKey(), cmonth = K.monthKey();
     const S2 = {};
     const reps = staff.filter(u => u.active && ['sales', 'online_sales', 'supervisor', 'agent'].includes(u.role));
-    const rateOf = id => (rates.find(r => r.user_id === id) || {}).rate;
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
     const pst = P.fresh('month');
     const activeAll = staff.filter(u => u.active);
@@ -9890,14 +9902,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else if (tab === 'commission') {
         const rep = await api.commissionReport(cmonth), tot = rep.reduce((a, r) => a + +r.commission, 0);
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
-        h = `<div class="agrid"><div class="card"><b>How commission is paid</b><div class="small muted">Commission = sales × rate %. Sales = the rep's approved orders in the month (orders for their shops, even if the admin typed them). An order can have its own % (set by admin/manager on the order) — then that % is used for it. Sales without products get no commission.</div>
-            <div class="btns"><label class="f">Rate for all reps (%)<input class="inp" data-k="commission_default" type="number" step="0.1" min="0" value="${esc(st.commission_default || '0')}"></label>
-              <label class="f">Extra bonus % on sales above target<input class="inp" data-k="commission_bonus" type="number" step="0.1" min="0" value="${esc(st.commission_bonus || '0')}"></label></div>
-            <div class="small muted">Example: rate 2%, bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
-            <button class="btn" data-save>Save rates</button></div>
-          <div class="card"><b>Different rate for one rep</b><div class="small muted">Leave empty to use the rate for all reps.</div>
-            ${reps.map(u => `<div class="row"><span class="grow" style="font-weight:700">${esc(u.full_name)}</span><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" value="${rateOf(u.id) ?? ''}" placeholder="${esc(st.commission_default || '0')}" style="width:100px;text-align:right"><span class="muted">%</span></div>`).join('') || '<div class="muted small">No sales reps yet</div>'}
-            <button class="btn out" id="scr">Save rep rates</button></div></div>
+        // each rep has their own % and own bonus % (Mr. Lee, 22 Oct 2026); nothing typed = 0%
+        h = `<div class="card" style="gap:10px"><b>Commission for each rep</b>
+            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.</div>
+            <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
+            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th></tr></thead><tbody>
+            ${reps.map(u => { const r = rates.find(x => x.user_id === u.id) || {};
+              return `<tr><td><b>${esc(u.full_name)}</b><div class="small muted">${esc(K.ROLE_LABEL[u.role] || u.role)}</div></td>
+                <td style="text-align:right"><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Commission %"></td>
+                <td style="text-align:right"><input class="inp" data-cb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Bonus %"></td></tr>`; }).join('') || '<tr><td colspan="3" class="muted">No sales reps yet</td></tr>'}
+            </tbody></table></div>
+            <button class="btn" id="scr" style="align-self:flex-start">Save commission</button></div>
           <div class="card"><div class="row"><button class="btn sm out" data-cm="${pm}" id="pm">‹</button><b class="grow" style="text-align:center">Commission · ${esc(K.monthName(cmonth))}</b><button class="btn sm out" data-cm="${nx}" id="nm">›</button></div>
             <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Sales</th><th style="text-align:right">Target</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
             ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
@@ -9984,9 +9999,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (('office_lat' in obj) && !!obj.office_lat !== !!obj.office_lng) return toast('Fill both latitude and longitude, or leave both empty');
         await busy(b, () => api.saveSettings(obj)); Object.assign(st, obj); await K.loadSettings(); toast('Saved'); if (tab === 'commission') draw();
       });
-      if ($('#scr')) $('#scr').onclick = async e => { await busy(e.currentTarget, async () => { for (const i of $$('[data-cr]')) { const v = i.value.trim(), old = rateOf(i.dataset.cr);
-          if (String(v) !== String(old ?? '')) await api.setCommissionRate(i.dataset.cr, v === '' ? null : +v); } });
-        rates.splice(0, rates.length, ...(await api.listCommissionRates())); toast('Rep rates saved'); draw(); };
+      if ($('#scr')) $('#scr').onclick = async e => { await busy(e.currentTarget, async () => { for (const i of $$('[data-cr]')) { const id = i.dataset.cr, old = rates.find(x => x.user_id === id) || {};
+          const v = i.value.trim(), b = $(`[data-cb="${id}"]`).value.trim();
+          if (v !== String(old.rate ?? '') || b !== String(old.bonus ?? '')) await api.setCommission(id, v === '' ? null : +v, b === '' ? null : +b); } });
+        rates.splice(0, rates.length, ...(await api.listCommissionRates())); toast('Commission saved'); draw(); };
     };
     const staffSheet = u => K.staffSheet(u, { hrs });
     K.adm.staffSheet = staffSheet;
