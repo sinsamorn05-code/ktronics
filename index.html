@@ -1182,6 +1182,7 @@ window.KT_PERM_DEFAULTS = {
     'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main'],
   supervisor: ['orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
   sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  online_sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   agent: ['orders.create', 'orders.catalog', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   accountant: ['dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
     'expenses.record_others', 'expenses.office', 'purchases.manage', 'chat.create_group'],
@@ -1392,10 +1393,25 @@ window.makeSupabaseApi = function (cfg) {
       const mgr = me && (me.role === 'admin' || (me.perms || []).includes('customers.manage'));
       if (c.assigned_to !== undefined && mgr) row.assigned_to = c.assigned_to || null;
       if (c.credit_limit !== undefined && mgr) row.credit_limit = +c.credit_limit || 0;
+      if (c.source !== undefined) row.source = c.source || null;   // online customers (22 Oct 2026)
       if (c.id) return q(sb.from('customers').update(row).eq('id', c.id).select().single());
       return q(sb.from('customers').insert(row).select().single());
     },
 
+    // online sales: follow-ups, sales status, ready-made messages (22 Oct 2026)
+    listFollowups: id => q(sb.from('customer_followups').select('*, profiles(full_name)').eq('customer_id', id).order('id', { ascending: false }).limit(50)),
+    followupAdd: (id, method, result, note, next) => q(sb.rpc('followup_add', { p_customer: id, p_method: method, p_result: result, p_note: note || null, p_next: next || null })),
+    customerSetSales: (id, status, next) => q(sb.rpc('customer_set_sales', { p_customer: id, p_status: status || null, p_next: next || null })),
+    messageTemplatesSave: list => q(sb.rpc('message_templates_save', { p: list || [] })),
+    listNopSales: (cid, from, to) => q(sb.rpc('nop_sales_list', { p_customer: cid || null, p_from: from || null, p_to: to || null })),
+    nopSaleSave: p => q(sb.rpc('nop_sale_save', { p })),
+    nopSaleDelete: id => q(sb.rpc('nop_sale_delete', { p_id: id })),
+    setOrderCommission: (id, rate) => q(sb.rpc('order_set_commission', { p_order: id, p_rate: rate === '' || rate == null ? null : +rate })),
+    commissionLines: (month, uid) => q(sb.rpc('commission_lines', { p_month: month, p_user: uid || null })),
+    onlineToday: uid => q(sb.rpc('online_today', { p_user: uid || null })),
+    listOnlineTargets: () => q(sb.from('online_targets').select('*')),
+    onlineTargetSet: (uid, n, o) => q(sb.rpc('online_target_set', { p_user: uid, p_new: n, p_orders: o })),
+    onlineSettingsSave: obj => q(sb.rpc('online_settings_save', { p: obj || {} })),
     shopDupes: (id, name, phone, tg) => q(sb.rpc('shop_dupes', { p_id: id || null, p_name: name || '', p_phone: phone || '', p_tg: tg || '' })),
     shopDuplicates: () => q(sb.rpc('shop_duplicates')),
     mergeCustomers: (keep, remove) => q(sb.rpc('merge_customers', { p_keep: keep, p_remove: remove })),
@@ -1571,6 +1587,7 @@ window.makeSupabaseApi = function (cfg) {
     reportShops: (from, to) => all(() => sb.rpc('report_shops', { p_from: from, p_to: to })),
     reportMoney: (from, to) => q(sb.rpc('report_money', { p_from: from, p_to: to })),
     reportOpex: (from, to) => q(sb.rpc('report_opex', { p_from: from, p_to: to })),
+    reportOnline: (from, to) => q(sb.rpc('report_online', { p_from: from, p_to: to })),
     // Telegram alerts (admin). The bot token can be saved but never read back.
     tgStatus: () => q(sb.rpc('tg_status')),
     tgSendRepsNow: id => q(sb.rpc('tg_send_reps_now', { p_rule: id })),
@@ -2015,6 +2032,35 @@ window.makeDemoApi = function () {
   try { D = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { D = null; }
   if (!D) D = seed();
 
+  // 22 Oct: an online sales person with a few online customers
+  if (D && D.users && !D.users.some(u => u.id === 'u-sreyleak')) {
+    D.users.push({ id: 'u-sreyleak', username: 'sreyleak', full_name: 'Sreyleak (online)', role: 'online_sales', active: true, phone: '012 555 777', created_at: new Date(Date.now() - 864e6).toISOString(), password: '1234' });
+    if (D.rolePerms && !D.rolePerms.online_sales) D.rolePerms.online_sales = Object.assign({}, D.rolePerms.sales || {});
+    const day = n => { const d = new Date(Date.now() - n * 864e5); return d.toISOString(); }, dd = n => { const d = new Date(Date.now() + n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+    const O = (name, phone, tg, source, st, created, next) => ({ id: ++D.seq.customer, name, owner_name: null, phone, telegram: tg, address: null, area: null, lat: null, lng: null, price_level: 'Retail', credit_days: 0, notes: '',
+      province: null, assigned_to: 'u-sreyleak', created_by: 'u-sreyleak', status: 'approved', review_note: null, credit_limit: 0, created_at: day(created), source, sales_status: st, next_followup: next, first_followup_at: st === 'new' ? null : day(created - 1) });
+    D.customers.push(O('Srey Mom (Facebook)', '016 101 202', '@sreymom', 'facebook', 'interested', 5, dd(0)), O('Dara Gadget (TikTok)', '096 303 404', '@daragadget', 'tiktok', 'new', 1, dd(0)),
+      O('Bopha Online Store', '088 505 606', '@bophastore', 'telegram_group', 'contacted', 8, dd(2)));
+    D.followups = D.followups || [];
+  }
+  if (D && D.users && D.users.some(u => u.id === 'u-sreyleak') && !D.nopSales) {
+    const c = D.customers.filter(x => x.assigned_to === 'u-sreyleak' && x.source), dd = n => { const d = new Date(Date.now() - n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+    D.nopSales = c.length ? [{ id: 1, sale_no: 'NP-00001', customer_id: c[0].id, sales_rep_id: 'u-sreyleak', amount: 85, invoice_no: 'INV-2101', sale_date: dd(1), products: 'Phone holder (bike) ×5, Ring light', note: 'Paid by ABA', commission_rate: null, created_by: 'u-sreyleak', created_at: new Date(Date.now() - 864e5).toISOString() },
+      { id: 2, sale_no: 'NP-00002', customer_id: c[2 % c.length].id, sales_rep_id: 'u-sreyleak', amount: 42.5, invoice_no: 'INV-2108', sale_date: dd(0), products: 'Tripod 1.7m', note: null, commission_rate: 5, created_by: 'u-sreyleak', created_at: new Date().toISOString() }] : [];
+    if (c.length) c[0].sales_status = 'ordered';
+  }
+  // step 3 demo: a hot customer, one due to reorder and one silent
+  if (D && D.nopSales && D.users.some(u => u.id === 'u-sreyleak') && !D.onlineDemo3) {
+    D.onlineDemo3 = 1;
+    const ago = n => new Date(Date.now() - n * 864e5).toISOString(), dd = n => { const d = new Date(Date.now() - n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+    const O = (name, phone, tg, source, st, created) => { const c = { id: ++D.seq.customer, name, owner_name: null, phone, telegram: tg, address: null, area: null, lat: null, lng: null, price_level: 'Retail', credit_days: 0, notes: '',
+      province: null, assigned_to: 'u-sreyleak', created_by: 'u-sreyleak', status: 'approved', review_note: null, credit_limit: 0, created_at: ago(created), source, sales_status: st, next_followup: dd(-5), first_followup_at: ago(created - 1) }; D.customers.push(c); return c; };
+    const hot = O('Sokha Mobile (Referral)', '017 808 909', '@sokhamobile', 'referral', 'interested', 9), reo = O('Lina Accessories (FB)', '010 202 303', '@linaacc', 'facebook', 'ordered', 40),
+      sil = O('Visal Phone (TikTok)', '015 404 505', '@visalphone', 'tiktok', 'ordered', 90);
+    D.followups = D.followups || []; D.followups.push({ id: D.followups.length + 1, customer_id: hot.id, staff_id: 'u-sreyleak', method: 'telegram', result: 'interested', note: 'asked for the price of tripods', next_date: null, created_at: ago(4) });
+    let id = D.nopSales.reduce((a, x) => Math.max(a, x.id), 0);
+    [[reo, 30, 60], [reo, 15, 75], [sil, 70, 40], [sil, 45, 52]].forEach(([c, n, amt]) => { id++; D.nopSales.push({ id, sale_no: 'NP-' + String(id).padStart(5, '0'), customer_id: c.id, sales_rep_id: 'u-sreyleak', amount: amt, invoice_no: 'INV-1' + id + n, sale_date: dd(n), products: 'Ring light', note: null, commission_rate: null, created_by: 'u-sreyleak', created_at: ago(n) }); });
+  }
   // 14 Oct: "Sales rep (main stock)" becomes Sales with the main warehouse ticked
   if (D && D.users && D.users.some(u => u.role === 'agent')) {
     const mainId = Math.min(...D.warehouses.filter(w => !w.rep_id).map(w => w.id)); D.stockAccess = D.stockAccess || [];
@@ -2206,9 +2252,9 @@ window.makeDemoApi = function () {
   const offCheck = (wh, items) => { if (!wh || allow('stock.manage') || allow('stock.view_main') || wh.rep_id === me.id) return;
     items.forEach(it => { const p = D.products.find(x => x.id === it.product_id); if (p && p.staff_orderable === false) fail(p.name + ' cannot be ordered at the moment. Ask the admin.'); }); };
   function ensureRepStock(u) {
-    const old = u.active && u.role === 'sales' && D.warehouses.find(w => w.rep_id === u.id && w.deleted_at);   // a deleted rep stock comes back
+    const old = u.active && ['sales', 'online_sales'].includes(u.role) && D.warehouses.find(w => w.rep_id === u.id && w.deleted_at);   // a deleted rep stock comes back
     if (old) Object.assign(old, { deleted_at: null, deleted_by: null, name: 'Rep stock · ' + u.full_name });
-    if (u.active && u.role === 'sales' && !D.warehouses.some(w => w.rep_id === u.id)) {
+    if (u.active && ['sales', 'online_sales'].includes(u.role) && !D.warehouses.some(w => w.rep_id === u.id)) {
       D.warehouses.push({ id: Math.max(...D.warehouses.map(w => w.id)) + 1, name: 'Rep stock · ' + u.full_name, rep_id: u.id });
     }
   }
@@ -2240,6 +2286,9 @@ window.makeDemoApi = function () {
   const canFixVisit = v => role() && (allow('visits.manage') || (v.staff_id === me.id && localDay0(new Date(v.check_in_at)) === localDay0(new Date())));
   const dist = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
   const SOLD = ['approved', 'packed', 'delivering', 'delivered', 'paid'];
+  // sales without products (online sales, step 2): p_uid null = everyone
+  const nopOf = (uid, f, t) => (D.nopSales || []).filter(x => (!uid || x.sales_rep_id === uid) && x.sale_date >= f && x.sale_date <= t);
+  const nopSum = (uid, f, t) => +nopOf(uid, f, t).reduce((a, x) => a + +x.amount, 0).toFixed(2);
   // price on an order line: the typed price (0 = free), otherwise the product price
   const priceFor = (p, it) => { if (it && it.price !== undefined && it.price !== null && it.price !== '') { const v = Math.round(+it.price * 100) / 100; if (!(v >= 0)) fail('Price cannot be below 0'); return v; } return p.price; };
   const userAllow = (uid, perm) => { ensurePerms(); const u = user(uid); if (!u || !u.active) return false; if (u.role === 'admin') return true; const x = (D.userPerms[uid] || {})[perm]; return x !== undefined ? x : !!(D.rolePerms[u.role] || {})[perm]; };
@@ -2526,7 +2575,7 @@ window.makeDemoApi = function () {
       if (!w.rep_id && id === Math.min(...D.warehouses.filter(x => !x.rep_id).map(x => x.id))) fail('The main warehouse cannot be deleted');
       const pcs = Object.entries(D.stock).filter(([k, q]) => k.endsWith(':' + id) && q).reduce((a, [, q]) => a + q, 0);
       if (Object.entries(D.stock).some(([k, q]) => k.endsWith(':' + id) && q)) fail('This stock still has ' + pcs + ' pieces. Move them to another stock first (Move stock).');
-      const u = w.rep_id && user(w.rep_id); if (u && u.active && u.role === 'sales') fail(u.full_name + ' is still working as a sales rep and needs this stock. Switch the person off first.');
+      const u = w.rep_id && user(w.rep_id); if (u && u.active && ['sales', 'online_sales'].includes(u.role)) fail(u.full_name + ' is still working as a sales rep and needs this stock. Switch the person off first.');
       D.stockAccess = (D.stockAccess || []).filter(a => a.warehouse_id !== id);
       if (D.orders.some(o => o.warehouse_id === id) || D.moves.some(m => m.warehouse_id === id) || (D.purchases || []).some(p => p.warehouse_id === id)) {
         const day = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); let nm = w.name.slice(0, 60) + ' (deleted ' + day + ')';
@@ -2590,6 +2639,7 @@ window.makeDemoApi = function () {
         oldest_unpaid_at: D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered' && o.total > (o.paid_amount || 0)).map(o => o.delivered_at || o.updated_at).sort()[0] || null,
         order_count: D.orders.filter(o => o.customer_id === c.id && !['cancelled', 'returned'].includes(o.status)).length,
         last_visit_at: D.visits.filter(v => v.customer_id === c.id).map(v => v.check_in_at).sort().pop() || null,
+        last_followup_at: (D.followups || []).filter(f => f.customer_id === c.id).map(f => f.created_at).sort().pop() || null, followups: (D.followups || []).filter(f => f.customer_id === c.id).length,
         ...(od => ({ overdue_count: od.length, overdue_amount: +od.reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2) }))(D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < new Date().toISOString().slice(0, 10) && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0)))
       })).sort((a, b) => a.name.localeCompare(b.name)));
     },
@@ -2709,7 +2759,11 @@ window.makeDemoApi = function () {
         lat: c.lat ?? null, lng: c.lng ?? null, price_level: c.price_level || 'Retail', credit_days: +c.credit_days || 0, notes: c.notes || null, province: c.province || null, map_url: c.map_url || null, telegram: (c.telegram || '').trim() || null };
       const boss = allow('customers.manage'), autoOk = allow('customers.approve');
       if (!c.id && !allow('customers.create')) fail('You are not allowed to add shops');
-      if ((D.settings || {}).shop_rules_strict === 'true') { const miss = [['name', 'Shop name'], ['owner_name', 'Owner'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['province', 'Province'], ['district', 'District'], ['commune', 'Commune'], ['village', 'Village'], ['area', 'Area / market']].filter(([k]) => !String(row[k] || (k === 'name' ? c.name : '') || '').trim()).map(x => x[1]);
+      const prevC = c.id && D.customers.find(x => x.id === c.id), src = c.source !== undefined ? (c.source || null) : prevC ? prevC.source || null : null;
+      if (!c.id && !src && role() === 'online_sales') fail('Choose where the customer came from (Facebook, TikTok, …)');
+      if (src) { if (![...'facebook tiktok telegram_group referral walk_in other'.split(' ')].includes(src)) fail('Unknown source');
+        if (!row.name || !row.phone || !row.telegram) fail('Please fill in: name, phone and Telegram'); row.source = src; }
+      if ((D.settings || {}).shop_rules_strict === 'true' && !src) { const miss = [['name', 'Shop name'], ['owner_name', 'Owner'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['province', 'Province'], ['district', 'District'], ['commune', 'Commune'], ['village', 'Village'], ['area', 'Area / market']].filter(([k]) => !String(row[k] || (k === 'name' ? c.name : '') || '').trim()).map(x => x[1]);
         if (miss.length) fail('Please fill in: ' + miss.join(', ')); }
       if (c.assigned_to !== undefined && boss) row.assigned_to = c.assigned_to || null;
       if (c.credit_limit !== undefined && boss) row.credit_limit = +c.credit_limit || 0;
@@ -2723,11 +2777,93 @@ window.makeDemoApi = function () {
         out = D.customers.find(x => x.id === c.id);
         if (!boss && (out.assigned_to !== me.id || out.status === 'approved')) fail('This shop is approved. Only the admin can change it now.');
         Object.assign(out, row); if (!autoOk) out.status = 'pending';
-      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row); D.customers.push(out);
+      } else { out = Object.assign({ id: ++D.seq.customer, created_by: me.id, assigned_to: me.id, credit_limit: 0, created_at: now(), status: autoOk ? 'approved' : 'pending', review_note: null }, row,
+          src ? { sales_status: 'new', first_followup_at: null, next_followup: localDay(new Date(Date.now() + 864e5).toISOString()) } : {}); D.customers.push(out);
         alert('🏪 New shop ' + out.name + (out.province ? ' (' + out.province + ')' : '') + ' added by ' + me.full_name + (out.status === 'pending' ? ' · waiting for approval' : ''), { customer_id: out.id }, 'visits'); }
       save(); return wait(clone(out));
     },
 
+    // online customers: follow-ups and sales status (same rules as followup_add / customer_set_sales in the database)
+    _canOnline(id) { const c = D.customers.find(x => x.id === id); if (!c || !(allow('customers.manage') || c.assigned_to === me.id || inMyTeam(c.assigned_to))) fail('Customer not found'); return c; },
+    async listFollowups(id) { const c = D.customers.find(x => x.id === id); if (!canSeeShop(c)) return wait([]);
+      return wait((D.followups || []).filter(f => f.customer_id === id).sort((a, b) => b.id - a.id).map(f => Object.assign(clone(f), { profiles: { full_name: (user(f.staff_id) || {}).full_name } }))); },
+    async followupAdd(id, method, result, note, next) {
+      const c = api._canOnline(id); if (!c.source) fail('Follow-ups are for online customers');
+      if (!['telegram', 'phone', 'other'].includes(method)) fail('Choose how you contacted them');
+      if (!['no_answer', 'talked', 'interested', 'ordered', 'not_interested', 'other'].includes(result)) fail('Choose the result');
+      const today = localDay(now()); if (next && next < today) fail('The next follow-up date cannot be in the past');
+      const st = { talked: c.sales_status === 'new' ? 'contacted' : c.sales_status, interested: c.sales_status === 'ordered' ? 'ordered' : 'interested', ordered: 'ordered', not_interested: 'not_interested' }[result]
+        || (c.sales_status === 'new' && result !== 'no_answer' ? 'contacted' : c.sales_status);
+      const sug = [1, 3, 7, 30].map(n => localDay(new Date(new Date(c.created_at).getTime() + n * 864e5).toISOString())).find(d => d > today) || null;
+      const nxt = next || (st === 'not_interested' ? null : sug);
+      (D.followups = D.followups || []).push({ id: D.followups.length + 1, customer_id: id, staff_id: me.id, method, result, note: (note || '').trim() || null, next_date: nxt, created_at: now() });
+      Object.assign(c, { sales_status: st, next_followup: nxt, first_followup_at: c.first_followup_at || now() }); save(); return wait(D.followups.length); },
+    async customerSetSales(id, status, next) { const c = api._canOnline(id); if (!c.source) fail('Only online customers have a sales status');
+      if (status && !['new', 'contacted', 'interested', 'ordered', 'not_interested'].includes(status)) fail('Unknown status');
+      if (next && next < localDay(now())) fail('The next follow-up date cannot be in the past');
+      Object.assign(c, { sales_status: status || c.sales_status, next_followup: next || null }); save(); return wait(null); },
+    async messageTemplatesSave(list) { if (!hasRole('admin')) fail('Only the admin can change the messages');
+      (list || []).forEach((x, i) => { if (!String(x.title || '').trim() || !String(x.text || '').trim()) fail('Message ' + (i + 1) + ': write a title and the text'); });
+      D.settings = Object.assign(D.settings || {}, { message_templates: JSON.stringify(list || []) }); save(); return wait(null); },
+    // sales without products (same rules as nop_sale_save / nop_sale_delete in the database)
+    async listNopSales(cid, from, to) { if (!role()) return wait([]);
+      const see = x => x.sales_rep_id === me.id || x.created_by === me.id || isBoss() || allow('reports.view') || allow('dashboard.view') || allow('hr.manage') || inMyTeam(x.sales_rep_id);
+      return wait((D.nopSales || []).filter(x => see(x) && (!cid || x.customer_id === cid) && (!from || x.sale_date >= from) && (!to || x.sale_date <= to))
+        .sort((a, b) => b.sale_date.localeCompare(a.sale_date) || b.id - a.id).map(x => Object.assign(clone(x), { customer_name: shopName(x.customer_id), rep_name: (user(x.sales_rep_id) || {}).full_name, creator_name: (user(x.created_by) || {}).full_name }))); },
+    async nopSaleSave(p) { if (!role()) fail('Your account is not active');
+      const boss = isBoss(), list = D.nopSales = D.nopSales || [], old = p.id ? list.find(x => x.id === +p.id) : null;
+      if (p.id) { if (!boss) fail('Only admin or a manager can change a sale without products'); if (!old) fail('Sale not found'); }
+      else if (!(boss || allow('orders.create'))) fail('You are not allowed to add sales');
+      const c = D.customers.find(x => x.id === +p.customer_id);
+      if (!c || !(boss || allow('customers.view_all') || c.assigned_to === me.id || c.created_by === me.id || inMyTeam(c.assigned_to))) fail('Choose the customer');
+      const amt = +(+p.amount).toFixed(2), inv = String(p.invoice_no || '').trim(), prods = String(p.products || '').trim(), today = localDay(now()), d = p.sale_date || today;
+      if (!(amt > 0)) fail('Write the amount'); if (!inv) fail('Write the invoice number'); if (!prods) fail('Write the product names');
+      if (d > today) fail('The date cannot be in the future');
+      if (!boss && d < localDay(new Date(Date.now() - 31 * 864e5).toISOString())) fail('The date is too old (more than 31 days). Ask the admin.');
+      const rate = p.commission_rate === '' || p.commission_rate == null ? null : +p.commission_rate; if (rate != null && !(rate >= 0 && rate <= 100)) fail('Commission % must be 0–100');
+      if (list.some(x => x.invoice_no.trim().toLowerCase() === inv.toLowerCase() && x.id !== (old || {}).id)) fail('Invoice number ' + inv + ' is already used');
+      const rep = boss && p.sales_rep_id ? p.sales_rep_id : old ? old.sales_rep_id : c.assigned_to || me.id;
+      const row = { customer_id: c.id, sales_rep_id: rep, amount: amt, invoice_no: inv, sale_date: d, products: prods, note: String(p.note || '').trim() || null };
+      let id;
+      if (old) { Object.assign(old, row, { commission_rate: rate, updated_by: me.id, updated_at: now() }); id = old.id; }
+      else { id = list.reduce((a, x) => Math.max(a, x.id), 0) + 1; list.push(Object.assign({ id, sale_no: 'NP-' + String(id).padStart(5, '0'), commission_rate: boss ? rate : null, created_by: me.id, created_at: now() }, row)); }
+      if (c.source) c.sales_status = 'ordered';
+      save(); return wait(id); },
+    async nopSaleDelete(id) { if (!isBoss()) fail('Only admin or a manager can delete a sale without products');
+      const n = (D.nopSales || []).length; D.nopSales = (D.nopSales || []).filter(x => x.id !== id); if (D.nopSales.length === n) fail('Sale not found'); save(); return wait(null); },
+    // step 3: daily targets and "Follow up today" (same rules as online_today in the database)
+    async listOnlineTargets() { return wait(Object.entries(D.onlineTargets || {}).map(([user_id, t]) => Object.assign({ user_id }, t)).filter(t => t.user_id === me.id || allow('hr.manage') || allow('dashboard.view'))); },
+    async onlineTargetSet(uid, n, o) { if (!(allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can set targets');
+      if ([n, o].some(v => v != null && !(v >= 0 && v <= 1000))) fail('Targets: type a number from 0 to 1000');
+      D.onlineTargets = D.onlineTargets || {}; if (n == null && o == null) delete D.onlineTargets[uid]; else D.onlineTargets[uid] = { new_per_day: n, orders_per_day: o }; save(); return wait(null); },
+    async onlineSettingsSave(obj) { if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin can change these settings');
+      Object.entries(obj || {}).forEach(([k, v]) => { v = String(v ?? '').trim();
+        if (['online_new_per_day', 'online_orders_per_day'].includes(k)) { if (!/^\d+$/.test(v) || +v > 1000) fail('Targets: type a number from 0 to 1000'); }
+        else if (k === 'online_hot_days') { if (!/^\d+$/.test(v) || +v < 1 || +v > 60) fail('Days: type a number from 1 to 60'); }
+        else if (k === 'online_midday_time') { if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 15:00'); }
+        else fail('Unknown setting ' + k); obj[k] = v; });
+      D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
+    async onlineToday(uid) { if (!role()) fail('Your account is not active'); const u = uid || me.id;
+      if (u !== me.id && !(isBoss() || allow('dashboard.view') || inMyTeam(u))) fail('Not allowed');
+      const st = D.settings || {}, t = localDay(now()), tg = (D.onlineTargets || {})[u] || {}, back = n => localDay(new Date(Date.now() - n * 864e5).toISOString());
+      const mine = D.customers.filter(c => c.assigned_to === u && c.status !== 'rejected'), hot = +(st.online_hot_days || 3), sleep = +(st.alert_sleeping_days || 30);
+      const diff = (a, b) => Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 864e5);
+      const todo = mine.map(c => { const buys = D.orders.filter(o => o.customer_id === c.id && SOLD.includes(o.status) && !o.is_opening).map(o => localDay(o.created_at)).sort();
+        const n = buys.length, last = buys[n - 1], gap = n >= 2 ? Math.max(1, Math.round(diff(last, buys[0]) / (n - 1))) : null;
+        const intD = (D.followups || []).filter(f => f.customer_id === c.id && f.result === 'interested').map(f => localDay(f.created_at)).sort().pop() || localDay(c.created_at);
+        const kind = c.source && c.sales_status === 'interested' && intD <= back(hot) ? 'hot' : n >= 2 && last <= back(sleep) ? 'silent'
+          : c.source && c.sales_status !== 'not_interested' && c.next_followup && c.next_followup <= t ? 'due' : n >= 2 && diff(t, last) >= gap ? 'reorder' : null;
+        return kind && { id: c.id, name: c.name, phone: c.phone, telegram: c.telegram, kind, sales_status: c.sales_status, next_followup: c.next_followup, last_buy: last || null, gap, buys: n,
+          days: kind === 'hot' ? diff(t, intD) : kind === 'due' ? diff(t, c.next_followup) : diff(t, last) }; }).filter(Boolean)
+        .sort((a, b) => ['hot', 'due', 'reorder', 'silent'].indexOf(a.kind) - ['hot', 'due', 'reorder', 'silent'].indexOf(b.kind) || String(a.kind === 'due' ? a.next_followup : '').localeCompare(b.kind === 'due' ? b.next_followup : '') || String(a.last_buy || '').localeCompare(b.last_buy || '') || a.name.localeCompare(b.name));
+      return wait({ new_today: mine.filter(c => c.source && c.first_followup_at && localDay(c.first_followup_at) === t).length,
+        added_today: D.customers.filter(c => c.created_by === u && c.source && localDay(c.created_at) === t).length,
+        orders_today: D.orders.filter(o => (o.sales_rep_id || o.created_by) === u && !o.is_opening && !['cancelled', 'returned'].includes(o.status) && localDay(o.created_at) === t).length, np_today: nopOf(u, t, t).length,
+        followups_today: (D.followups || []).filter(f => f.staff_id === u && localDay(f.created_at) === t).length,
+        target_new: tg.new_per_day ?? +(st.online_new_per_day ?? 10), target_orders: tg.orders_per_day ?? +(st.online_orders_per_day ?? 5), todo, midday_time: st.online_midday_time ?? '15:00' }); },
+    async setOrderCommission(id, rate) { if (!isBoss()) fail('Only admin or a manager can set the commission %');
+      const r = rate === '' || rate == null ? null : +rate; if (r != null && !(r >= 0 && r <= 100)) fail('Commission % must be 0–100');
+      const o = D.orders.find(x => x.id === id); if (!o) fail('Order not found'); o.commission_rate = r; save(); return wait(null); },
     async listOrders() {
       return wait(D.orders.filter(canSeeOrder).sort((a, b) => b.id - a.id).map(o => Object.assign(clone(o), {
         customers: (({ name, area }) => ({ name, area }))(D.customers.find(c => c.id === o.customer_id)),
@@ -2942,6 +3078,7 @@ window.makeDemoApi = function () {
         const pr = priceFor(p, it); D.items.push({ id: ++D.seq.item, order_id: id, product_id: p.id, qty: it.qty, price: pr, cost: p.cost }); total += pr * it.qty; });
       const order = { id, order_no, customer_id: o.customer_id, warehouse_id: o.warehouse_id, status: 'pending', ...demoPay(o, o.customer_id), total: +total.toFixed(2), paid_amount: 0, delivered_at: null, notes: o.notes || '', created_by: me.id, sales_rep_id: (D.customers.find(c => c.id === o.customer_id) || {}).assigned_to || me.id, approved_by: null, created_at: now(), updated_at: now() };
       D.orders.push(order);
+      { const oc = D.customers.find(x => x.id === order.customer_id); if (oc && oc.source) oc.sales_status = 'ordered'; }   // online customer: first order → Ordered
       D.events.push({ id: ++D.seq.event, order_id: id, status: 'pending', note: null, created_by: me.id, created_at: now() });
       const c = { id: ++D.seq.conv, kind: 'order', title: order_no, slug: null, order_id: id, created_by: me.id, created_at: now(), last_message_at: now() };
       D.convs.push(c);
@@ -3395,7 +3532,7 @@ window.makeDemoApi = function () {
       const sold = D.orders.filter(o => !['pending', 'cancelled', 'returned'].includes(o.status) && !o.is_opening);
       const days = []; const start = a === b ? new Date(new Date(b + 'T00:00:00').getTime() - 6 * 86400000) : new Date(Math.max(new Date(a + 'T00:00:00'), new Date(b + 'T00:00:00') - 61 * 86400000));
       for (let d = new Date(start); localDay0(d) <= b; d.setDate(d.getDate() + 1)) { const k = localDay0(d); days.push({ day: k, total: r2(sold.filter(o => localDay(o.created_at) === k).reduce((x, o) => x + +o.total, 0)) }); }
-      return wait({ from: a, to: b, sales: r2(sold.filter(o => inR(localDay(o.created_at))).reduce((x, o) => x + +o.total, 0)),
+      return wait({ from: a, to: b, sales: r2(sold.filter(o => inR(localDay(o.created_at))).reduce((x, o) => x + +o.total, 0)), np_sales: nopSum(null, a, b), np_count: nopOf(null, a, b).length,
         orders: D.orders.filter(o => !['cancelled', 'returned'].includes(o.status) && !o.is_opening && inR(localDay(o.created_at))).length,
         collected: r2(D.payments.filter(p => p.status !== 'rejected' && inR(localDay(p.received_at))).reduce((x, p) => x + +p.amount_usd, 0)),
         visits: D.visits.filter(v => inR(localDay(v.check_in_at))).length, new_shops: D.customers.filter(c => c.created_by && c.created_at && inR(localDay(c.created_at))).length,
@@ -3466,6 +3603,7 @@ window.makeDemoApi = function () {
       const byStaff = {}; sold.forEach(o => { const n = user(o.sales_rep_id || o.created_by).full_name; byStaff[n] = (byStaff[n] || 0) + o.total; });
       return wait({
         sales_today: sold.filter(o => day(o.created_at) === new Date().toDateString()).reduce((s, o) => s + o.total, 0),
+        np_today: nopSum(null, localDay0(new Date()), localDay0(new Date())),
         orders_today: D.orders.filter(o => !['cancelled', 'returned'].includes(o.status) && day(o.created_at) === new Date().toDateString()).length,
         pending_orders: D.orders.filter(o => o.status === 'pending').length,
         owed_total: D.orders.filter(o => o.status === 'delivered').reduce((s, o) => s + o.total - (o.paid_amount || 0), 0),
@@ -3491,6 +3629,7 @@ window.makeDemoApi = function () {
         const tg = Object.entries((D.targets || {})[u.id] || {}).filter(([m]) => m >= from.slice(0, 7) + '-01' && m <= to).reduce((a, [, v]) => a + v, 0);
         const att = (D.attendance || []).filter(a => a.staff_id === u.id && inR(a.work_date));
         return { user_id: u.id, full_name: u.full_name, role: u.role, sales: +mine.reduce((a, o) => a + o.total, 0).toFixed(2), orders: mine.length, target: tg || null,
+          np_sales: nopSum(u.id, from, to), np_count: nopOf(u.id, from, to).length,
           visits: vis.length, visit_orders: vis.filter(v => D.orders.some(o => o.customer_id === v.customer_id && (o.created_by === u.id || o.sales_rep_id === u.id) && o.status !== 'cancelled' && localDay(o.created_at) === localDay(v.check_in_at))).length,
           new_shops: D.customers.filter(c => c.created_by === u.id && inR(localDay(c.created_at))).length, shops: D.customers.filter(c => c.assigned_to === u.id).length,
           collected: +D.payments.filter(p => p.received_by === u.id && p.status !== 'rejected' && inR(localDay(p.received_at))).reduce((a, p) => a + p.amount_usd, 0).toFixed(2),
@@ -3498,6 +3637,40 @@ window.makeDemoApi = function () {
           days_worked: att.length, late_days: att.filter(a => { const t = new Date(a.check_in_at); return t.getHours() * 60 + t.getMinutes() > wh * 60 + wm + 5; }).length };
       }).sort((a, b) => b.sales - a.sales || a.full_name.localeCompare(b.full_name)));
     },
+    async reportOnline(from, to) { if (!allow('reports.view')) fail('You are not allowed to see reports');
+      const a = from < to ? from : to, b = from < to ? to : from, t = localDay(now()), inR = d => d && d >= a && d <= b, sleep = +((D.settings || {}).alert_sleeping_days || 30);
+      const oc = D.customers.filter(c => c.source && c.status !== 'rejected');
+      const sold = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening).map(o => ({ customer_id: o.customer_id, uid: o.sales_rep_id || o.created_by, amt: +o.total, d: localDay(o.created_at) }));
+      const all = sold;   // this report counts only stock orders; sales without products are shown apart
+      const days = []; for (let d = new Date(a + 'T00:00:00'); localDay0(d) <= (b < t ? b : t); d.setDate(d.getDate() + 1)) days.push(localDay0(d));
+      const work = days.filter(d => new Date(d + 'T00:00:00').getDay() !== 0 && !(D.holidays || []).some(h => h.day === d));
+      const counts = async (u, d) => api._onlineCounts(u, d);
+      const ppl = D.users.filter(u => u.active && (u.role === 'online_sales' || oc.some(c => c.assigned_to === u.id)));
+      const people = []; for (const u of ppl) { const mine = oc.filter(c => c.assigned_to === u.id), lastOf = id => all.filter(x => x.customer_id === id).map(x => x.d).sort();
+        const st = {}; mine.forEach(c => { st[c.sales_status || 'new'] = (st[c.sales_status || 'new'] || 0) + 1; });
+        let dn = 0, dok = 0; for (const d of work) { const c = await counts(u.id, d); if (c.new_today >= Math.max(1, c.target_new)) dn++; if (c.stock_orders_today >= Math.max(1, c.target_orders)) dok++; }
+        const so = sold.filter(x => x.uid === u.id && inR(x.d)), np = nopOf(u.id, a, b);
+        people.push({ id: u.id, full_name: u.full_name, new_customers: mine.filter(c => c.first_followup_at && inR(localDay(c.first_followup_at))).length,
+          added: oc.filter(c => c.created_by === u.id && inR(localDay(c.created_at))).length, followups: (D.followups || []).filter(f => f.staff_id === u.id && inR(localDay(f.created_at))).length,
+          orders: so.length, orders_amount: +so.reduce((s, x) => s + x.amt, 0).toFixed(2), np_count: np.length, np_amount: nopSum(u.id, a, b),
+          buyers: new Set(all.filter(x => x.uid === u.id && inR(x.d)).map(x => x.customer_id)).size, statuses: st,
+          silent: mine.filter(c => { const l = lastOf(c.id); return l.length >= 2 && l[l.length - 1] <= localDay(new Date(Date.now() - sleep * 864e5).toISOString()); }).length,
+          workdays: work.length, days_new_ok: dn, days_orders_ok: dok }); }
+      people.forEach(p => { p.total = p.orders_amount; }); people.sort((x, y) => y.total - x.total || x.full_name.localeCompare(y.full_name));
+      const sources = ['facebook', 'tiktok', 'telegram_group', 'referral', 'walk_in', 'other'].map(s => { const ids = new Set(oc.filter(c => c.source === s).map(c => c.id)), bx = all.filter(x => ids.has(x.customer_id) && inR(x.d));
+        return { source: s, customers: ids.size, new: oc.filter(c => c.source === s && inR(localDay(c.created_at))).length, buyers: new Set(bx.map(x => x.customer_id)).size, sales: +bx.reduce((q, x) => q + x.amt, 0).toFixed(2) }; });
+      const P = {}; nopOf(null, a, b).forEach(x => { String(x.products).split(/\s*[,;\n]\s*/).filter(p => p.trim()).forEach(part => { const m = part.match(/[×xX*]\s*(\d+)\s*(pcs|pc)?\s*$/), nm = part.replace(/\s*[×xX*]\s*\d+\s*(pcs|pc)?\s*$/, '').trim(); if (!nm) return;
+        const k = nm.toLowerCase(), r = P[k] = P[k] || { name: nm, ids: new Set(), pieces: 0, amount: 0, last_day: x.sale_date }; if (!r.ids.has(x.id)) { r.ids.add(x.id); r.amount += +x.amount; } r.pieces += m ? +m[1] : 1; if (x.sale_date > r.last_day) r.last_day = x.sale_date; }); });
+      const products = Object.values(P).map(r => ({ name: r.name, times: r.ids.size, pieces: r.pieces, amount: +r.amount.toFixed(2), last_day: r.last_day })).sort((x, y) => y.times - x.times || y.pieces - x.pieces);
+      let daily = null; if ((new Date(b) - new Date(a)) / 864e5 <= 62) { daily = []; for (const d of days.slice().reverse()) for (const u of ppl) daily.push(Object.assign({ day: d, user_id: u.id, name: u.full_name }, await counts(u.id, d))); }
+      return wait({ from: a, to: b, people, sources, products, daily }); },
+    async _onlineCounts(u, d) { const st = D.settings || {}, tg = (D.onlineTargets || {})[u] || {};
+      return { new_today: D.customers.filter(c => c.assigned_to === u && c.source && c.first_followup_at && localDay(c.first_followup_at) === d).length,
+        added_today: D.customers.filter(c => c.created_by === u && c.source && localDay(c.created_at) === d).length,
+        orders_today: D.orders.filter(o => (o.sales_rep_id || o.created_by) === u && !o.is_opening && !['cancelled', 'returned'].includes(o.status) && localDay(o.created_at) === d).length, np_today: nopOf(u, d, d).length,
+        stock_orders_today: D.orders.filter(o => (o.sales_rep_id || o.created_by) === u && !o.is_opening && !['cancelled', 'returned'].includes(o.status) && localDay(o.created_at) === d).length,
+        followups_today: (D.followups || []).filter(f => f.staff_id === u && localDay(f.created_at) === d).length,
+        target_new: tg.new_per_day ?? +(st.online_new_per_day ?? 10), target_orders: tg.orders_per_day ?? +(st.online_orders_per_day ?? 5) }; },
     async reportStock(from, to) {
       if (!allow('reports.view')) return wait([]);
       const inR = d => d >= from && d <= to, sale = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening), saleIds = new Set(sale.map(o => o.id));
@@ -3569,7 +3742,7 @@ window.makeDemoApi = function () {
         owed_suppliers: profit ? sum((D.purchases || []).filter(p => p.status !== 'cancelled'), p => p.total - (p.paid_amount || 0)) : null, profit_allowed: profit });
     },
     // Telegram alerts: the demo pretends to be Telegram
-    async tgSendRepsNow() { return wait(D.users.filter(u => u.active && u.role === 'sales').length); },
+    async tgSendRepsNow() { return wait(D.users.filter(u => u.active && ['sales', 'online_sales'].includes(u.role)).length); },
     async staffTgStatus() { D.stg = D.stg || {}; return wait({ connected: !!D.stg[me.id], username: D.stg[me.id] || null, bot: 'ktronics_alerts_bot', ready: true }); },
     async staffTgLink() { D.stg = D.stg || {}; return wait({ link: 'https://t.me/ktronics_alerts_bot?start=st_demo', bot: 'ktronics_alerts_bot' }); },
     async staffTgCheck() { return wait(7); },
@@ -3581,7 +3754,7 @@ window.makeDemoApi = function () {
         { id: 2, title: 'New price list from 1 October', body: 'Chargers and cables get new prices. Ask your manager.', color: 'blue', link_kind: 'none', audience: 'all', people: [], starts_on: '2026-09-01', ends_on: null, sort: 0, active: true },
         { id: 1, title: 'Push the 65W charger this week', body: '+$1 bonus for every piece you sell', color: 'red', link_kind: 'page', link_value: '#/orders/new', audience: 'sales', people: [], starts_on: '2026-09-01', ends_on: null, sort: 1, active: true }];
         D.bannerSeq = 2; D.bannerViews = []; } return D.banners; },
-    _bannerFor(b, u) { return b.audience === 'all' || (b.audience === 'sales' && u.role === 'sales') || (b.audience === 'warehouse' && u.role === 'warehouse') || (b.audience === 'managers' && ['admin', 'manager'].includes(u.role)) || (b.audience === 'people' && (b.people || []).includes(u.id)); },
+    _bannerFor(b, u) { return b.audience === 'all' || (b.audience === 'sales' && ['sales', 'online_sales'].includes(u.role)) || (b.audience === 'warehouse' && u.role === 'warehouse') || (b.audience === 'managers' && ['admin', 'manager'].includes(u.role)) || (b.audience === 'people' && (b.people || []).includes(u.id)); },
     async myBanners() { if (!me) return []; const t = new Date().toISOString().slice(0, 10);
       return wait(clone(api._banners().filter(b => b.active && b.starts_on <= t && (!b.ends_on || b.ends_on >= t) && api._bannerFor(b, me)).sort((a, b) => a.sort - b.sort || b.id - a.id))); },
     async bannerSeen(ids) { api._banners(); (ids || []).forEach(id => { if (!D.bannerViews.some(v => v.b === id && v.u === me.id)) D.bannerViews.push({ b: id, u: me.id, seen: now(), tapped: null }); }); save(); return wait(null); },
@@ -3607,7 +3780,7 @@ window.makeDemoApi = function () {
       save(); return wait(null); },
     async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
       return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)),
-        reps: D.users.filter(u => u.active && u.role === 'sales').map(u => ({ name: u.full_name, telegram: !!(D.stg || {})[u.id] })) }); },
+        reps: D.users.filter(u => u.active && ['sales', 'online_sales'].includes(u.role)).map(u => ({ name: u.full_name, telegram: !!(D.stg || {})[u.id] })) }); },
     async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; tk = (tk || '').trim();
       if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
       if (!/^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/.test(tk)) fail('That does not look like a bot token. It looks like 1234567890:AAH... (numbers, a colon, then letters).');
@@ -3632,7 +3805,7 @@ window.makeDemoApi = function () {
       return wait(allow('dashboard.view') || allow('hr.manage') ? all : all.filter(r => r.user_id === me.id)); },
     async _teamSalesAll(month) {
       const m = String(month).slice(0, 7);
-      return wait(D.users.filter(u => u.active && u.role === 'sales').map(u => ({ user_id: u.id, full_name: u.full_name,
+      return wait(D.users.filter(u => u.active && ['sales', 'online_sales'].includes(u.role)).map(u => ({ user_id: u.id, full_name: u.full_name,
         total: +D.orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && SOLD.includes(o.status) && localDay(o.created_at).slice(0, 7) === m).reduce((a, o) => a + o.total, 0).toFixed(2),
         target: ((D.targets || {})[u.id] || {})[m + '-01'] || null })).sort((a, b) => b.total - a.total || a.full_name.localeCompare(b.full_name)));
     },
@@ -3658,7 +3831,7 @@ window.makeDemoApi = function () {
       const all = await api._teamSalesAll(m0 + '-01'), mx = Math.max(1, ...all.map(r => +r.total));
       const ranking = all.map(r => { const bar = Math.round(r.total / mx * 100); return r.user_id === me.id || allow('dashboard.view') ? { id: r.user_id, name: r.full_name, total: r.total, target: r.target, bar } : { bar }; });
       return wait({
-        sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)),
+        sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)), np_month: nopSum(me.id, m0 + '-01', today), np_month_count: nopOf(me.id, m0 + '-01', today).length,
         target: ((D.targets || {})[me.id] || {})[m0 + '-01'] || null, last7: days,
         orders_pending: D.orders.filter(o => (o.sales_rep_id || o.created_by) === me.id && o.status === 'pending').length,
         orders_approved: D.orders.filter(o => (o.sales_rep_id || o.created_by) === me.id && o.status === 'approved').length,
@@ -3693,10 +3866,18 @@ window.makeDemoApi = function () {
       D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     // ---------- commission ----------
+    _commissionLines(month) {
+      const m = String(month).slice(0, 7), def = +(D.settings || {}).commission_default || 0, rateOf = u => (D.crates || {})[u] ?? def;
+      const L = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening && localDay(o.created_at).slice(0, 7) === m)
+        .map(o => ({ user_id: o.sales_rep_id || o.created_by, kind: 'order', ref_id: o.id, ref_no: o.order_no, customer: shopName(o.customer_id), day: localDay(o.created_at), amount: o.total, cr: o.commission_rate }));   // sales without products: no commission
+      return L.map(l => { const rate = l.cr != null ? +l.cr : rateOf(l.user_id); return { user_id: l.user_id, kind: l.kind, ref_id: l.ref_id, ref_no: l.ref_no, customer: l.customer, day: l.day, amount: l.amount, rate, own_rate: l.cr != null, commission: +(l.amount * rate / 100).toFixed(2) }; });
+    },
+    async commissionLines(month, uid) { if (!role()) return wait([]);
+      return wait(api._commissionLines(month).filter(l => (!uid || l.user_id === uid) && (l.user_id === me.id || allow('hr.manage') || allow('dashboard.view'))).sort((a, b) => a.day.localeCompare(b.day) || a.ref_id - b.ref_id)); },
     async commissionReport(month) {
-      const st = D.settings || {}, def = +st.commission_default || 0, bonus = +st.commission_bonus || 0;
+      const st = D.settings || {}, def = +st.commission_default || 0, bonus = +st.commission_bonus || 0, lines = api._commissionLines(month);
       const rows = (await api.teamSales(month)).map(r => { const rate = (D.crates || {})[r.user_id] ?? def; return { user_id: r.user_id, full_name: r.full_name, sales: r.total, target: r.target, rate, bonus_rate: bonus,
-        commission: +(r.total * rate / 100 + (r.target > 0 ? Math.max(0, r.total - r.target) * bonus / 100 : 0)).toFixed(2) }; });
+        commission: +(lines.filter(l => l.user_id === r.user_id).reduce((a, l) => a + l.commission, 0) + (r.target > 0 ? Math.max(0, r.total - r.target) * bonus / 100 : 0)).toFixed(2) }; });
       return wait(allow('hr.manage') || allow('dashboard.view') ? rows : rows.filter(r => r.user_id === me.id));
     },
     async listCommissionRates() { return wait(Object.entries(D.crates || {}).filter(([u]) => allow('hr.manage') || u === me.id).map(([user_id, rate]) => ({ user_id, rate }))); },
@@ -4227,9 +4408,9 @@ window.makeDemoApi = function () {
     'Koh Kong', 'Kratie', 'Mondulkiri', 'Oddar Meanchey', 'Pailin', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanakiri', 'Siem Reap',
     'Stung Treng', 'Svay Rieng', 'Takeo', 'Tbong Khmum'];
   const provinceOptions = (sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + PROVINCES.map(p => `<option ${p === sel ? 'selected' : ''}>${p}</option>`).join('');
-  const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', supervisor: 'Sales supervisor', sales: 'Sales', agent: 'Sales rep (main stock)', accountant: 'Accountant', cashier: 'Cashier', hr: 'HR officer', purchasing: 'Purchasing', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user', partner: 'Partner' };
-  const SELLERS = ['sales', 'supervisor', 'agent', 'manager', 'admin'];   // people who can look after shops
-  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops. Sells from their own stock, plus the stocks you tick below.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
+  const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', supervisor: 'Sales supervisor', sales: 'Sales', online_sales: 'Online sales', agent: 'Sales rep (main stock)', accountant: 'Accountant', cashier: 'Cashier', hr: 'HR officer', purchasing: 'Purchasing', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user', partner: 'Partner' };
+  const SELLERS = ['sales', 'online_sales', 'supervisor', 'agent', 'manager', 'admin'];   // people who can look after shops
+  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops. Sells from their own stock, plus the stocks you tick below.', online_sales: 'Like Sales, for customers who buy online (Facebook, TikTok, Telegram): quick customers (name, phone, Telegram, source), follow-ups and sales without products.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
     accountant: 'Money from shops, payments, reports, staff and office expenses, paying suppliers. No payroll.', cashier: 'Receives and confirms payments, sees what shops owe.',
     hr: 'Staff details, attendance, leave, payroll and payslips. No sales money.', purchasing: 'Suppliers, purchase orders and receiving goods.',
     warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', partner: 'A partner business: uses only the partner app and sees only its own partner (never K-TRONiCS stock, shops, orders, prices, staff or chat).', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
@@ -4330,7 +4511,7 @@ window.makeDemoApi = function () {
   // the admin web: the dashboard permission, or office work (HR, purchasing, money, reports)
   const canAdminWeb = () => ['dashboard.view', 'hr.manage', 'attendance.view', 'purchases.manage', 'purchases.receive', 'payments.confirm', 'expenses.approve', 'expenses.office', 'reports.view', 'stock.warehouses', 'stock.access'].some(allow) || isDeptHead();
   const repOptions = (staff, sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + staff.filter(u => u.active && SELLERS.includes(u.role))
-    .sort((a, b) => (a.role !== 'sales') - (b.role !== 'sales') || a.full_name.localeCompare(b.full_name))
+    .sort((a, b) => (!['sales', 'online_sales'].includes(a.role)) - (!['sales', 'online_sales'].includes(b.role)) || a.full_name.localeCompare(b.full_name))
     .map(u => `<option value="${esc(u.id)}" ${u.id === sel ? 'selected' : ''}>${esc(u.full_name)}${u.role !== 'sales' ? ' (' + ROLE_LABEL[u.role] + ')' : ''}</option>`).join('');
 
   // ---------- toast, sheet ----------
@@ -4902,6 +5083,26 @@ Object.assign(window.KT_KM, {"Shops": "ហាង", "New shop, approved, rejected
 
 // more alerts steps 2+3 (22 Oct)
 Object.assign(window.KT_KM, {"⏰ Credit overdue": "⏰ ឥណទានហួសកំណត់", "The day after an order passes its due date": "ថ្ងៃបន្ទាប់ពីការបញ្ជាទិញហួសថ្ងៃកំណត់", "📍 Shop not visited": "📍 ហាងមិនបានទៅលេង", "Every morning: shops not visited for the days in Settings → Alerts": "រៀងរាល់ព្រឹក៖ ហាងមិនបានទៅលេងតាមចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "😴 Sleeping shop (no order)": "😴 ហាងដេកលក់ (គ្មានការបញ្ជាទិញ)", "Every morning: shops with no order for the days in Settings → Alerts": "រៀងរាល់ព្រឹក៖ ហាងគ្មានការបញ្ជាទិញតាមចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "🆕 New shop never visited": "🆕 ហាងថ្មីមិនទាន់បានទៅលេង", "A new shop still not visited after the days in Settings → Alerts": "ហាងថ្មីនៅតែមិនទាន់បានទៅលេង ក្រោយចំនួនថ្ងៃក្នុង ការកំណត់ → ការជូនដំណឹង", "🗓 Monday: shops to visit this week": "🗓 ថ្ងៃច័ន្ទ៖ ហាងត្រូវទៅលេងសប្តាហ៍នេះ", "Each rep's list, every Monday morning": "បញ្ជីរបស់អ្នកលក់ម្នាក់ៗ រៀងរាល់ព្រឹកថ្ងៃច័ន្ទ", "🚫 Staff not at work": "🚫 បុគ្គលិកមិនមកធ្វើការ", "Staff who did not start work by the time in Settings → Alerts": "បុគ្គលិកមិនទាន់ចាប់ផ្តើមធ្វើការ ត្រឹមម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង", "Shop checks & staff (every morning)": "ពិនិត្យហាង និងបុគ្គលិក (រៀងរាល់ព្រឹក)", "📍 Shop not visited (every morning)": "📍 ហាងមិនបានទៅលេង (រៀងរាល់ព្រឹក)", "😴 Sleeping shop: no order (every morning)": "😴 ហាងដេកលក់៖ គ្មានការបញ្ជាទិញ (រៀងរាល់ព្រឹក)", "⏰ Credit overdue (the day after the due date)": "⏰ ឥណទានហួសកំណត់ (ថ្ងៃបន្ទាប់ពីថ្ងៃកំណត់)", "🚫 Staff not at work (time in Settings → Alerts)": "🚫 បុគ្គលិកមិនមកធ្វើការ (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "Every morning at 08:00": "រៀងរាល់ព្រឹកម៉ោង 08:00", "Shop not visited for how many days": "ហាងមិនបានទៅលេងប៉ុន្មានថ្ងៃ", "Sleeping shop: no order for how many days": "ហាងដេកលក់៖ គ្មានការបញ្ជាទិញប៉ុន្មានថ្ងៃ", "New shop never visited: how many days after it was added": "ហាងថ្មីមិនទាន់បានទៅលេង៖ ប៉ុន្មានថ្ងៃក្រោយបន្ថែម", "Also send each sales rep their own shops (bell + their Telegram)": "ផ្ញើហាងរបស់អ្នកលក់ម្នាក់ៗទៅពួកគេផងដែរ (កណ្តឹង + Telegram របស់ពួកគេ)", "A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets \"shops to visit this week\".": "ហាងនឹងផ្ញើម្តងទៀតតែក្រោយពេលបានទៅលេង (ឬបញ្ជាទិញ) ហើយហួសកំណត់ម្តងទៀត។ ថ្ងៃច័ន្ទ៖ អ្នកលក់ម្នាក់ៗក៏ទទួល \"ហាងត្រូវទៅលេងសប្តាហ៍នេះ\"។", "Staff": "បុគ្គលិក", "\"Not at work\" check time (Sundays, holidays and staff on leave are skipped)": "ម៉ោងពិនិត្យ \"មិនមកធ្វើការ\" (មិនរាប់ថ្ងៃអាទិត្យ ថ្ងៃឈប់សម្រាក និងបុគ្គលិកសុំច្បាប់)", "Days: type a number from 1 to 365": "ថ្ងៃ៖ សូមវាយលេខពី 1 ដល់ 365", "Time: type it like 08:30": "ម៉ោង៖ សូមវាយដូចជា 08:30"});
+
+// online sales step 1 (22 Oct)
+Object.assign(window.KT_KM, {"Online sales": "អ្នកលក់អនឡាញ", "Facebook": "Facebook", "TikTok": "TikTok", "Telegram group": "ក្រុម Telegram", "Referral": "អ្នកណែនាំ", "Walk-in": "មកផ្ទាល់", "Contacted": "បានទាក់ទង", "Interested": "ចាប់អារម្មណ៍", "Ordered": "បានបញ្ជាទិញ", "Not interested": "មិនចាប់អារម្មណ៍", "No answer": "មិនលើក", "Talked": "បាននិយាយ", "Phone": "ទូរស័ព្ទ", "Other": "ផ្សេងៗ", "Online customer": "អតិថិជនអនឡាញ", "Next follow-up": "តាមដានបន្ទាប់", "Follow-up": "តាមដាន", "Status": "ស្ថានភាព", "Messages": "សារ", "No follow-ups yet.": "មិនទាន់មានការតាមដាន។", "Loading follow-ups…": "កំពុងផ្ទុកការតាមដាន…", "How": "របៀប", "Result": "លទ្ធផល", "e.g. wants the price of 65W chargers": "ឧ. ចង់ដឹងតម្លៃឆ្នាំងសាក 65W", "Suggested: day 1, 3, 7 and 30 after the customer was added. Change it if you agreed another day.": "ណែនាំ៖ ថ្ងៃទី 1, 3, 7 និង 30 ក្រោយបន្ថែមអតិថិជន។ ប្តូរបាន ប្រសិនបើបានព្រមព្រៀងថ្ងៃផ្សេង។", "Save follow-up": "រក្សាទុកការតាមដាន", "Follow-up saved": "បានរក្សាទុកការតាមដាន", "It becomes \"Ordered\" by itself at the first order or sale.": "វាក្លាយជា \"បានបញ្ជាទិញ\" ដោយខ្លួនឯង ពេលមានការបញ្ជាទិញ ឬការលក់ដំបូង។", "Next follow-up (empty = none)": "តាមដានបន្ទាប់ (ទទេ = គ្មាន)", "More details…": "ព័ត៌មានបន្ថែម…", "No messages yet. The admin writes them in Settings → Messages.": "មិនទាន់មានសារ។ ម្ចាស់សរសេរក្នុង ការកំណត់ → សារ។", "Tap a message to copy it, then paste it in Telegram.": "ចុចលើសារដើម្បីចម្លង រួចបិទភ្ជាប់ក្នុង Telegram។", "Copied · paste it in Telegram": "បានចម្លង · បិទភ្ជាប់ក្នុង Telegram", "Could not copy": "មិនអាចចម្លងបាន", "Ready-made messages": "សារសម្រេចស្រាប់", "Online sales staff copy these with one tap on a customer (greeting, price list, promotion…). Write": "បុគ្គលិកលក់អនឡាញចម្លងវាដោយចុចម្តងលើអតិថិជន (ស្វាគមន៍ បញ្ជីតម្លៃ ប្រូម៉ូសិន…)។ សរសេរ", "where the customer's name should go.": "ត្រង់កន្លែងឈ្មោះអតិថិជន។", "Remove": "ដកចេញ", "Add message": "បន្ថែមសារ", "Save messages": "រក្សាទុកសារ", "Messages saved": "បានរក្សាទុកសារ", "Title, e.g. Greeting": "ចំណងជើង ឧ. ស្វាគមន៍", "Where did this customer come from?": "អតិថិជននេះមកពីណា?", "Choose…": "ជ្រើស…", "Edit customer": "កែអតិថិជន", "Customer name": "ឈ្មោះអតិថិជន", "Name or shop name": "ឈ្មោះ ឬឈ្មោះហាង", "Sales person who looks after this customer": "អ្នកលក់ដែលមើលអតិថិជននេះ", "No sales person yet": "មិនទាន់មានអ្នកលក់", "This customer will be yours. Only you and the managers will see it.": "អតិថិជននេះនឹងជារបស់អ្នក។ មានតែអ្នក និងអ្នកគ្រប់គ្រងទេដែលឃើញ។", "After you save, the customer waits for admin approval (orders after approval). You can follow up at once.": "ក្រោយរក្សាទុក អតិថិជនរង់ចាំការអនុម័ត (បញ្ជាទិញបានក្រោយអនុម័ត)។ អ្នកអាចតាមដានភ្លាមៗ។", "Save customer": "រក្សាទុកអតិថិជន", "Delete this customer?": "លុបអតិថិជននេះ?", "Customer deleted": "បានលុបអតិថិជន", "Customer saved": "បានរក្សាទុកអតិថិជន", "Where the customer came from": "កន្លែងដែលអតិថិជនមកពី", "Choose where the customer came from": "សូមជ្រើសកន្លែងដែលអតិថិជនមកពី", "Sales person:": "អ្នកលក់៖", "Choose where the customer came from (Facebook, TikTok, …)": "សូមជ្រើសកន្លែងដែលអតិថិជនមកពី (Facebook, TikTok, …)", "Please fill in: name, phone and Telegram": "សូមបំពេញ៖ ឈ្មោះ ទូរស័ព្ទ និង Telegram", "Follow-ups are for online customers": "ការតាមដានសម្រាប់អតិថិជនអនឡាញ", "Choose how you contacted them": "សូមជ្រើសរបៀបដែលអ្នកបានទាក់ទង", "Choose the result": "សូមជ្រើសលទ្ធផល", "The next follow-up date cannot be in the past": "ថ្ងៃតាមដានបន្ទាប់មិនអាចជាថ្ងៃកន្លងមកបានទេ", "Only the admin can change the messages": "មានតែម្ចាស់ទេ ដែលអាចប្តូរសារបាន"});
+window.KT_KM_PATTERNS.push([/^How did it go\? · (.+)$/, "លទ្ធផលយ៉ាងម៉េច? · $1"], [/^Follow-up · (.+)$/, "តាមដាន · $1"], [/^Status · (.+)$/, "ស្ថានភាព · $1"], [/^Messages · (.+)$/, "សារ · $1"]);
+
+// online sales step 2 (22 Oct)
+Object.assign(window.KT_KM, {"Sale without products": "ការលក់គ្មានផលិតផល", "Sales without products": "ការលក់គ្មានផលិតផល", "🧾 No products": "🧾 គ្មានផលិតផល", "Products not in the app": "ផលិតផលមិនមានក្នុងកម្មវិធី", "Only for products that are NOT in this app (sold in the other system). No stock changes. It counts in sales, target and commission.": "សម្រាប់តែផលិតផលដែលមិនមានក្នុងកម្មវិធីនេះ (លក់ក្នុងប្រព័ន្ធផ្សេង)។ ស្តុកមិនប្តូរ។ រាប់ក្នុងការលក់ គោលដៅ និងកម្រៃជើងសារ។", "Customer": "អតិថិជន", "Amount ($)": "ចំនួនទឹកប្រាក់ ($)", "Invoice number (from the other system)": "លេខវិក្កយបត្រ (ពីប្រព័ន្ធផ្សេង)", "Product names": "ឈ្មោះផលិតផល", "e.g. Ring light ×2, Tripod": "ឧ. Ring light ×2, Tripod", "Note (optional)": "កំណត់ចំណាំ (មិនចាំបាច់)", "The customer's sales person": "អ្នកលក់របស់អតិថិជន", "Commission % (empty = normal rate)": "កម្រៃជើងសារ % (ទទេ = អត្រាធម្មតា)", "Save sale": "រក្សាទុកការលក់", "Save changes": "រក្សាទុកការប្តូរ", "Delete this sale?": "លុបការលក់នេះ?", "It will no longer count in sales, target and commission.": "វានឹងលែងរាប់ក្នុងការលក់ គោលដៅ និងកម្រៃជើងសារ។", "Only admin or a manager can change or delete it.": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកែ ឬលុបបាន។", "None yet": "មិនទាន់មាន", "Invoice": "វិក្កយបត្រ", "Products": "ផលិតផល", "Sales person": "អ្នកលក់", "Commission": "កម្រៃជើងសារ", "Commission for this order": "កម្រៃជើងសារសម្រាប់ការបញ្ជាទិញនេះ", "Normal rate": "អត្រាធម្មតា", "Commission %": "កម្រៃជើងសារ %", "Use this when the selling price was low or high. Empty = the sales person's normal rate.": "ប្រើពេលតម្លៃលក់ទាប ឬខ្ពស់។ ទទេ = អត្រាធម្មតារបស់អ្នកលក់។", "sales": "ការលក់", "No sales without products for these dates": "គ្មានការលក់គ្មានផលិតផល សម្រាប់ថ្ងៃទាំងនេះ", "Add one from the customer page or with +. Only for products that are not in this app.": "បន្ថែមពីទំព័រអតិថិជន ឬចុច +។ សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។", "Sales without products · this month": "ការលក់គ្មានផលិតផល · ខែនេះ", "Already counted in your sales above.": "បានរាប់រួចក្នុងការលក់របស់អ្នកខាងលើ។", "Without products": "គ្មានផលិតផល", "Add sale": "បន្ថែមការលក់", "All orders": "ការបញ្ជាទិញទាំងអស់", "Only for products that are not in this app. They count in sales, targets, ranking and commission. Admin and managers can change or delete them and set a commission %.": "សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។ រាប់ក្នុងការលក់ គោលដៅ ចំណាត់ថ្នាក់ និងកម្រៃជើងសារ។ ម្ចាស់ និងអ្នកគ្រប់គ្រងអាចកែ លុប និងកំណត់កម្រៃជើងសារ %។", "Each order and sale without products with its commission %.": "ការបញ្ជាទិញ និងការលក់គ្មានផលិតផលនីមួយៗ ជាមួយកម្រៃជើងសារ %។", "Own %": "% ផ្ទាល់", "= set on that order or sale by admin/manager.": "= កំណត់លើការបញ្ជាទិញ ឬការលក់នោះ ដោយម្ចាស់/អ្នកគ្រប់គ្រង។", "(own %)": "(% ផ្ទាល់)", "No sales this month": "គ្មានការលក់ខែនេះ", "Total (without the bonus over target)": "សរុប (មិនរួមប្រាក់រង្វាន់លើសគោលដៅ)", "Tap a name to see each order and sale with its %. Each rep sees their own commission in \"My dashboard\". Sales targets are set on the Dashboard.": "ចុចលើឈ្មោះ ដើម្បីមើលការបញ្ជាទិញ និងការលក់នីមួយៗជាមួយ %។ អ្នកលក់ម្នាក់ៗឃើញកម្រៃជើងសាររបស់ខ្លួនក្នុង \"ផ្ទាំងរបស់ខ្ញុំ\"។ គោលដៅលក់កំណត់នៅផ្ទាំងគ្រប់គ្រង។", "Write the amount": "សូមសរសេរចំនួនទឹកប្រាក់", "Write the invoice number": "សូមសរសេរលេខវិក្កយបត្រ", "Write the product names": "សូមសរសេរឈ្មោះផលិតផល", "Choose the customer": "សូមជ្រើសអតិថិជន", "The date cannot be in the future": "ថ្ងៃមិនអាចនៅអនាគតបានទេ", "The date is too old (more than 31 days). Ask the admin.": "ថ្ងៃចាស់ពេក (ជាង 31 ថ្ងៃ)។ សូមសួរម្ចាស់។", "Only admin or a manager can change a sale without products": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកែការលក់គ្មានផលិតផល", "Only admin or a manager can delete a sale without products": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចលុបការលក់គ្មានផលិតផល", "Only admin or a manager can set the commission %": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកំណត់កម្រៃជើងសារ %", "Commission % must be 0–100": "កម្រៃជើងសារ % ត្រូវតែ 0–100"});
+window.KT_KM_PATTERNS.push([/^Invoice number (.+) is already used$/, "លេខវិក្កយបត្រ $1 ត្រូវបានប្រើរួចហើយ"], [/^Commission % · (.+)$/, "កម្រៃជើងសារ % · $1"], [/^Commission · (.+)$/, "កម្រៃជើងសារ · $1"]);
+
+// online sales step 3 (22 Oct)
+Object.assign(window.KT_KM, {"🔥 Hot": "🔥 ក្តៅ", "Follow up": "តាមដាន", "↻ Due to reorder": "↻ ដល់ពេលទិញម្តងទៀត", "😴 Silent": "😴 ស្ងាត់", "New customers today": "អតិថិជនថ្មីថ្ងៃនេះ", "Orders today": "ការបញ្ជាទិញថ្ងៃនេះ", "Follow up today": "តាមដានថ្ងៃនេះ", "Nothing to follow up today. Add new customers!": "ថ្ងៃនេះគ្មានអ្វីត្រូវតាមដាន។ បន្ថែមអតិថិជនថ្មី!", "A new customer counts after the first follow-up. Orders today = orders + sales without products.": "អតិថិជនថ្មីរាប់ក្រោយការតាមដានលើកដំបូង។ ការបញ្ជាទិញថ្ងៃនេះ = ការបញ្ជាទិញ + ការលក់គ្មានផលិតផល។", "Online sales · daily targets": "លក់អនឡាញ · គោលដៅប្រចាំថ្ងៃ", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders + sales without products). Empty = the number for everyone.": "បង្ហាញលើទំព័រដើម៖ \"អតិថិជនថ្មីថ្ងៃនេះ X / Y\" (រាប់ក្រោយការតាមដានលើកដំបូង) និង \"ការបញ្ជាទិញថ្ងៃនេះ X / Y\" (ការបញ្ជាទិញ + ការលក់គ្មានផលិតផល)។ ទទេ = ចំនួនសម្រាប់គ្រប់គ្នា។", "New customers a day (everyone)": "អតិថិជនថ្មីក្នុងមួយថ្ងៃ (គ្រប់គ្នា)", "Orders a day (everyone)": "ការបញ្ជាទិញក្នុងមួយថ្ងៃ (គ្រប់គ្នា)", "No online sales staff yet.": "មិនទាន់មានបុគ្គលិកលក់អនឡាញ។", "Per person: new customers · orders a day": "ម្នាក់ៗ៖ អតិថិជនថ្មី · ការបញ្ជាទិញក្នុងមួយថ្ងៃ", "Save daily targets": "រក្សាទុកគោលដៅប្រចាំថ្ងៃ", "Daily targets saved": "បានរក្សាទុកគោលដៅប្រចាំថ្ងៃ", "Midday warning time: online sales staff with 0 orders today get a reminder; admin and managers get the names (empty = off)": "ម៉ោងរំលឹកពេលថ្ងៃត្រង់៖ បុគ្គលិកលក់អនឡាញដែលគ្មានការបញ្ជាទិញថ្ងៃនេះ ទទួលការរំលឹក ម្ចាស់ និងអ្នកគ្រប់គ្រងទទួលឈ្មោះ (ទទេ = បិទ)", "\"Hot\" customer: Interested and no order for how many days": "អតិថិជន \"ក្តៅ\"៖ ចាប់អារម្មណ៍ ហើយគ្មានការបញ្ជាទិញប៉ុន្មានថ្ងៃ", "Not on Sundays, holidays or for staff on leave. \"Silent\" customers use the \"Sleeping shop\" days above.": "មិនផ្ញើថ្ងៃអាទិត្យ ថ្ងៃឈប់សម្រាក ឬបុគ្គលិកដែលឈប់សម្រាក។ អតិថិជន \"ស្ងាត់\" ប្រើចំនួនថ្ងៃ \"ហាងដេក\" ខាងលើ។", "Online sales": "លក់អនឡាញ", "Targets: type a number from 0 to 1000": "គោលដៅ៖ វាយលេខពី 0 ដល់ 1000", "Days: type a number from 1 to 60": "ថ្ងៃ៖ វាយលេខពី 1 ដល់ 60", "Time: type it like 15:00": "ម៉ោង៖ វាយដូចជា 15:00", "Only admin or managers can set targets": "មានតែម្ចាស់ ឬអ្នកគ្រប់គ្រងទេ ដែលអាចកំណត់គោលដៅ", "Today": "ថ្ងៃនេះ"});
+window.KT_KM_PATTERNS.push([/^Interested, no order for (\d+) days$/, "ចាប់អារម្មណ៍ គ្មានការបញ្ជាទិញ $1 ថ្ងៃ"], [/^Follow-up date: today$/, "ថ្ងៃតាមដាន៖ ថ្ងៃនេះ"], [/^Follow-up date: (.+) \((\d+) days late\)$/, "ថ្ងៃតាមដាន៖ $1 (យឺត $2 ថ្ងៃ)"], [/^Buys about every (\d+) days · last (\d+) days ago$/, "ទិញប្រហែលរៀងរាល់ $1 ថ្ងៃ · ចុងក្រោយ $2 ថ្ងៃមុន"], [/^Bought before, no order for (\d+) days$/, "ធ្លាប់ទិញ គ្មានការបញ្ជាទិញ $1 ថ្ងៃ"], [/^Show all \((\d+)\)$/, "បង្ហាញទាំងអស់ ($1)"]);
+
+// online sales step 4 (22 Oct)
+Object.assign(window.KT_KM, {"New customers (after the first follow-up)": "អតិថិជនថ្មី (ក្រោយការតាមដានលើកដំបូង)", "Follow-ups": "ការតាមដាន", "Order sales": "ការលក់តាមការបញ្ជាទិញ", "Total sales": "ការលក់សរុប", "Online sales people": "អ្នកលក់អនឡាញ", "New = customers whose first follow-up was in these dates. Target days = working days (no Sundays or holidays) when the daily target was reached (today's targets). Status and silent = now.": "ថ្មី = អតិថិជនដែលការតាមដានលើកដំបូងនៅក្នុងថ្ងៃទាំងនេះ។ ថ្ងៃគោលដៅ = ថ្ងៃធ្វើការ (គ្មានថ្ងៃអាទិត្យ ឬថ្ងៃឈប់) ដែលបានដល់គោលដៅប្រចាំថ្ងៃ (គោលដៅបច្ចុប្បន្ន)។ ស្ថានភាព និងស្ងាត់ = ឥឡូវ។", "Buyers": "អ្នកទិញ", "New-customer target days": "ថ្ងៃដល់គោលដៅអតិថិជនថ្មី", "Order target days": "ថ្ងៃដល់គោលដៅការបញ្ជាទិញ", "Silent": "ស្ងាត់", "No online sales people yet": "មិនទាន់មានអ្នកលក់អនឡាញ", "By source": "តាមប្រភព", "Where online customers came from. New = added in these dates; buyers and sales = in these dates (orders + sales without products).": "កន្លែងដែលអតិថិជនអនឡាញមកពី។ ថ្មី = បន្ថែមក្នុងថ្ងៃទាំងនេះ អ្នកទិញ និងការលក់ = ក្នុងថ្ងៃទាំងនេះ (ការបញ្ជាទិញ + ការលក់គ្មានផលិតផល)។", "Source": "ប្រភព", "From sales without products in these dates (names as staff typed them). Think about adding the popular ones to the app.": "ពីការលក់គ្មានផលិតផលក្នុងថ្ងៃទាំងនេះ (ឈ្មោះដូចបុគ្គលិកវាយ)។ គួរបន្ថែមផលិតផលដែលលក់ដាច់ទៅក្នុងកម្មវិធី។", "Product": "ផលិតផល", "Amount of those sales": "ទឹកប្រាក់នៃការលក់ទាំងនោះ", "Last": "ចុងក្រោយ", "No sales without products in these dates": "គ្មានការលក់គ្មានផលិតផលក្នុងថ្ងៃទាំងនេះ", "By day": "តាមថ្ងៃ", "Each working day of each online sales person (targets as set now).": "ថ្ងៃធ្វើការនីមួយៗរបស់អ្នកលក់អនឡាញម្នាក់ៗ (គោលដៅតាមការកំណត់ឥឡូវ)។", "New customers": "អតិថិជនថ្មី", "Nothing in these dates": "គ្មានអ្វីក្នុងថ្ងៃទាំងនេះ", "Choose 2 months or less to see each day.": "ជ្រើស 2 ខែ ឬតិចជាងនេះ ដើម្បីមើលថ្ងៃនីមួយៗ។", "Downloading the report (Excel)": "កំពុងទាញយករបាយការណ៍ (Excel)", "You are not allowed to see reports": "អ្នកមិនមានសិទ្ធិមើលរបាយការណ៍"});
+
+Object.assign(window.KT_KM, {"Sales (stock orders)": "ការលក់ (ការបញ្ជាទិញមានស្តុក)", "Sales without products (not counted)": "ការលក់គ្មានផលិតផល (មិនរាប់)", "This report counts only orders with stock products. Sales without products are shown apart and are not in any total.": "របាយការណ៍នេះរាប់តែការបញ្ជាទិញផលិតផលមានស្តុកប៉ុណ្ណោះ។ ការលក់គ្មានផលិតផលបង្ហាញដាច់ដោយឡែក ហើយមិនរាប់ក្នុងសរុបទេ។", "Without products (not counted)": "គ្មានផលិតផល (មិនរាប់)", "Each working day of each online sales person. Orders = stock orders (targets as set now).": "ថ្ងៃធ្វើការនីមួយៗរបស់អ្នកលក់អនឡាញម្នាក់ៗ។ ការបញ្ជាទិញ = ការបញ្ជាទិញមានស្តុក (គោលដៅតាមការកំណត់ឥឡូវ)។"});
+
+// sales without products kept apart (22 Oct)
+Object.assign(window.KT_KM, {"Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.": "សម្រាប់តែផលិតផលដែលមិនមានក្នុងកម្មវិធីនេះ (លក់ក្នុងប្រព័ន្ធផ្សេង)។ ស្តុកមិនប្តូរ។ ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ចំណាត់ថ្នាក់ ឬកម្រៃជើងសារទេ។", "It will be removed from the list of sales without products.": "វានឹងត្រូវដកចេញពីបញ្ជីការលក់គ្មានផលិតផល។", "Each order with its commission %.": "ការបញ្ជាទិញនីមួយៗ ជាមួយកម្រៃជើងសារ %។", "= set on that order by admin/manager.": "= ម្ចាស់/អ្នកគ្រប់គ្រងកំណត់លើការបញ្ជាទិញនោះ។", "A new customer counts after the first follow-up. Orders today = orders with stock products.": "អតិថិជនថ្មីរាប់ក្រោយការតាមដានលើកដំបូង។ ការបញ្ជាទិញថ្ងៃនេះ = ការបញ្ជាទិញផលិតផលមានស្តុក។", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders with stock products). Empty = the number for everyone.": "បង្ហាញលើទំព័រដើម៖ \"អតិថិជនថ្មីថ្ងៃនេះ X / Y\" (រាប់ក្រោយការតាមដានលើកដំបូង) និង \"ការបញ្ជាទិញថ្ងៃនេះ X / Y\" (ការបញ្ជាទិញផលិតផលមានស្តុក)។ ទទេ = ចំនួនសម្រាប់គ្រប់គ្នា។", "Only for products that are not in this app. They are kept apart: not added to sales, targets, ranking or commission. Admin and managers can change or delete them.": "សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។ ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ចំណាត់ថ្នាក់ ឬកម្រៃជើងសារ។ ម្ចាស់ និងអ្នកគ្រប់គ្រងអាចកែ ឬលុបបាន។", "Kept apart: not added to your sales, target or commission.": "ដាក់ដាច់ដោយឡែក៖ មិនបូកចូលការលក់ គោលដៅ ឬកម្រៃជើងសាររបស់អ្នក។"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -5870,6 +6071,26 @@ Object.assign(window.KT_ZH, {"New shop, approved, rejected": "新店铺、已批
 // more alerts steps 2+3 (22 Oct)
 Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day after an order passes its due date": "订单过了到期日的第二天", "📍 Shop not visited": "📍 店铺未拜访", "Every morning: shops not visited for the days in Settings → Alerts": "每天早上：超过 设置 → 提醒 中天数未拜访的店铺", "😴 Sleeping shop (no order)": "😴 沉睡店铺（没有订单）", "Every morning: shops with no order for the days in Settings → Alerts": "每天早上：超过 设置 → 提醒 中天数没有订单的店铺", "🆕 New shop never visited": "🆕 新店铺从未拜访", "A new shop still not visited after the days in Settings → Alerts": "新店铺在 设置 → 提醒 中的天数后仍未拜访", "🗓 Monday: shops to visit this week": "🗓 周一：本周要拜访的店铺", "Each rep's list, every Monday morning": "每位销售的清单，每周一早上", "🚫 Staff not at work": "🚫 员工未上班", "Staff who did not start work by the time in Settings → Alerts": "在 设置 → 提醒 中的时间前还未开始上班的员工", "Shop checks & staff (every morning)": "店铺检查和员工（每天早上）", "📍 Shop not visited (every morning)": "📍 店铺未拜访（每天早上）", "😴 Sleeping shop: no order (every morning)": "😴 沉睡店铺：没有订单（每天早上）", "⏰ Credit overdue (the day after the due date)": "⏰ 赊账逾期（到期日的第二天）", "🚫 Staff not at work (time in Settings → Alerts)": "🚫 员工未上班（时间在 设置 → 提醒）", "Every morning at 08:00": "每天早上 08:00", "Shop not visited for how many days": "店铺多少天未拜访", "Sleeping shop: no order for how many days": "沉睡店铺：多少天没有订单", "New shop never visited: how many days after it was added": "新店铺从未拜访：添加后多少天", "Also send each sales rep their own shops (bell + their Telegram)": "也把每位销售自己的店铺发给他们（铃铛 + 他们的 Telegram）", "A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets \"shops to visit this week\".": "店铺只有在拜访（或下单）后再次超过界限时才会再次发送。每周一：每位销售也会收到“本周要拜访的店铺”。", "\"Not at work\" check time (Sundays, holidays and staff on leave are skipped)": "“未上班”检查时间（不包括周日、节假日和请假员工）", "Days: type a number from 1 to 365": "天数：请输入 1 到 365", "Time: type it like 08:30": "时间：请输入例如 08:30"});
 
+// online sales step 1 (22 Oct)
+Object.assign(window.KT_ZH, {"Online sales": "线上销售", "Facebook": "Facebook", "TikTok": "TikTok", "Telegram group": "Telegram 群", "Referral": "推荐", "Walk-in": "到店", "Contacted": "已联系", "Interested": "有兴趣", "Ordered": "已下单", "Not interested": "没兴趣", "No answer": "没接", "Talked": "已沟通", "Online customer": "线上客户", "Next follow-up": "下次跟进", "Follow-up": "跟进", "No follow-ups yet.": "还没有跟进。", "Loading follow-ups…": "正在加载跟进…", "How": "方式", "Result": "结果", "e.g. wants the price of 65W chargers": "例如：想要 65W 充电器的价格", "Suggested: day 1, 3, 7 and 30 after the customer was added. Change it if you agreed another day.": "建议：添加客户后第 1、3、7 和 30 天。如果约了别的日子可以修改。", "Save follow-up": "保存跟进", "Follow-up saved": "跟进已保存", "It becomes \"Ordered\" by itself at the first order or sale.": "第一次下单或销售时会自动变成“已下单”。", "Next follow-up (empty = none)": "下次跟进（空 = 无）", "More details…": "更多细节…", "No messages yet. The admin writes them in Settings → Messages.": "还没有消息。老板在 设置 → 消息 中编写。", "Tap a message to copy it, then paste it in Telegram.": "点一条消息复制，然后粘贴到 Telegram。", "Copied · paste it in Telegram": "已复制 · 粘贴到 Telegram", "Could not copy": "无法复制", "Ready-made messages": "现成消息", "Online sales staff copy these with one tap on a customer (greeting, price list, promotion…). Write": "线上销售在客户页面一键复制（问候、价目表、促销…）。在客户名字的位置写", "where the customer's name should go.": "。", "Add message": "添加消息", "Save messages": "保存消息", "Messages saved": "消息已保存", "Title, e.g. Greeting": "标题，例如：问候", "Where did this customer come from?": "这个客户来自哪里？", "Choose…": "选择…", "Edit customer": "编辑客户", "Customer name": "客户名称", "Name or shop name": "姓名或店名", "Sales person who looks after this customer": "负责这个客户的销售", "No sales person yet": "还没有销售", "This customer will be yours. Only you and the managers will see it.": "这个客户归你。只有你和经理能看到。", "After you save, the customer waits for admin approval (orders after approval). You can follow up at once.": "保存后客户等待批准（批准后才能下单）。你可以马上跟进。", "Save customer": "保存客户", "Delete this customer?": "删除这个客户？", "Customer deleted": "客户已删除", "Customer saved": "客户已保存", "Where the customer came from": "客户来源", "Choose where the customer came from": "请选择客户来源", "Sales person:": "销售：", "Choose where the customer came from (Facebook, TikTok, …)": "请选择客户来源（Facebook、TikTok…）", "Please fill in: name, phone and Telegram": "请填写：名称、电话和 Telegram", "Follow-ups are for online customers": "跟进只用于线上客户", "Choose how you contacted them": "请选择联系方式", "Choose the result": "请选择结果", "The next follow-up date cannot be in the past": "下次跟进日期不能是过去", "Only the admin can change the messages": "只有老板可以修改消息"});
+window.KT_ZH_PATTERNS.push([/^How did it go\? · (.+)$/, "结果如何？· $1"], [/^Follow-up · (.+)$/, "跟进 · $1"], [/^Status · (.+)$/, "状态 · $1"], [/^Messages · (.+)$/, "消息 · $1"]);
+
+// online sales step 2 (22 Oct)
+Object.assign(window.KT_ZH, {"Sale without products": "无产品销售", "Sales without products": "无产品销售", "🧾 No products": "🧾 无产品", "Products not in the app": "不在应用里的产品", "Only for products that are NOT in this app (sold in the other system). No stock changes. It counts in sales, target and commission.": "只用于不在本应用里的产品（在另一个系统销售）。库存不变。计入销售额、目标和提成。", "Customer": "客户", "Amount ($)": "金额 ($)", "Invoice number (from the other system)": "发票号（来自另一个系统）", "Product names": "产品名称", "e.g. Ring light ×2, Tripod": "例如：补光灯 ×2，三脚架", "Note (optional)": "备注（可选）", "The customer's sales person": "客户的销售", "Commission % (empty = normal rate)": "提成 %（空 = 正常比例）", "Save sale": "保存销售", "Save changes": "保存修改", "Delete this sale?": "删除这笔销售？", "It will no longer count in sales, target and commission.": "它将不再计入销售额、目标和提成。", "Only admin or a manager can change or delete it.": "只有老板或经理可以修改或删除。", "None yet": "还没有", "Invoice": "发票", "Products": "产品", "Sales person": "销售", "Commission": "提成", "Commission for this order": "这个订单的提成", "Normal rate": "正常比例", "Commission %": "提成 %", "Use this when the selling price was low or high. Empty = the sales person's normal rate.": "售价偏低或偏高时使用。空 = 销售的正常比例。", "sales": "笔销售", "No sales without products for these dates": "这些日期没有无产品销售", "Add one from the customer page or with +. Only for products that are not in this app.": "在客户页面或点 + 添加。只用于不在本应用里的产品。", "Sales without products · this month": "无产品销售 · 本月", "Already counted in your sales above.": "已计入上面的销售额。", "Without products": "无产品", "Add sale": "添加销售", "All orders": "全部订单", "Only for products that are not in this app. They count in sales, targets, ranking and commission. Admin and managers can change or delete them and set a commission %.": "只用于不在本应用里的产品。计入销售额、目标、排名和提成。老板和经理可以修改、删除并设置提成 %。", "Each order and sale without products with its commission %.": "每个订单和无产品销售及其提成 %。", "Own %": "单独 %", "= set on that order or sale by admin/manager.": "= 老板/经理在该订单或销售上设置。", "(own %)": "（单独 %）", "No sales this month": "本月没有销售", "Total (without the bonus over target)": "合计（不含超目标奖金）", "Tap a name to see each order and sale with its %. Each rep sees their own commission in \"My dashboard\". Sales targets are set on the Dashboard.": "点名字查看每个订单和销售及其 %。每位销售在“我的面板”看到自己的提成。销售目标在仪表板设置。", "Write the amount": "请填写金额", "Write the invoice number": "请填写发票号", "Write the product names": "请填写产品名称", "Choose the customer": "请选择客户", "The date cannot be in the future": "日期不能是将来", "The date is too old (more than 31 days). Ask the admin.": "日期太早（超过 31 天）。请找老板。", "Only admin or a manager can change a sale without products": "只有老板或经理可以修改无产品销售", "Only admin or a manager can delete a sale without products": "只有老板或经理可以删除无产品销售", "Only admin or a manager can set the commission %": "只有老板或经理可以设置提成 %", "Commission % must be 0–100": "提成 % 必须是 0–100"});
+window.KT_ZH_PATTERNS.push([/^Invoice number (.+) is already used$/, "发票号 $1 已被使用"], [/^Commission % · (.+)$/, "提成 % · $1"], [/^Commission · (.+)$/, "提成 · $1"]);
+
+// online sales step 3 (22 Oct)
+Object.assign(window.KT_ZH, {"🔥 Hot": "🔥 热门", "Follow up": "跟进", "↻ Due to reorder": "↻ 该再订货了", "😴 Silent": "😴 沉默", "New customers today": "今天新客户", "Orders today": "今天订单", "Follow up today": "今天要跟进", "Nothing to follow up today. Add new customers!": "今天没有要跟进的。去添加新客户吧！", "A new customer counts after the first follow-up. Orders today = orders + sales without products.": "新客户在第一次跟进后才计算。今天订单 = 订单 + 无产品销售。", "Online sales · daily targets": "线上销售 · 每日目标", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders + sales without products). Empty = the number for everyone.": "显示在他们的首页：“今天新客户 X / Y”（第一次跟进后才计算）和“今天订单 X / Y”（订单 + 无产品销售）。空 = 所有人的数字。", "New customers a day (everyone)": "每天新客户（所有人）", "Orders a day (everyone)": "每天订单（所有人）", "No online sales staff yet.": "还没有线上销售员工。", "Per person: new customers · orders a day": "每人：每天新客户 · 订单", "Save daily targets": "保存每日目标", "Daily targets saved": "每日目标已保存", "Midday warning time: online sales staff with 0 orders today get a reminder; admin and managers get the names (empty = off)": "中午提醒时间：今天 0 订单的线上销售会收到提醒；老板和经理收到名单（空 = 关闭）", "\"Hot\" customer: Interested and no order for how many days": "“热门”客户：有兴趣但多少天没下单", "Not on Sundays, holidays or for staff on leave. \"Silent\" customers use the \"Sleeping shop\" days above.": "周日、节假日和请假员工不发送。“沉默”客户使用上面“沉睡店铺”的天数。", "Online sales": "线上销售", "Targets: type a number from 0 to 1000": "目标：请输入 0 到 1000", "Days: type a number from 1 to 60": "天数：请输入 1 到 60", "Time: type it like 15:00": "时间：请输入例如 15:00", "Only admin or managers can set targets": "只有老板或经理可以设置目标", "Today": "今天"});
+window.KT_ZH_PATTERNS.push([/^Interested, no order for (\d+) days$/, "有兴趣，$1 天没下单"], [/^Follow-up date: today$/, "跟进日期：今天"], [/^Follow-up date: (.+) \((\d+) days late\)$/, "跟进日期：$1（晚了 $2 天）"], [/^Buys about every (\d+) days · last (\d+) days ago$/, "大约每 $1 天买一次 · 上次 $2 天前"], [/^Bought before, no order for (\d+) days$/, "以前买过，$1 天没下单"], [/^Show all \((\d+)\)$/, "全部显示（$1）"]);
+
+// online sales step 4 (22 Oct)
+Object.assign(window.KT_ZH, {"New customers (after the first follow-up)": "新客户（第一次跟进后）", "Follow-ups": "跟进", "Order sales": "订单销售额", "Total sales": "总销售额", "Online sales people": "线上销售人员", "New = customers whose first follow-up was in these dates. Target days = working days (no Sundays or holidays) when the daily target was reached (today's targets). Status and silent = now.": "新 = 第一次跟进在这些日期内的客户。目标天数 = 达到每日目标的工作日（不含周日和节假日，按现在的目标）。状态和沉默 = 现在。", "Buyers": "买家", "New-customer target days": "新客户目标天数", "Order target days": "订单目标天数", "Silent": "沉默", "No online sales people yet": "还没有线上销售人员", "By source": "按来源", "Where online customers came from. New = added in these dates; buyers and sales = in these dates (orders + sales without products).": "线上客户来源。新 = 这些日期添加的；买家和销售额 = 这些日期内（订单 + 无产品销售）。", "Source": "来源", "From sales without products in these dates (names as staff typed them). Think about adding the popular ones to the app.": "来自这些日期的无产品销售（名称按员工输入）。可以考虑把热门的加到应用里。", "Product": "产品", "Amount of those sales": "这些销售的金额", "Last": "最后", "No sales without products in these dates": "这些日期没有无产品销售", "By day": "按天", "Each working day of each online sales person (targets as set now).": "每位线上销售的每个工作日（按现在的目标）。", "New customers": "新客户", "Nothing in these dates": "这些日期没有内容", "Choose 2 months or less to see each day.": "选择 2 个月或更短可以看到每一天。", "Downloading the report (Excel)": "正在下载报表（Excel）", "You are not allowed to see reports": "你没有权限查看报表"});
+
+Object.assign(window.KT_ZH, {"Sales (stock orders)": "销售额（库存订单）", "Sales without products (not counted)": "无产品销售（不计入）", "This report counts only orders with stock products. Sales without products are shown apart and are not in any total.": "本报表只计算有库存产品的订单。无产品销售单独显示，不计入任何合计。", "Without products (not counted)": "无产品（不计入）", "Each working day of each online sales person. Orders = stock orders (targets as set now).": "每位线上销售的每个工作日。订单 = 库存订单（按现在的目标）。"});
+
+// sales without products kept apart (22 Oct)
+Object.assign(window.KT_ZH, {"Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.": "只用于不在本应用里的产品（在另一个系统销售）。库存不变。单独记录：不计入销售额、目标、排名或提成。", "It will be removed from the list of sales without products.": "它将从无产品销售列表中删除。", "Each order with its commission %.": "每个订单及其提成 %。", "= set on that order by admin/manager.": "= 老板/经理在该订单上设置。", "A new customer counts after the first follow-up. Orders today = orders with stock products.": "新客户在第一次跟进后才计算。今天订单 = 有库存产品的订单。", "Shown on their Home: \"New customers today X / Y\" (a customer counts after its first follow-up) and \"Orders today X / Y\" (orders with stock products). Empty = the number for everyone.": "显示在他们的首页：“今天新客户 X / Y”（第一次跟进后才计算）和“今天订单 X / Y”（有库存产品的订单）。空 = 所有人的数字。", "Only for products that are not in this app. They are kept apart: not added to sales, targets, ranking or commission. Admin and managers can change or delete them.": "只用于不在本应用里的产品。单独记录：不计入销售额、目标、排名或提成。老板和经理可以修改或删除。", "Kept apart: not added to your sales, target or commission.": "单独记录：不计入你的销售额、目标或提成。"});
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -6040,7 +6261,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
         <div style="font-size:20px;font-weight:800">${chat ? 'Create a chat account' : signup ? 'Create staff account' : 'Log in'}</div>
         ${chat ? '<div class="small muted" style="line-height:1.5">For friends &amp; family: chat only. Find people by their username and send messages, voice, photos and stickers.</div>' : ''}
         ${demo ? `<div class="demo-note">Demo mode: sample data on this phone only. Tap a role to try it.</div>
-          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['dina', 'Sales (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user'], ['kosal', 'Partner']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
+          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['sreyleak', 'Online sales'], ['dina', 'Sales (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user'], ['kosal', 'Partner']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
         ${signup ? `<label class="f">Full name<input class="inp" name="full" required autocomplete="name"></label>` : ''}
         <label class="f">Username<input class="inp" name="user" required autocomplete="username" autocapitalize="none" autocorrect="off" pattern="[a-zA-Z0-9._]{3,24}" title="3–24 letters or numbers, no spaces"></label>
         <label class="f">Password<input class="inp" name="pass" type="password" required minlength="${signup ? 8 : 6}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
@@ -6084,7 +6305,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
   };
 
   // ---------------- Home ----------------
-  const ACTION_STATUSES = { admin: ['pending'], manager: ['pending'], supervisor: ['pending'], warehouse: ['approved'], driver: ['approved'], sales: [] };
+  const ACTION_STATUSES = { admin: ['pending'], manager: ['pending'], supervisor: ['pending'], warehouse: ['approved'], driver: ['approved'], sales: [], online_sales: [] };
   function quickActions() {
     const qa = (href, ic, label, bg = 'var(--ps)', fg = 'var(--p)') => `<a class="qa" href="${href}"><span class="i" style="background:${bg};color:${fg}">${icon(ic, 26)}</span>${label}</a>`;
     const r = S.me.role;
@@ -6140,6 +6361,8 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     if (sellerDash) {
       let top = '';
       try { const d = await api.myDashboard(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px">${K.sellerDashHtml(d, '#/mydash')}</div>`; } catch (e) {}
+      // online sales: today's targets and "Follow up today" on top (22 Oct 2026)
+      if (K.isOnlineSeller()) try { S.onlineT = await api.onlineToday(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px">${K.onlineHomeHtml(S.onlineT)}</div>` + top; } catch (e) { S.onlineT = null; }
       html = top + `<div class="card" style="padding:18px 10px;margin-top:12px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
@@ -6161,7 +6384,8 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     const unreadConvs = convs.filter(c => c.unread).slice(0, 3);
     if (unreadConvs.length) html += `<div class="sec" style="margin-top:18px"><span>New messages</span><a href="#/chat">Open chat</a></div><div class="card flush" style="margin-top:10px">${unreadConvs.map(K.convRow).join('')}</div>`;
     if ($('#home-rest')) { $('#home-rest').innerHTML = html;   // the person may have left the home screen meanwhile
-      if (K.exchangeWaitingCard && K.isBoss()) { $('#home-rest').insertAdjacentHTML('afterbegin', '<div id="xwait"></div>'); K.exchangeWaitingCard($('#xwait')); } }
+      if (K.exchangeWaitingCard && K.isBoss()) { $('#home-rest').insertAdjacentHTML('afterbegin', '<div id="xwait"></div>'); K.exchangeWaitingCard($('#xwait')); }
+      if (S.onlineT && K.isOnlineSeller()) K.bindOnlineHome($('#home-rest'), S.onlineT); }
   });
 
   function orderRow(o) {
@@ -6722,6 +6946,25 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
 
   // "🔁 Exchange" sits in the status chips of Orders (Mr. Lee, 21 Oct 2026)
   const exChip = on => K.canFindExchange && K.canFindExchange() ? `<a class="chip ${on ? 'on' : ''}" href="#/exchange" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🔁 Exchange</a>` : '';
+  // "🧾 No products" = sales without products (online sales, 22 Oct 2026)
+  const npChip = on => `<a class="chip ${on ? 'on' : ''}" href="#/nopsales" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🧾 No products</a>`;
+  route(/^\/nopsales$/, async (_, q, current) => {
+    const P = K.period, st = { p: q.p || 'month', from: q.from || P.range('custom')[0], to: q.to || P.today() };
+    const main = page({ title: 'Sales without products', sub: 'Products not in the app', back: '#/orders', tab: 'order',
+      right: K.canAddNop() ? `<button class="ib" id="npnew" aria-label="Add">${icon('plus')}</button>` : '',
+      top: `<div class="chips">${FILTERS.slice(0, 1).map(([k, l]) => `<a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}${npChip(true)}${exChip(false)}</div>` });
+    if ($('#npnew')) $('#npnew').onclick = () => K.nopSheet(null, () => K.render());
+    const [a, b] = P.range(st.p, st.from, st.to);
+    const list = await api.listNopSales(null, a, b).catch(e => { toast(e.message); return []; });
+    if (!current()) return;
+    const total = list.reduce((s, x) => s + +x.amount, 0);
+    main.innerHTML = `<div class="pad" style="gap:10px">${P.html(st.p, st.from, st.to)}<div class="small muted">${esc(P.label(st))}</div>
+      <div class="row small muted"><span class="grow">${list.length} <span>sales</span></span><b style="color:var(--ink)">${money(total)}</b></div>
+      ${list.length ? `<div class="card flush">${list.map(x => K.nopRow(x, { rep: K.allow('orders.view_all') || K.isBossRole() })).join('')}</div>` : emptyBox('order', 'No sales without products for these dates')}
+      <div class="small muted">Add one from the customer page or with +. Only for products that are not in this app.</div></div>`;
+    P.bind(main, st, s2 => go(`#/nopsales?p=${s2.p}${s2.p === 'custom' ? `&from=${s2.from}&to=${s2.to}` : ''}`));
+    K.bindNopRows(main, list, () => K.render());
+  });
   // ---------- list ----------
   // #/orders?p=<period>&from=&to=&f=<status>
   route(/^\/orders$/, async (_, q, current) => {
@@ -6739,7 +6982,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     const total = list.reduce((s, o) => s + Number(o.total), 0);
     const sold = list.filter(o => K.isSale(o)).reduce((s, o) => s + Number(o.total), 0);
     $('#stchips').innerHTML = FILTERS.map(([k, l]) => { const n = k === 'all' ? inP.filter(o => !K.isVoid(o.status)).length : inP.filter(o => o.status === k).length;
-      return `<a class="chip ${f === k ? 'on' : ''}" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${k !== 'all' ? '&f=' + k : ''}" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">${l} <span style="opacity:.7">${n}</span></a>`; }).join('') + exChip(false);
+      return `<a class="chip ${f === k ? 'on' : ''}" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${k !== 'all' ? '&f=' + k : ''}" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">${l} <span style="opacity:.7">${n}</span></a>`; }).join('') + npChip(false) + exChip(false);
     main.innerHTML = `<div class="pad" style="gap:10px">
       <div class="search">${icon('search', 18)}<input id="osq" placeholder="Search shop, order number or product" aria-label="Search orders" value="${esc(S.oSearch || '')}"></div>
       <div id="olist" style="display:flex;flex-direction:column;gap:10px">${P.html(st.p, st.from, st.to)}
@@ -6798,6 +7041,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
         ${acts.length ? `<div class="btns" style="flex-wrap:wrap">${acts.map(a => `<button class="btn ${a.cls}" data-st="${a.status}" style="flex:1 0 40%">${icon(a.ic, 20)}${a.label}</button>`).join('')}</div>` : ''}</div>
       ${K.canInvoice(o) ? `<button class="btn out block" id="inv">${icon('receipt', 20)} Invoice · save or send to shop</button>` : ''}
       <a class="card" href="#/customers/${o.customer_id}" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(o.customers.name)}</div><div class="st">${esc([o.customers.area, o.customers.phone].filter(Boolean).join(' · '))}</div></div>${icon('right', 18)}</div></a>
+      ${K.commissionRow(o) ? `<div class="card" style="padding:10px 14px">${K.commissionRow(o)}</div>` : ''}
       ${K.openingLine(o)}${K.refundLine(o)}${K.exchangeCard(o)}${payCard}
       <div class="sec">Items</div>
       <div class="card">${o.items.map(i => `<div class="row"><div class="grow"><div style="font-weight:600">${esc(i.products.name)}</div><div class="small muted">${i.qty} × ${money(i.price)}${K.priceNote(i)}</div></div><b>${money(i.qty * i.price)}</b></div>`).join('')}
@@ -6817,6 +7061,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     if ($('#exch')) $('#exch').onclick = () => K.exchangeSheet(o, () => K.render());
     if (oq && oq.x && K.canExchange(o)) { history.replaceState(null, '', '#/orders/' + id); K.exchangeSheet(o, () => K.render(), { pid: +oq.x }); }
     K.bindExchangeCard(main, o, () => K.render());
+    K.bindCommission(main, o, () => K.render());
     if ($('#inv')) $('#inv').onclick = () => K.invoiceSheet(o);
     if ($('#chdue')) $('#chdue').onclick = () => K.dueSheet(o, () => K.render());
     if ($('#collect')) $('#collect').onclick = () => K.paymentSheet(o, () => K.render());
@@ -6834,7 +7079,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
   // ---------- find the order for an exchange (21 Oct 2026): shop → product with a problem → its delivered orders ----------
   route(/^\/exchange$/, async (_, q, current) => {
     const main = page({ title: 'Exchange a product', sub: 'Find the order', back: '#/orders', tab: 'order',
-      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip" href="#/orders${k !== 'all' ? '?f=' + k : ''}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}${exChip(true)}</div>` });
+      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip" href="#/orders${k !== 'all' ? '?f=' + k : ''}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}${npChip(false)}${exChip(true)}</div>` });
     const [orders, items] = await Promise.all([data.orders(true), api.listOrderItems()]);
     if (!current()) return;
     const ok = orders.filter(o => K.canExchange(Object.assign({}, o, { exchanges: [] })));   // delivered / paid orders this person may exchange on
@@ -7089,7 +7334,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
         .sort((a, b) => (a.status === 'approved') - (b.status === 'approved'));
       $('#cn').textContent = list.length + ' shop' + (list.length === 1 ? '' : 's');
       K.moreList($('#clist'), list, c => `<a class="list-item" href="#/customers/${c.id}"><div class="ic-av sq">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(c.name)}</div>
-        <div class="st">${esc(c.province || 'No province')}${c.area ? ' · ' + esc(c.area) : ''}${boss ? ' · ' + (c.rep_name ? esc(c.rep_name) : '<b style="color:var(--rd)">no sales rep</b>') : ''} · ${c.last_visit_at ? 'visited ' + when(c.last_visit_at) : 'never visited'}</div></div>${K.custPill(c.status) || (Number(c.owed) ? `<span class="pill rd">owes ${money(c.owed)}</span>` : K.shopMissingList(c).length ? '<span class="pill or">Missing details</span>' : '')}</a>`, null, 80, emptyBox('store', 'No shops found')); };
+        <div class="st">${c.source ? esc(K.sourceName(c.source)) + (c.next_followup ? ' · follow up ' + esc(c.next_followup.slice(5)) : '') : esc(c.province || 'No province') + (c.area ? ' · ' + esc(c.area) : '')}${boss ? ' · ' + (c.rep_name ? esc(c.rep_name) : '<b style="color:var(--rd)">no sales rep</b>') : ''}${c.source ? '' : ' · ' + (c.last_visit_at ? 'visited ' + when(c.last_visit_at) : 'never visited')}</div></div>${K.custPill(c.status) || (Number(c.owed) ? `<span class="pill rd">owes ${money(c.owed)}</span>` : c.source ? K.salesPill(c.sales_status) : K.shopMissingList(c).length ? '<span class="pill or">Missing details</span>' : '')}</a>`, null, 80, emptyBox('store', 'No shops found')); };
     main.innerHTML = `<div class="pad"><div class="search">${icon('search', 18)}<input id="cs" placeholder="Search name, area or phone" aria-label="Search shops"></div>
       <div class="btns"><select class="inp" id="pf" aria-label="Province"><option value="">All provinces</option>${provs.map(p => `<option>${esc(p)}</option>`).join('')}</select>
       ${boss ? `<select class="inp" id="rf" aria-label="Sales rep">${K.repOptions(staff, '', 'All sales reps')}<option value="none">No sales rep</option></select>` : ''}</div>
@@ -7102,7 +7347,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     draw();
   });
 
-  route(/^\/customers\/new$/, async () => { page({ title: 'New shop', back: '#/customers', body: '' }); customerForm({}); });
+  route(/^\/customers\/new$/, async () => { page({ title: K.isOnlineSeller() ? 'New customer' : 'New shop', back: '#/customers', body: '' }); customerForm({}); });
   route(/^\/customers\/(\d+)$/, async ([idStr], _, current) => {
     const id = +idStr;
     const main = page({ title: 'Shop', back: '#/customers', right: `<button class="ib" id="edit" aria-label="Edit shop">${icon('pen')}</button>` });
@@ -7123,17 +7368,21 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     const missing = K.shopMissingList(c);
     const missBox = missing.length && canEdit ? `<button class="card" id="fillm" style="border-color:#F3D2A8;background:var(--ors);text-align:left;font:inherit;color:inherit;cursor:pointer"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--or)">${icon('pen', 20)}</div><div class="grow"><b>Missing details</b><div class="small">${esc(missing.join(', '))} · tap to fill in</div></div></div></button>` : '';
     main.innerHTML = `<div class="pad">${banner}${missBox}<div id="locfix"></div>
-      <div class="card"><div class="row"><div class="ic-av sq" style="width:52px;height:52px">${icon('store', 26)}</div><div class="grow"><div class="tt" style="font-size:18px">${esc(c.name)}</div><div class="st">${esc([c.owner_name, c.area].filter(Boolean).join(' · ') || 'No area / market yet')}</div></div></div>
-        <div class="row small" style="gap:6px;flex-wrap:wrap">${icon('pin', 16)}<b>${esc(K.geoLine(c) || 'No province')}</b><span class="muted">· Sales rep:</span><b>${esc(c.rep_name || (c.import_rep ? c.import_rep + ' (no account yet)' : 'none'))}</b></div>
-        <div class="row" style="gap:6px;flex-wrap:wrap">${c.credit_days ? `<span class="pill bl">Credit ${c.credit_days} days</span>` : '<span class="pill gy">Cash only</span>'}${c.lat == null ? '<span class="pill or">No GPS location</span>' : ''}</div>
-        <div class="btns">${c.phone ? `<a class="btn out sm" href="tel:${esc(c.phone.replace(/\s/g, ''))}">${icon('phone', 18)}Call</a>` : ''}${(tg => tg ? `<a class="btn out sm" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}Telegram</a>` : '')(K.tgLink(c.telegram, c.phone))}${maps ? `<a class="btn out sm" href="${maps}" target="_blank" rel="noopener">${icon('nav', 18)}Map</a>` : ''}</div></div>
+      <div class="card"><div class="row"><div class="ic-av sq" style="width:52px;height:52px">${icon('store', 26)}</div><div class="grow"><div class="tt" style="font-size:18px">${esc(c.name)}</div><div class="st">${c.source ? esc([c.phone, c.telegram].filter(Boolean).join(' · ')) : esc([c.owner_name, c.area].filter(Boolean).join(' · ') || 'No area / market yet')}</div></div></div>
+        <div class="row small" style="gap:6px;flex-wrap:wrap">${c.source ? '' : `${icon('pin', 16)}<b>${esc(K.geoLine(c) || 'No province')}</b>`}<span class="muted">${c.source ? 'Sales person:' : '· Sales rep:'}</span><b>${esc(c.rep_name || (c.import_rep ? c.import_rep + ' (no account yet)' : 'none'))}</b></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${c.credit_days ? `<span class="pill bl">Credit ${c.credit_days} days</span>` : '<span class="pill gy">Cash only</span>'}${c.lat == null && !c.source ? '<span class="pill or">No GPS location</span>' : ''}</div>
+        <div class="btns">${c.phone ? `<a class="btn out sm" data-contact="phone" href="tel:${esc(c.phone.replace(/\s/g, ''))}">${icon('phone', 18)}Call</a>` : ''}${(tg => tg ? `<a class="btn out sm" data-contact="telegram" href="${esc(tg.url)}" target="_blank" rel="noopener">${icon('send', 18)}Telegram</a>` : '')(K.tgLink(c.telegram, c.phone))}${maps ? `<a class="btn out sm" href="${maps}" target="_blank" rel="noopener">${icon('nav', 18)}Map</a>` : ''}</div></div>
+      ${K.onlineCard(c)}
       <div class="stats"><div class="stat"><b style="color:${Number(c.owed) ? 'var(--rd)' : 'inherit'}">${money(c.owed)}</b><span>Still owed${c.oldest_unpaid_at ? ' · oldest ' + K.daysSince(c.oldest_unpaid_at) + ' days' : ''}</span></div><div class="stat"><b>${Number(c.credit_limit) ? money(c.credit_limit) : 'No limit'}</b><span>Credit limit</span></div><div class="stat"><b>${c.order_count}</b><span>Orders</span></div></div>
       ${unpaid.length ? `<div class="sec">Unpaid orders</div><div class="card flush">${unpaid.map(o => `<div class="list-item"><a class="grow" href="#/orders/${o.id}" style="text-decoration:none;color:inherit"><div class="tt">${esc(o.order_no)} · ${money(K.owedOf(o))} left</div><div class="st">Total ${money(o.total)} · delivered ${when(o.delivered_at || o.updated_at)} · ${K.daysSince(o.delivered_at || o.updated_at)} days</div></a>${K.canCollect() ? `<button class="btn sm green" data-col="${o.id}">${icon('cash', 16)}Collect</button>` : ''}</div>`).join('')}</div>` : ''}
       <div class="btns">${!K.allow('orders.create') ? '' : c.status === 'approved' ? `<a class="btn" href="#/orders/new?customer=${c.id}">${icon('order', 20)}New order</a>` : `<button class="btn" disabled>${icon('lock', 20)}Order after approval</button>`}${K.allow('visits.create') ? `<a class="btn ghost" href="#/visit/new?customer=${c.id}">${icon('pin', 20)}Check in</a>` : ''}</div>
       ${c.notes ? `<div class="card small" style="line-height:1.5">${esc(c.notes)}</div>` : ''}
       <div class="sec">Orders</div><div class="card flush">${myOrders.length ? myOrders.map(K.orderRow).join('') : '<div class="empty">No orders yet</div>'}</div>
+      ${K.nopCard(c)}
       <div class="sec">Visits</div><div class="card flush">${myVisits.length ? myVisits.map(visitRow).join('') : '<div class="empty">No visits yet</div>'}</div></div>`;
     bindVisits(myVisits);
+    K.bindOnline(main, c, () => K.render());
+    K.bindNop(main, c, () => K.render());
     if ($('#fillm')) $('#fillm').onclick = () => customerForm(c);
     $$('[data-col]').forEach(b => b.onclick = async () => { const o = await busy(b, () => api.getOrder(+b.dataset.col)); K.paymentSheet(o, () => K.render()); });
     $$('[data-rv]').forEach(b => b.onclick = async () => {
@@ -7146,6 +7395,8 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
   async function customerForm(c) {
     const boss = K.allow('customers.manage'), staff = boss ? await data.staff() : [];
     let loc = c.lat != null ? { lat: c.lat, lng: c.lng } : null;
+    const online = !!c.source || (!c.id && K.isOnlineSeller());   // online customer: name, phone, Telegram, source (22 Oct 2026)
+    if (online) return onlineForm(c, boss, staff);
     const s = sheet(c.id ? 'Edit shop' : 'New shop', `
       <label class="f">Shop name<input class="inp" id="nm" value="${esc(c.name || '')}"></label>
       <div class="btns"><label class="f">Owner<input class="inp" id="ow" value="${esc(c.owner_name || '')}"></label><label class="f">Phone<input class="inp" id="ph" type="tel" value="${esc(c.phone || '')}"></label></div>
@@ -7181,6 +7432,36 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
       if (!c.id || row.name !== c.name || row.phone !== (c.phone || '') || row.telegram !== (c.telegram || '')) { _b.disabled = true; const ok = await K.dupeCheck(row); _b.disabled = false; if (!ok) return; }
       const saved = await busy(_b, () => api.saveCustomer(row));
       s.close(); forget('customers'); toast(K.allow('customers.approve') ? 'Shop saved' : 'Saved. Waiting for admin approval.'); go('#/customers/' + saved.id);
+    };
+    s.el.addEventListener('click', ev => { if ((ev.target === s.el || ev.target.closest('[data-close]')) && !c.id && location.hash === '#/customers/new') history.back(); });
+  }
+
+  function onlineForm(c, boss, staff) {
+    const s = sheet(c.id ? 'Edit customer' : 'New customer', `
+      <label class="f">Customer name<input class="inp" id="nm" value="${esc(c.name || '')}" placeholder="Name or shop name"></label>
+      <label class="f">Phone<input class="inp" id="ph" type="tel" value="${esc(c.phone || '')}"></label>
+      <label class="f">Telegram<input class="inp" id="tg" value="${esc(c.telegram || '')}" placeholder="@username or the phone number they use on Telegram" autocapitalize="none" autocorrect="off"></label>
+      ${K.sourceField(c)}
+      ${boss ? `<label class="f">Sales person who looks after this customer<select class="inp" id="rp">${K.repOptions(staff, c.id ? c.assigned_to : S.me.id, 'No sales person yet')}</select></label>` : c.id ? '' : '<div class="small muted">This customer will be yours. Only you and the managers will see it.</div>'}
+      <label class="f">Notes (optional)<textarea class="inp" id="no">${esc(c.notes || '')}</textarea></label>
+      ${!K.allow('customers.approve') ? '<div class="small muted">After you save, the customer waits for admin approval (orders after approval). You can follow up at once.</div>' : ''}
+      <div class="btns">${c.id && (K.allow('customers.delete') || (c.assigned_to === S.me.id && c.status !== 'approved')) ? '<button class="btn red" id="dl">Delete</button>' : ''}<button class="btn" id="ok">Save customer</button></div>`);
+    if ($('#dl', s.el)) $('#dl', s.el).onclick = async ev => { const _btn = ev.currentTarget;
+      if (!(await K.confirmSheet('Delete this customer?', c.name + ' will be removed.', 'Delete', true))) return;
+      await busy(_btn, () => api.deleteCustomer(c.id)); s.close(); forget('customers'); toast('Customer deleted'); go('#/customers');
+    };
+    $('#ok', s.el).onclick = async e => {
+      const row = { id: c.id, name: $('#nm', s.el).value.trim(), phone: $('#ph', s.el).value.trim(), telegram: $('#tg', s.el).value.trim(), source: $('#src', s.el).value,
+        owner_name: c.owner_name || '', area: c.area || '', province: c.province || '', district: c.district || '', commune: c.commune || '', village: c.village || '',
+        price_level: c.price_level || 'Retail', credit_days: c.credit_days || 0, notes: $('#no', s.el).value.trim(), lat: c.lat ?? null, lng: c.lng ?? null, map_url: c.map_url || '' };
+      const miss = K.shopMissing(s.el); if (!row.source) miss.push('Where the customer came from');
+      if (miss.length) { if (!row.source) $('#src', s.el).classList.add('bad'); return toast('Please fill in: ' + miss.join(', ')); }
+      if (!K.tgLink(row.telegram)) return toast('Telegram: write @username or a phone number');
+      if ($('#rp', s.el)) row.assigned_to = $('#rp', s.el).value || null;
+      const _b = e.currentTarget;
+      if (!c.id || row.name !== c.name || row.phone !== (c.phone || '') || row.telegram !== (c.telegram || '')) { _b.disabled = true; const ok = await K.dupeCheck(row); _b.disabled = false; if (!ok) return; }
+      const saved = await busy(_b, () => api.saveCustomer(row));
+      s.close(); forget('customers'); toast(K.allow('customers.approve') ? 'Customer saved' : 'Saved. Waiting for admin approval.'); go('#/customers/' + saved.id);
     };
     s.el.addEventListener('click', ev => { if ((ev.target === s.el || ev.target.closest('[data-close]')) && !c.id && location.hash === '#/customers/new') history.back(); });
   }
@@ -7919,7 +8200,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
     return (c.lat != null && G.nearest(+c.lat, +c.lng, c.province)) || G.matchName([c.area, c.address].filter(Boolean).join(' '), c.province) || null;
   };
   // which required details a shop is still missing (Google Maps, GPS, credit and notes are optional)
-  K.shopMissingList = c => [['owner_name', 'Owner'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['province', 'Province'], ['district', 'District'], ['commune', 'Commune'], ['village', 'Village'], ['area', 'Area / market']]
+  K.shopMissingList = c => c.source ? [] : [['owner_name', 'Owner'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['province', 'Province'], ['district', 'District'], ['commune', 'Commune'], ['village', 'Village'], ['area', 'Area / market']]
     .filter(([k]) => !String(c[k] || '').trim()).map(x => x[1]);
   K.geoFields = c => {
     const prov = c.province || (c.id ? '' : 'Phnom Penh');
@@ -7936,6 +8217,7 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
   };
   K.bindGeo = el => {
     const pv = K.$('#pv', el), gd = K.$('#gd', el), gc = K.$('#gc', el), gv = K.$('#gv', el);
+    if (!pv) return;   // a form without place fields (online customer)
     const resetV = () => { gv.innerHTML = villOpts(gc.value, ''); gv.disabled = !gc.value; };
     pv.addEventListener('change', () => { gd.innerHTML = distOpts(pv.value, ''); gd.disabled = !pv.value; gc.innerHTML = commOpts('', ''); gc.disabled = true; resetV(); });
     gd.addEventListener('change', () => { gc.innerHTML = commOpts(gd.value, ''); gc.disabled = !gd.value; resetV(); });
@@ -8222,6 +8504,256 @@ Object.assign(window.KT_ZH, {"⏰ Credit overdue": "⏰ 赊账逾期", "The day 
   };
 })();
 
+// Online sales (22 Oct 2026): customers who buy online. Quick customers (name, phone, Telegram, source),
+// follow-ups, sales status, one-tap contact with a quick result, ready-made messages. Staff app and admin web.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy } = K;
+  const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
+  const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+  const addDays = (iso, n) => { const d = new Date(new Date(iso).getTime() + n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+  const dayTxt = d => d ? new Date(d + 'T00:00:00').toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
+
+  K.SOURCES = [['facebook', 'Facebook'], ['tiktok', 'TikTok'], ['telegram_group', 'Telegram group'], ['referral', 'Referral'], ['walk_in', 'Walk-in'], ['other', 'Other']];
+  K.sourceName = k => (K.SOURCES.find(x => x[0] === k) || [k, k || ''])[1];
+  K.SALES_ST = { new: ['New', 'bl'], contacted: ['Contacted', 'gy'], interested: ['Interested', 'or'], ordered: ['Ordered', 'gr'], not_interested: ['Not interested', 'rd'] };
+  K.salesPill = st => { const x = K.SALES_ST[st] || K.SALES_ST.new; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; };
+  K.isOnlineSeller = () => !!K.S.me && K.S.me.role === 'online_sales';
+  const METHODS = [['telegram', 'Telegram'], ['phone', 'Phone'], ['other', 'Other']];
+  const RESULTS = [['no_answer', 'No answer'], ['talked', 'Talked'], ['interested', 'Interested'], ['ordered', 'Ordered'], ['not_interested', 'Not interested'], ['other', 'Other']];
+  const resName = k => (RESULTS.find(x => x[0] === k) || [k, k])[1];
+  // next follow-up suggestion: day 1, 3, 7, 30 after the customer was added (the first one still to come)
+  K.followupSuggest = c => [1, 3, 7, 30].map(n => addDays(c.created_at, n)).find(d => d > today()) || '';
+
+  // the fields for an online customer in the new/edit form (name, phone and Telegram are the form's own inputs)
+  K.sourceField = c => `<label class="f">Where did this customer come from?<select class="inp" id="src"><option value="">Choose…</option>${K.SOURCES.map(([k, l]) => `<option value="${k}" ${c.source === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+
+  // ---- the online block on the customer page ----
+  K.onlineCard = c => !c.source ? '' : `<div class="card" style="gap:10px;border-color:#C9DBF5">
+      <div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">Online customer</b>${K.salesPill(c.sales_status)}<span class="pill gy">${esc(K.sourceName(c.source))}</span></div>
+      <div class="row small"><span class="grow">Next follow-up</span><b style="color:${c.next_followup && c.next_followup <= today() ? 'var(--rd)' : 'inherit'}">${c.next_followup ? dayTxt(c.next_followup) + (c.next_followup < today() ? ' · overdue' : c.next_followup === today() ? ' · today' : '') : 'none'}</b></div>
+      <div class="btns" style="flex-wrap:wrap"><button class="btn sm" id="fuadd" style="flex:1 0 30%">${icon('plus', 16)}Follow-up</button><button class="btn sm out" id="fust" style="flex:1 0 30%">Status</button><button class="btn sm out" id="fumsg" style="flex:1 0 30%">${icon('chat', 16)}Messages</button></div>
+      <div id="fulist" class="small muted">Loading follow-ups…</div></div>`;
+
+  K.bindOnline = async (el, c, onDone) => {
+    if (!c.source) return;
+    const reload = () => { K.forget('customers'); onDone && onDone(); };
+    $('#fuadd', el).onclick = () => K.followupSheet(c, {}, reload);
+    $('#fust', el).onclick = () => K.salesStatusSheet(c, reload);
+    $('#fumsg', el).onclick = () => K.messagesSheet(c);
+    // one-tap contact: after Telegram / Call, ask the result when the person comes back to the app
+    $$('[data-contact]', el).forEach(a => a.addEventListener('click', () => { K.S.pendingContact = { id: c.id, method: a.dataset.contact, at: Date.now(), c, reload }; }));
+    const list = await api.listFollowups(c.id).catch(() => []);
+    if (!$('#fulist', el)) return;
+    $('#fulist', el).innerHTML = list.length ? `<div class="card flush" style="margin:0">${list.slice(0, 20).map(f => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(resName(f.result))} · ${esc((METHODS.find(m => m[0] === f.method) || [0, f.method])[1])}</div>
+        <div class="st">${esc(K.when(f.created_at))}${f.profiles ? ' · ' + esc(f.profiles.full_name) : ''}${f.note ? ' · ' + esc(f.note) : ''}${f.next_date ? ' · next ' + dayTxt(f.next_date) : ''}</div></div></div>`).join('')}</div>` : 'No follow-ups yet.';
+  };
+  document.addEventListener('visibilitychange', () => {
+    const p = K.S.pendingContact;
+    if (document.visibilityState !== 'visible' || !p) return;
+    K.S.pendingContact = null;
+    if (Date.now() - p.at < 3000 || Date.now() - p.at > 3 * 3600e3) return;
+    K.quickResultSheet(p.c, p.method, p.reload);
+  });
+
+  // quick result after a call / Telegram: one tap saves the follow-up
+  K.quickResultSheet = (c, method, onDone) => {
+    const s = K.sheet('How did it go? · ' + c.name, `<div class="small muted">Saved as a follow-up (${esc(method === 'phone' ? 'Phone' : 'Telegram')}). The next follow-up date is set for you.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['no_answer', 'No answer'], ['talked', 'Talked'], ['interested', 'Interested'], ['ordered', 'Ordered']].map(([k, l]) => `<button class="btn ${k === 'interested' || k === 'ordered' ? 'green' : 'out'}" data-qr="${k}">${esc(l)}</button>`).join('')}</div>
+      <button class="btn ghost block" id="qrmore">More details…</button>`);
+    $$('[data-qr]', s.el).forEach(b => b.onclick = async () => { await busy(b, () => api.followupAdd(c.id, method, b.dataset.qr, null, null)); s.close(); toast('Follow-up saved'); onDone && onDone(); });
+    $('#qrmore', s.el).onclick = () => { s.close(); K.followupSheet(c, { method }, onDone); };
+  };
+
+  K.followupSheet = (c, pre, onDone) => {
+    let method = pre.method || 'telegram', result = pre.result || 'talked';
+    const seg = (name, list, sel) => `<div class="seg" style="flex-wrap:wrap">${list.map(([k, l]) => `<button type="button" data-${name}="${k}" class="${k === sel ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+    const s = K.sheet('Follow-up · ' + c.name, `<div class="f"><span>How</span>${seg('fm', METHODS, method)}</div>
+      <div class="f"><span>Result</span>${seg('fr', RESULTS, result)}</div>
+      <label class="f">Note (optional)<input class="inp" id="fnote" placeholder="e.g. wants the price of 65W chargers"></label>
+      <label class="f">Next follow-up<input class="inp" id="fnext" type="date" min="${today()}" value="${K.followupSuggest(c)}"></label>
+      <div class="small muted">Suggested: day 1, 3, 7 and 30 after the customer was added. Change it if you agreed another day.</div>
+      <button class="btn block" id="fok">Save follow-up</button>`);
+    const pick = (name, set) => $$(`[data-${name}]`, s.el).forEach(b => b.onclick = () => { set(b.dataset[name]); $$(`[data-${name}]`, s.el).forEach(x => x.classList.toggle('on', x === b)); });
+    pick('fm', v => { method = v; }); pick('fr', v => { result = v; if (v === 'not_interested') $('#fnext', s.el).value = ''; });
+    $('#fok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.followupAdd(c.id, method, result, $('#fnote', s.el).value.trim(), $('#fnext', s.el).value || null)); s.close(); toast('Follow-up saved'); onDone && onDone(); };
+  };
+
+  K.salesStatusSheet = (c, onDone) => {
+    let st = c.sales_status || 'new';
+    const s = K.sheet('Status · ' + c.name, `<div class="seg" style="flex-wrap:wrap">${Object.entries(K.SALES_ST).map(([k, [l]]) => `<button type="button" data-st="${k}" class="${k === st ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+      <div class="small muted">It becomes "Ordered" by itself at the first order or sale.</div>
+      <label class="f">Next follow-up (empty = none)<input class="inp" id="snext" type="date" min="${today()}" value="${c.next_followup && c.next_followup >= today() ? c.next_followup : ''}"></label>
+      <button class="btn block" id="sok">Save</button>`);
+    $$('[data-st]', s.el).forEach(b => b.onclick = () => { st = b.dataset.st; $$('[data-st]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+    $('#sok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.customerSetSales(c.id, st, $('#snext', s.el).value || null)); s.close(); toast('Saved'); onDone && onDone(); };
+  };
+
+  // ---- ready-made messages ----
+  K.templatesOf = st => { try { const l = JSON.parse((st || {}).message_templates || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  K.messagesSheet = async c => {
+    const s = K.sheet('Messages · ' + c.name, K.loading);
+    const list = K.templatesOf(await api.getSettings().catch(() => ({})));
+    if (!s.el.isConnected) return;
+    const text = t => String(t.text || '').replace(/\{shop\}/g, c.name);
+    $('.sb', s.el).innerHTML = (list.length ? list.map((t, i) => `<button class="card" data-tp="${i}" style="text-align:left;font:inherit;color:inherit;cursor:pointer;gap:4px"><b>${esc(t.title)}</b><div class="small muted" style="white-space:pre-wrap">${esc(text(t).slice(0, 220))}${text(t).length > 220 ? '…' : ''}</div></button>`).join('')
+      : '<div class="empty">No messages yet. The admin writes them in Settings → Messages.</div>') + '<div class="small muted">Tap a message to copy it, then paste it in Telegram.</div>';
+    $$('[data-tp]', s.el).forEach(b => b.onclick = async () => {
+      const t = text(list[+b.dataset.tp]);
+      try { await navigator.clipboard.writeText(t); toast('Copied · paste it in Telegram'); }
+      catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('Copied · paste it in Telegram'); } catch (er) { toast('Could not copy'); } ta.remove(); }
+    });
+  };
+  // Settings → Messages (admin)
+  K.templatesEditor = (el, st) => {
+    let list = K.templatesOf(st);
+    const draw = () => {
+      el.innerHTML = `<div class="card" style="max-width:640px;gap:10px"><b>Ready-made messages</b>
+        <div class="small muted">Online sales staff copy these with one tap on a customer (greeting, price list, promotion…). Write <b>{shop}</b> where the customer's name should go.</div>
+        ${list.map((t, i) => `<div class="card" style="gap:8px;background:var(--bg)"><input class="inp" data-tt="${i}" value="${esc(t.title || '')}" placeholder="Title, e.g. Greeting">
+          <textarea class="inp" data-tx="${i}" rows="4" placeholder="Hello {shop}! …">${esc(t.text || '')}</textarea><button class="btn sm out red" data-td="${i}" style="align-self:flex-start">Remove</button></div>`).join('')}
+        <div class="btns"><button class="btn out" id="tadd">${icon('plus', 16)}Add message</button><button class="btn" id="tsave">Save messages</button></div></div>`;
+      const read = () => { list = list.map((t, i) => ({ title: $(`[data-tt="${i}"]`, el).value.trim(), text: $(`[data-tx="${i}"]`, el).value })); };
+      $('#tadd', el).onclick = () => { read(); list.push({ title: '', text: '' }); draw(); };
+      $$('[data-td]', el).forEach(b => b.onclick = () => { read(); list.splice(+b.dataset.td, 1); draw(); });
+      $('#tsave', el).onclick = async e => { read(); await busy(e.currentTarget, () => api.messageTemplatesSave(list)); st.message_templates = JSON.stringify(list); toast('Messages saved'); };
+    };
+    draw();
+  };
+  // ---- sales without products (step 2): a sale made in the other system, product not in this app ----
+  const money = v => K.money(v);
+  K.isBossRole = () => !!K.S.me && ['admin', 'manager'].includes(K.S.me.role);
+  K.canAddNop = () => K.isBossRole() || K.allow('orders.create');
+  K.nopRow = (x, opt) => `<button class="list-item" data-nop="${x.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
+      <div class="ic-av sq" style="background:var(--ps)">🧾</div><div class="grow"><div class="tt">${esc(x.sale_no || 'NP')}${opt && opt.noShop ? '' : ' · ' + esc(x.customer_name || '')}</div>
+      <div class="st">${dayTxt(x.sale_date)} · inv. ${esc(x.invoice_no)} · ${esc(x.products)}${opt && opt.rep ? ' · ' + esc(x.rep_name || '') : ''}</div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(x.amount)}</b></div></button>`;
+  K.bindNopRows = (el, list, onDone) => $$('[data-nop]', el).forEach(b => b.onclick = () => K.nopSheet(list.find(x => x.id === +b.dataset.nop), onDone));
+
+  // add (x = {customer_id, customer_name} or nothing) / see / change (admin, manager) one sale without products
+  K.nopSheet = async (x, onDone) => {
+    x = x || {}; const boss = K.isBossRole(), isNew = !x.id, edit = isNew || boss;
+    const s = K.sheet(isNew ? 'Sale without products' : (x.sale_no || 'Sale'), K.loading);
+    const [shops, staff] = await Promise.all([isNew && !x.customer_id ? K.data.customers().catch(() => []) : [], boss ? K.data.staff().catch(() => []) : []]);
+    if (!s.el.isConnected) return;
+    if (!edit) {
+      $('.sb', s.el).innerHTML = `<div class="card" style="gap:6px"><div class="row"><b class="grow">${esc(x.customer_name || '')}</b><b style="font-size:18px">${money(x.amount)}</b></div>
+        <div class="small">${dayTxt(x.sale_date)} · <span>Invoice</span> ${esc(x.invoice_no)}</div><div class="small"><span>Products</span>: ${esc(x.products)}</div>
+        ${x.note ? `<div class="small muted">${esc(x.note)}</div>` : ''}<div class="small muted"><span>Sales person</span>: ${esc(x.rep_name || '')}</div></div>
+        <div class="small muted">Only admin or a manager can change or delete it.</div>`;
+      return;
+    }
+    const sellers = staff.filter(u => u.active && K.SELLERS.includes(u.role));
+    $('.sb', s.el).innerHTML = `<div class="small muted">Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.</div>
+      ${x.customer_id ? `<div class="card" style="padding:10px 14px"><b>${esc(x.customer_name || '')}</b></div>` : `<label class="f">Customer<select class="inp" id="npc"><option value="">Choose…</option>${shops.filter(c => c.status !== 'rejected').map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>`}
+      <div class="btns"><label class="f">Amount ($)<input class="inp" id="npa" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount != null ? esc(x.amount) : ''}"></label>
+        <label class="f">Date<input class="inp" id="npd" type="date" max="${today()}" value="${esc(x.sale_date || today())}"></label></div>
+      <label class="f">Invoice number (from the other system)<input class="inp" id="npi" value="${esc(x.invoice_no || '')}" placeholder="e.g. INV-2101"></label>
+      <label class="f">Product names<input class="inp" id="npp" value="${esc(x.products || '')}" placeholder="e.g. Ring light ×2, Tripod"></label>
+      <label class="f">Note (optional)<input class="inp" id="npn" value="${esc(x.note || '')}"></label>
+      ${boss ? `<label class="f">Sales person<select class="inp" id="npr"><option value="">The customer's sales person</option>${sellers.map(u => `<option value="${esc(u.id)}" ${u.id === x.sales_rep_id ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label>` : ''}
+      <button class="btn block" id="npok">${isNew ? 'Save sale' : 'Save changes'}</button>
+      ${!isNew && boss ? `<button class="btn out block" id="npdel" style="color:var(--rd)">Delete</button>` : ''}`;
+    $('#npok', s.el).onclick = async e => {
+      const v = id => ($('#' + id, s.el) || {}).value;
+      const p = { id: x.id || null, customer_id: x.customer_id || +v('npc') || null, amount: v('npa'), sale_date: v('npd'), invoice_no: v('npi'), products: v('npp'), note: v('npn') };
+      if (boss) p.sales_rep_id = v('npr') || null;
+      await busy(e.currentTarget, () => api.nopSaleSave(p)); s.close(); toast('Saved'); K.forget('customers'); onDone && onDone();
+    };
+    if ($('#npdel', s.el)) $('#npdel', s.el).onclick = async e => { const b = e.currentTarget;
+      if (!(await K.confirmSheet('Delete this sale?', 'It will be removed from the list of sales without products.', 'Delete', true))) return;
+      await busy(b, () => api.nopSaleDelete(x.id)); s.close(); toast('Deleted'); onDone && onDone(); };
+  };
+
+  // the block on the customer page (shown when there are sales, or for online customers / online sellers / managers)
+  K.nopCard = c => `<div id="npcard"></div>`;
+  K.bindNop = async (el, c, onDone) => {
+    const box = $('#npcard', el); if (!box) return;
+    const list = await api.listNopSales(c.id).catch(() => []);
+    if (!box.isConnected) return;
+    const canAdd = K.canAddNop() && (c.source || K.isOnlineSeller() || K.isBossRole());
+    if (!list.length && !canAdd) return;
+    box.innerHTML = `<div class="sec" style="display:flex;align-items:center;gap:8px"><span class="grow">Sales without products</span>${canAdd ? `<button class="btn sm out" id="npadd">${icon('plus', 16)}Add</button>` : ''}</div>
+      <div class="card flush">${list.length ? list.slice(0, 20).map(x => K.nopRow(x, { noShop: true })).join('') : '<div class="empty">None yet</div>'}</div>`;
+    if ($('#npadd', box)) $('#npadd', box).onclick = () => K.nopSheet({ customer_id: c.id, customer_name: c.name }, onDone);
+    K.bindNopRows(box, list, onDone);
+  };
+
+  // ---- commission % of one order (admin / manager set it; staff only see it) ----
+  K.commissionRow = o => {
+    const own = o.commission_rate != null;
+    if (K.isBossRole()) return `<div class="row small" style="gap:6px"><span class="grow muted">Commission for this order</span><b>${own ? +o.commission_rate + '%' : '<span>Normal rate</span>'}</b><a href="javascript:void 0" id="ocom">change</a></div>`;
+    return own ? `<div class="row small"><span class="grow muted">Commission for this order</span><b>${+o.commission_rate}%</b></div>` : '';
+  };
+  K.bindCommission = (el, o, onDone) => {
+    const a = $('#ocom', el); if (!a) return;
+    a.onclick = () => {
+      const s = K.sheet('Commission % · ' + (o.order_no || ''), `<div class="small muted">Use this when the selling price was low or high. Empty = the sales person's normal rate.</div>
+        <label class="f">Commission %<input class="inp" id="ocr" type="number" step="0.1" min="0" max="100" value="${o.commission_rate != null ? esc(o.commission_rate) : ''}" placeholder="Normal rate"></label>
+        <button class="btn block" id="ocok">Save</button>`);
+      $('#ocok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setOrderCommission(o.id, $('#ocr', s.el).value)); s.close(); toast('Saved'); onDone && onDone(); };
+    };
+  };
+
+  // HR → Commission: the lines of one person (each order / sale with the % used)
+  K.commissionLinesSheet = async (month, u) => {
+    const s = K.sheet('Commission · ' + (u.full_name || ''), K.loading);
+    const list = await api.commissionLines(month, u.user_id).catch(e => { toast(e.message); return []; });
+    if (!s.el.isConnected) return;
+    const tot = list.reduce((a, l) => a + +l.commission, 0);
+    $('.sb', s.el).innerHTML = `<div class="small muted">Each order with its commission %. <b>Own %</b> = set on that order by admin/manager.</div>
+      <div class="card flush">${list.map(l => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${l.kind === 'nop' ? '🧾 ' : ''}${esc(l.ref_no || '')} · ${esc(l.customer || '')}</div>
+        <div class="st">${dayTxt(l.day)} · ${money(l.amount)} × ${+l.rate}%${l.own_rate ? ' <b style="color:var(--p)">(own %)</b>' : ''}</div></div><b>${money(l.commission)}</b></div>`).join('') || '<div class="empty">No sales this month</div>'}</div>
+      <div class="row"><b class="grow">Total (without the bonus over target)</b><b>${money(tot)}</b></div>`;
+  };
+  // ---- step 3: daily targets, "Follow up today" (Home of an online sales person) ----
+  const KIND = { hot: ['🔥 Hot', 'rd', 'Interested, no order for {n} days'], due: ['Follow up', 'or', 'Follow-up date: {d}'], reorder: ['↻ Due to reorder', 'bl', 'Buys about every {g} days · last {n} days ago'], silent: ['😴 Silent', 'gy', 'Bought before, no order for {n} days'] };
+  const kindLine = x => { const k = KIND[x.kind]; return k[2].replace('{n}', x.days).replace('{g}', x.gap || '').replace('{d}', x.days > 0 ? dayTxt(x.next_followup) + ' (' + x.days + ' days late)' : 'today'); };
+  const meter = (v, t, label, href) => { const pct = t ? Math.min(100, Math.round(v / t * 100)) : 0, ok = t && v >= t;
+    return `<a class="stat" href="${href}" style="text-decoration:none;color:inherit"><b style="color:${ok ? 'var(--gr)' : 'inherit'}">${v} / ${t || '–'}${ok ? ' ✓' : ''}</b><span>${label}</span><div class="paybar" style="height:6px;margin-top:6px"><div style="width:${pct}%;background:${ok ? 'var(--gr)' : 'var(--p)'}"></div></div></a>`; };
+  K.onlineHomeHtml = t => {
+    const list = t.todo || [], n = k => list.filter(x => x.kind === k).length;
+    const row = x => `<a class="list-item" href="#/customers/${x.id}" style="text-decoration:none;color:inherit"><div class="grow"><div class="tt" style="font-size:15px">${esc(x.name)}</div><div class="st">${esc(kindLine(x))}</div></div><span class="pill ${KIND[x.kind][1]}">${esc(KIND[x.kind][0])}</span></a>`;
+    return `<div class="stats">${meter(+t.new_today, +t.target_new, 'New customers today', '#/customers')}${meter(+t.orders_today, +t.target_orders, 'Orders today', '#/orders?p=today')}</div>
+      <div class="card" style="gap:8px"><div class="row"><b class="grow">Follow up today</b><span class="small muted">${list.length}</span></div>
+        ${list.length ? `<div class="row small" style="gap:6px;flex-wrap:wrap">${['hot', 'due', 'reorder', 'silent'].filter(n).map(k => `<span class="pill ${KIND[k][1]}"><span>${esc(KIND[k][0])}</span>&nbsp;${n(k)}</span>`).join('')}</div>
+          <div class="card flush" style="margin:0 -6px" id="todo">${list.slice(0, 12).map(row).join('')}</div>${list.length > 12 ? `<button class="btn ghost block" id="todoall">Show all (${list.length})</button>` : ''}`
+          : '<div class="small muted">Nothing to follow up today. Add new customers!</div>'}
+        <div class="small muted">A new customer counts after the first follow-up. Orders today = orders with stock products.</div></div>`;
+  };
+  K.bindOnlineHome = (el, t) => { const b = $('#todoall', el); if (b) b.onclick = () => { const all = (t.todo || []);
+    $('#todo', el).innerHTML = all.map(x => `<a class="list-item" href="#/customers/${x.id}" style="text-decoration:none;color:inherit"><div class="grow"><div class="tt" style="font-size:15px">${esc(x.name)}</div><div class="st">${esc(kindLine(x))}</div></div><span class="pill ${KIND[x.kind][1]}">${esc(KIND[x.kind][0])}</span></a>`).join(''); b.remove(); }; };
+
+  // HR → Commission: daily targets of online sales staff (admin / managers)
+  K.onlineTargetsCard = async el => {
+    const [st, staff, tg] = await Promise.all([api.getSettings().catch(() => ({})), K.data.staff().catch(() => []), api.listOnlineTargets().catch(() => [])]);
+    const ppl = staff.filter(u => u.active && u.role === 'online_sales'), of = id => tg.find(x => x.user_id === id) || {};
+    if (!el.isConnected) return;
+    el.innerHTML = `<div class="card" style="gap:10px"><b>Online sales · daily targets</b>
+      <div class="small muted">Shown on their Home: "New customers today X / Y" (a customer counts after its first follow-up) and "Orders today X / Y" (orders with stock products). Empty = the number for everyone.</div>
+      <div class="btns"><label class="f">New customers a day (everyone)<input class="inp" id="otn" type="number" min="0" max="1000" value="${esc(st.online_new_per_day || '10')}"></label>
+        <label class="f">Orders a day (everyone)<input class="inp" id="oto" type="number" min="0" max="1000" value="${esc(st.online_orders_per_day || '5')}"></label></div>
+      ${ppl.map(u => `<div class="row"><span class="grow" style="font-weight:700">${esc(u.full_name)}</span><input class="inp" data-otn="${esc(u.id)}" type="number" min="0" placeholder="${esc(st.online_new_per_day || '10')}" value="${of(u.id).new_per_day ?? ''}" style="width:80px;text-align:right" aria-label="New customers a day"><input class="inp" data-oto="${esc(u.id)}" type="number" min="0" placeholder="${esc(st.online_orders_per_day || '5')}" value="${of(u.id).orders_per_day ?? ''}" style="width:80px;text-align:right" aria-label="Orders a day"></div>`).join('') || '<div class="small muted">No online sales staff yet.</div>'}
+      ${ppl.length ? '<div class="small muted">Per person: new customers · orders a day</div>' : ''}
+      <button class="btn out" id="otsave">Save daily targets</button></div>`;
+    $('#otsave', el).onclick = async e => { await busy(e.currentTarget, async () => {
+      await api.onlineSettingsSave({ online_new_per_day: $('#otn', el).value.trim() || '0', online_orders_per_day: $('#oto', el).value.trim() || '0' });
+      for (const u of ppl) { const a = $(`[data-otn="${u.id}"]`, el).value.trim(), b = $(`[data-oto="${u.id}"]`, el).value.trim(), o = of(u.id);
+        if (a !== String(o.new_per_day ?? '') || b !== String(o.orders_per_day ?? '')) await api.onlineTargetSet(u.id, a === '' ? null : +a, b === '' ? null : +b); }
+    }); toast('Daily targets saved'); };
+  };
+  // Settings → Alerts: the midday warning for online sales
+  K.onlineMiddayCard = (el, st) => {
+    el.innerHTML = `<div class="card" style="max-width:560px;gap:10px;margin-top:14px"><b>Online sales</b>
+      <label class="f">Midday warning time: online sales staff with 0 orders today get a reminder; admin and managers get the names (empty = off)<input class="inp" id="omt" type="time" value="${esc(st.online_midday_time ?? '15:00')}"></label>
+      <label class="f">"Hot" customer: Interested and no order for how many days<input class="inp" id="ohd" type="number" min="1" max="60" value="${esc(st.online_hot_days || '3')}"></label>
+      <div class="small muted">Not on Sundays, holidays or for staff on leave. "Silent" customers use the "Sleeping shop" days above.</div>
+      <button class="btn out" id="omsave">Save</button></div>`;
+    $('#omsave', el).onclick = async e => { const o = { online_midday_time: $('#omt', el).value, online_hot_days: $('#ohd', el).value.trim() };
+      await busy(e.currentTarget, () => api.onlineSettingsSave(o)); Object.assign(st, o); toast('Saved'); };
+  };
+})();
+
 // QR code generator for JavaScript — Copyright (c) 2009 Kazuhiko Arase — MIT license (http://www.opensource.org/licenses/mit-license.php)
 var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(n*r,o*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}(function(){return qrcode});
 // Products: photo on the product form · old orders that came from the (removed) Telegram shop keep a small badge.
@@ -8330,7 +8862,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // warehouses: a sales rep's own stock is called "My stock"
   // a rep's own stock stops being offered when the person left or no longer keeps stock (e.g. moved to an office job);
   // it still shows on the stock pages (marked) so the goods can be moved back to the main warehouse
-  K.oldRepWh = w => !!(w && w.rep_id && w.rep && (w.rep.active === false || !['sales', 'supervisor', 'manager', 'admin'].includes(w.rep.role)));
+  K.oldRepWh = w => !!(w && w.rep_id && w.rep && (w.rep.active === false || !['sales', 'online_sales', 'supervisor', 'manager', 'admin'].includes(w.rep.role)));
   K.repWhName = w => (w.rep && w.rep.full_name) || w.name.split(' · ')[1] || w.name;   // the person's name now
   K.whLabel = w => w.rep_id ? (K.S.me && w.rep_id === K.S.me.id ? 'My stock' : 'Rep: ' + K.repWhName(w) + (K.oldRepWh(w) ? (w.rep.active === false ? ' (left)' : ' (no own stock now)') : '')) : w.name.split(' · ')[0];
   // which stock a person may see and sell from (same rule as the database, 14 Oct):
@@ -9335,6 +9867,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const tc = K.targetCard(d, href), done = tc.done, perDay = tc.perDay, target = tc.target;
     h += tc.html;
     h += `<div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>`;
+    if (+d.np_month) h += `<a class="card" href="#/nopsales" style="text-decoration:none;color:inherit;padding:10px 14px"><div class="row small"><span class="grow">🧾 <span>Sales without products · this month</span> (${d.np_month_count || 0})</span><b>${money(d.np_month)}</b></div><div class="small muted">Kept apart: not added to your sales, target or commission.</div></a>`;
     // commission boost
     if (d.commission != null) {
       const rate = +d.commission_rate || 0, bonus = +d.commission_bonus || 0, atTarget = target ? target * rate / 100 : 0;
@@ -9558,7 +10091,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
-      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner'].concat(u.role === 'agent' ? ['agent'] : []);
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner'].concat(u.role === 'agent' ? ['agent'] : []);
       const hints = K.ROLE_HINTS;
       let role = u.role, gender = hh.gender || '';
       const sups = (K.S.cache.staff || []).filter(x => x.active && x.role !== 'guest' && x.id !== u.id), deps = K.S.cache.departments || [];
@@ -9636,7 +10169,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
   K.addStaffSheet = function addStaffSheet(onCreated) {
-      const roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner']; let role = 'sales';
+      const roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner']; let role = 'sales';
       const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
         <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
         <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
@@ -9733,7 +10266,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const att_ = attList;
     const tabs = [boss && ['staff', 'Staff'], (boss || hr) && ['depts', 'Departments'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], hr && ['pay', 'Staff & pay'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), month = K.monthKey(), cmonth = K.monthKey();
-    const reps = staff.filter(u => u.active && ['sales', 'supervisor', 'agent'].includes(u.role));
+    const S2 = {};
+    const reps = staff.filter(u => u.active && ['sales', 'online_sales', 'supervisor', 'agent'].includes(u.role));
     const rateOf = id => (rates.find(r => r.user_id === id) || {}).rate;
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
     const pst = P.fresh('month');
@@ -9836,7 +10370,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else if (tab === 'commission') {
         const rep = await api.commissionReport(cmonth), tot = rep.reduce((a, r) => a + +r.commission, 0);
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
-        h = `<div class="agrid"><div class="card"><b>How commission is paid</b><div class="small muted">Commission = sales × rate %. Sales = the rep's approved orders in the month (orders for their shops, even if the admin typed them).</div>
+        h = `<div class="agrid"><div class="card"><b>How commission is paid</b><div class="small muted">Commission = sales × rate %. Sales = the rep's approved orders in the month (orders for their shops, even if the admin typed them). An order can have its own % (set by admin/manager on the order) — then that % is used for it. Sales without products get no commission.</div>
             <div class="btns"><label class="f">Rate for all reps (%)<input class="inp" data-k="commission_default" type="number" step="0.1" min="0" value="${esc(st.commission_default || '0')}"></label>
               <label class="f">Extra bonus % on sales above target<input class="inp" data-k="commission_bonus" type="number" step="0.1" min="0" value="${esc(st.commission_bonus || '0')}"></label></div>
             <div class="small muted">Example: rate 2%, bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
@@ -9846,9 +10380,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <button class="btn out" id="scr">Save rep rates</button></div></div>
           <div class="card"><div class="row"><button class="btn sm out" data-cm="${pm}" id="pm">‹</button><b class="grow" style="text-align:center">Commission · ${esc(K.monthName(cmonth))}</b><button class="btn sm out" data-cm="${nx}" id="nm">›</button></div>
             <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Sales</th><th style="text-align:right">Target</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
-            ${rep.map(r => `<tr><td>${esc(r.full_name)}</td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
+            ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
-            <div class="small muted">Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>`;
+            <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>
+          <div id="otc" style="max-width:640px"></div>`;
+        S2.crep = rep;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
             <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>
@@ -9916,6 +10452,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#addst')) $('#addst').onclick = addStaffSheet;
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
+      if ($('#otc')) K.onlineTargetsCard($('#otc'));
+      $$('[data-cl]').forEach(a => a.onclick = () => K.commissionLinesSheet(cmonth, (S2.crep || []).find(r => r.user_id === a.dataset.cl) || {}));
       if ($('#offhere')) $('#offhere').onclick = e => { const b = e.currentTarget; if (!navigator.geolocation) return toast('This device cannot find its location');
         b.disabled = true; navigator.geolocation.getCurrentPosition(p => { b.disabled = false; $('[data-k="office_lat"]').value = p.coords.latitude.toFixed(6); $('[data-k="office_lng"]').value = p.coords.longitude.toFixed(6); toast('Location found (± ' + Math.round(p.coords.accuracy) + ' m). Tap Save office location.'); },
           () => { b.disabled = false; toast('Could not get the location. Allow location for this site and try again.'); }, { enableHighAccuracy: true, timeout: 15000 }); };
@@ -10399,7 +10937,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const W = () => lang() === 'zh' ? { title: '如何使用本应用', sub: '带图片的简短指南', mine: '适合你', other: '更多主题', step: '步骤', tip: '一次读一个主题。随时可以回来看：更多 → 如何使用本应用。', close: '知道了' }
     : km() ? { title: 'របៀបប្រើកម្មវិធី', sub: 'ការណែនាំខ្លីៗ ជាមួយរូបភាព', mine: 'សម្រាប់អ្នក', other: 'ផ្សេងទៀត', step: 'ជំហាន', tip: 'អានម្តងមួយប្រធានបទ។ អ្នកអាចត្រឡប់មកវិញបានគ្រប់ពេល៖ ផ្សេងៗ → របៀបប្រើកម្មវិធី។', close: 'យល់ហើយ' }
     : { title: 'How to use the app', sub: 'Short guides with pictures', mine: 'For you', other: 'More topics', step: 'Step', tip: 'Read one topic at a time. Come back any time: More → How to use the app.', close: 'Got it' };
-  const roleKey = () => { const r = (K.S.me || {}).role; return r === 'sales' ? 's' : r === 'warehouse' ? 'w' : ['admin', 'manager'].includes(r) ? 'm' : 'a'; };
+  const roleKey = () => { const r = (K.S.me || {}).role; return ['sales', 'online_sales'].includes(r) ? 's' : r === 'warehouse' ? 'w' : ['admin', 'manager'].includes(r) ? 'm' : 'a'; };
   const forMe = t => t.who === 'a' || t.who === roleKey() || roleKey() === 'm';
   K.guideTopics = T;
 
