@@ -1148,7 +1148,8 @@ window.KT_PERMS = [
     ['stock.view_main', 'See the main warehouse stock and sell from it', 'Without this, a sales rep sees and sells only their own stock (the goods they carry)'],
     ['stock.move', 'Move stock between stocks', 'Give goods to reps, take them back, move between warehouses (people with "Stock in/out" can too)'],
     ['stock.warehouses', 'Create, rename and delete stocks (warehouses)'],
-    ['stock.access', 'Choose which staff can order from which stock', 'Sensitive: decides who sells from which goods']] },
+    ['stock.access', 'Choose which staff can order from which stock', 'Sensitive: decides who sells from which goods'],
+    ['stock.adjust_approve', 'Approve stock adjustments', 'Stock control: big hand adjustments (above the limit in Settings) wait for this person']] },
   { group: 'Suppliers & purchases', items: [
     ['purchases.manage', 'Suppliers, purchases and paying suppliers', 'Also sees cost prices and profit'],
     ['purchases.receive', 'Receive goods from suppliers', 'Adds the goods into stock']] },
@@ -1179,7 +1180,7 @@ window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
   manager: ['orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others', 'expenses.office',
-    'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main'],
+    'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main', 'stock.adjust_approve'],
   supervisor: ['orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
   sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   online_sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
@@ -1378,6 +1379,22 @@ window.makeSupabaseApi = function (cfg) {
     deleteProductCategory: (name, moveTo) => q(sb.rpc('delete_product_category', { p_name: name, p_move_to: moveTo || null })),
     adjustStock: (pid, wid, change, reason, note) => q(sb.rpc('adjust_stock', { p_product: pid, p_warehouse: wid, p_change: change, p_reason: reason, p_note: note || null })),
     transferStock: (pid, from, to, qty) => q(sb.rpc('transfer_stock', { p_product: pid, p_from: from, p_to: to, p_qty: qty })),
+    // stock control (23 Oct 2026)
+    transferSend: (from, to, items, note) => q(sb.rpc('transfer_send', { p_from: from, p_to: to, p_items: items, p_note: note || null })),
+    transferReceive: (id, lines, note) => q(sb.rpc('transfer_receive', { p_id: id, p_lines: lines, p_note: note || null })),
+    transferCancel: (id, reason) => q(sb.rpc('transfer_cancel', { p_id: id, p_reason: reason })),
+    listTransfers: (status, from, to) => q(sb.rpc('transfers_list', { p_status: status || null, p_from: from || null, p_to: to || null })),
+    stockAdjustRequest: (pid, wh, change, reason, note, photo) => q(sb.rpc('stock_adjust_request', { p_product: pid, p_wh: wh, p_change: change, p_reason: reason, p_note: note || null, p_photo: photo || null })),
+    stockAdjustDecide: (id, ok, note) => q(sb.rpc('stock_adjust_decide', { p_id: id, p_ok: ok, p_note: note || null })),
+    listStockAdjustments: (status, from, to) => q(sb.rpc('stock_adjustments_list', { p_status: status || null, p_from: from || null, p_to: to || null })),
+    stockSettingsSave: obj => q(sb.rpc('stock_settings_save', { p: obj || {} })),
+    countStart: (wh, blind, note) => q(sb.rpc('count_start', { p_wh: wh, p_blind: !!blind, p_note: note || null })),
+    countSave: (id, lines) => q(sb.rpc('count_save', { p_id: id, p_lines: lines || [] })),
+    countSubmit: id => q(sb.rpc('count_submit', { p_id: id })),
+    countDecide: (id, ok, note) => q(sb.rpc('count_decide', { p_id: id, p_ok: ok, p_note: note || null })),
+    listCounts: status => q(sb.rpc('counts_list', { p_status: status || null })),
+    countGet: id => q(sb.rpc('count_get', { p_id: id })),
+    stockCard: (pid, wh, from, to) => q(sb.rpc('stock_card', { p_product: pid, p_wh: wh || null, p_from: from || null, p_to: to || null })),
     productMoves: pid => q(sb.from('stock_moves').select('*, profiles(full_name), warehouses(name)').eq('product_id', pid).order('id', { ascending: false }).limit(50)),
 
     // customers
@@ -1732,7 +1749,7 @@ window.makeDemoApi = function () {
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
       shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses'],
+    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -1741,7 +1758,11 @@ window.makeDemoApi = function () {
       if (tp === 'summary') { if (!items.length) fail('Tick at least one thing for the summary'); if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(p.send_time || '')) fail('Choose the time to send it'); if (!days.length) fail('Choose at least one day'); }
       if (!chat) fail('Choose a Telegram group'); if (!/^-?[0-9]{3,20}$/.test(chat)) fail('The group ID should be a number like -1001234567890');
       return { name, rule_type: tp, events: tp === 'event' ? events : [], fields, items: tp === 'summary' ? items : [], send_time: tp === 'summary' ? p.send_time : null, days: tp === 'summary' ? days : null,
-        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false, send_reps: tp === 'summary' && !!p.send_reps }; },
+        period: tp === 'summary' ? (p.period || 'today') : null, chat_id: chat, chat_title: p.chat_title || null, enabled: p.enabled !== false, send_reps: tp === 'summary' && !!p.send_reps,
+        // which staff the summary shows (23 Oct 2026): null = everyone
+        staff_ids: tp === 'summary' && Array.isArray(p.staff_ids) ? p.staff_ids.slice() : null, staff_auto_new: p.staff_auto_new !== false,
+        staff_known: tp === 'summary' && Array.isArray(p.staff_ids) ? D.users.filter(u => u.active && !['guest', 'partner'].includes(u.role)).map(u => u.id) : null,
+        big_order_amount: tp === 'summary' && p.big_order_amount !== '' && p.big_order_amount != null ? +p.big_order_amount : null }; },
     compose(ev, fields) {
       const S = { order_no: 'SO-00125', shop: 'Lucky Phone Shop', owner: 'Mr. Dara', phone: '012 345 678', shop_tg: '@luckyphone_pp', area: 'Orussey, Chamkar Mon, Phnom Penh', map: 'https://maps.google.com/?q=11.5564,104.9282',
         rep: 'Chhin Kimlong', staff: 'Chhin Kimlong', amount: '$245.00', items: '65W GaN charger ×10, USB-C cable ×20, Power bank 10000mAh ×5', payment: 'Credit · due 06 Oct', detail: '', note: 'Deliver before 10am', time: '29 Sep 14:05' };
@@ -1770,7 +1791,18 @@ window.makeDemoApi = function () {
         by_rep: ['👥 Sales reps (🛒 sales · 📍 visits · 🏪 new shops · 💵 collected):', '• Chhin Kimlong: 🛒 $820.00 (9) · 📍 11 · 🏪 1 · 💵 $540.00', '• Sokha Chan: 🛒 $425.50 (5) · 📍 8 · 🏪 1 · 💵 $497.00', '📨 Each rep\'s full report comes in the next messages ⬇️'],
         coverage: ['🗺 Shops: 884 · 🚫 never visited 612', '• ⏰ Not visited for 30+ days: 57', '• Chhin Kimlong: 240 of their shops never visited', '• Sokha Chan: 198 of their shops never visited', '• Minh Rambo: 174 of their shops never visited'],
         attendance: ['🕗 Attendance 29 Sep:', '• Came to work: 6', '• Late: Sokha Chan 08:22', '• Not in: Vanna', '• On leave: Dara'], expenses: ['🧾 Staff expenses: $42.50 · 5', '• This month (01–29 Sep): $812.00 · 96', '   ◦ Chhin Kimlong: $118.50', '   ◦ Dara: $104.00', '   ◦ Sokha Chan: $96.00', '⏳ Waiting for approval: $12.00 (2)'] };
-      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i]); });
+      const big = '$' + (+(r.big_order_amount ?? 500)).toFixed(2);   // the 5 new parts (23 Oct 2026), demo numbers
+      Object.assign(B, { online_sales: ['🌐 Online sales: 4 orders · $312.00', '• 🧾 Sales without products: 2 · $95.00 (kept apart)', '• 🆕 New online customers: 6 · 📞 follow-ups: 18', '• Sreyleak (online): 🛒 4 · $312.00 · 🧾 2 · $95.00 · 🆕 6 · 📞 18'],
+        shops_not_visited: ['📍 Shops not visited for 14+ days: 57', '😴 Sleeping shops (no order for 30+ days): 41', '• Chhin Kimlong: 📍 24 · 😴 17', '• Sokha Chan: 📍 19 · 😴 15', '• Dina (sales, main stock): 📍 14 · 😴 9'],
+        silent_customers: ['🤫 Silent customers (bought 2+ times, nothing for 30+ days): 8', '• Star Phone — Chhin Kimlong · 6 buys · last 38 days ago', '• 🌐 Mey Lina — Sreyleak (online) · 3 buys · last 33 days ago'],
+        price_issues: ['🏷 Below list price: 2 orders · $14.50 under the list price', '🎁 Free items: 1 line · worth $4.50 at list price', '• SO-00121 · Mobile Zone Kandal · Sokha Chan · −$12.00 · 🎁', '• SO-00118 · Lucky Phone Shop · Chhin Kimlong · −$7.00',
+          '💰 Big orders (' + big + '+): 1 · $820.00', '• SO-00125 · Lucky Phone Shop · Chhin Kimlong · $820.00'],
+        stock_moves: ['🚚 Transfers sent: 2 · $410.00 · received: 1 · in transit now: 1', '• ❗ Missing 2 pcs · $5.40 · damaged 1 pcs · $2.70', '✏️ Adjustments: 3 · out $18.20 · in $4.50', '   ◦ Damaged: 2 · $13.70', '   ◦ Found: 1 · $4.50', '📋 Count sheets approved: 1 · difference −$8.10'] });
+      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i] || []); });
+      if (r.staff_ids) {   // only the chosen staff: drop the lines of the others, say how many are shown
+        const all = D.users.filter(u => u.active && !['guest', 'partner'].includes(u.role)), ok = u => r.staff_ids.includes(u.id) || (r.staff_auto_new && !(r.staff_known || []).includes(u.id));
+        const hide = all.filter(u => !ok(u)).map(u => u.full_name).concat(['Chhin Kimlong', 'Sokha Chan', 'Minh Rambo'].filter(n => !all.some(u => u.full_name === n && ok(u))));
+        out = out.filter(l => !hide.some(n => l.includes(n))); out.splice(2, 0, '👥 Showing ' + all.filter(ok).length + ' of ' + all.length + ' staff (totals are for the whole company)'); }
       if (r.items.includes('by_rep')) out.push('', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Chhin Kimlong', P[r.period] || P.today), '', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Sokha Chan', P[r.period] || P.today));
       return out.join('\n'); },
     repReport(nm, day) {
@@ -2040,6 +2072,7 @@ window.makeDemoApi = function () {
   if (D && D.users && !D.users.some(u => u.id === 'u-sreyleak')) {
     D.users.push({ id: 'u-sreyleak', username: 'sreyleak', full_name: 'Sreyleak (online)', role: 'online_sales', active: true, phone: '012 555 777', created_at: new Date(Date.now() - 864e6).toISOString(), password: '1234' });
     if (D.rolePerms && !D.rolePerms.online_sales) D.rolePerms.online_sales = Object.assign({}, D.rolePerms.sales || {});
+    if (D.rolePerms && D.rolePerms.manager && D.rolePerms.manager['stock.adjust_approve'] === undefined) D.rolePerms.manager['stock.adjust_approve'] = true;   // 23 Oct: new permission
     const day = n => { const d = new Date(Date.now() - n * 864e5); return d.toISOString(); }, dd = n => { const d = new Date(Date.now() + n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
     const O = (name, phone, tg, source, st, created, next) => ({ id: ++D.seq.customer, name, owner_name: null, phone, telegram: tg, address: null, area: null, lat: null, lng: null, price_level: 'Retail', credit_days: 0, notes: '',
       province: null, assigned_to: 'u-sreyleak', created_by: 'u-sreyleak', status: 'approved', review_note: null, credit_limit: 0, created_at: day(created), source, sales_status: st, next_followup: next, first_followup_at: st === 'new' ? null : day(created - 1) });
@@ -2587,10 +2620,10 @@ window.makeDemoApi = function () {
         Object.assign(w, { deleted_at: now(), deleted_by: me.id, name: nm }); save(); return wait(null); }   // used: hidden, history kept
       D.warehouses.splice(D.warehouses.indexOf(w), 1); save(); return wait(null); },
     async listWarehouses() { return wait(clone(D.warehouses).filter(w => !w.deleted_at).map(w => { const u = w.rep_id && user(w.rep_id); return Object.assign(w, { rep: u ? { full_name: u.full_name, active: u.active, role: u.role } : null }); })); },
-    async deleteProduct(id) {
+    async deleteProduct(id) {   // any stock history → hidden (23 Oct 2026)
       if (!allow('stock.manage')) fail('You are not allowed to delete products');
       const p = D.products.find(x => x.id === id); if (!p) fail('Product not found');
-      if (D.items.some(i => i.product_id === id) || (D.pitems || []).some(i => i.product_id === id)) { if (p.active) { p.active = false; p.sku = p.sku + '·deleted-' + id; } save(); return wait('hidden'); }
+      if (D.items.some(i => i.product_id === id) || (D.pitems || []).some(i => i.product_id === id) || D.moves.some(m => m.product_id === id)) { if (p.active) { p.active = false; p.sku = p.sku + '·deleted-' + id; } save(); return wait('hidden'); }
       D.products.splice(D.products.indexOf(p), 1); Object.keys(D.stock).forEach(k => { if (k.startsWith(id + ':')) delete D.stock[k]; }); D.moves = D.moves.filter(m => m.product_id !== id); save(); return wait('deleted');
     },
     async listProducts() {
@@ -2630,6 +2663,163 @@ window.makeDemoApi = function () {
       D.moves.push({ id: ++D.seq.move, product_id: pid, warehouse_id: to, qty_change: q, reason: 'transfer', created_by: me.id, created_at: now() });
       save(); return wait(null);
     },
+    // ---------- stock control (23 Oct 2026): transfers Sent → Received (same rules as transfer_send / transfer_receive / transfer_cancel) ----------
+    _canReceive(wid) { const w = D.warehouses.find(x => x.id === wid) || {}; return isBoss() || allow('stock.manage') || w.rep_id === me.id || (D.stockAccess || []).some(a => a.user_id === me.id && a.warehouse_id === wid); },
+    _scAlert(text) { const c = D.convs.find(x => x.slug === 'stock_alerts'); if (c) pushMessage(c.id, null, 'system', text, {}); },
+    _cost(pid) { return +((D.products.find(p => p.id === pid) || {}).cost || 0); },
+    _pname(pid) { return (D.products.find(p => p.id === pid) || {}).name || '?'; },
+    _whName(wid) { return (D.warehouses.find(w => w.id === wid) || {}).name || '?'; },
+    async transferSend(from, to, items, note) {
+      if (!(allow('stock.manage') || allow('stock.move'))) fail('You are not allowed to move stock');
+      if (!from || !to || from === to) fail('Choose two different stocks');
+      const list = (items || []).filter(x => x.product_id && +x.qty); if (!list.length) fail('Add at least one product');
+      list.forEach(x => { if (+x.qty < 0) fail('Quantity must be more than 0'); if (qty(x.product_id, from) < +x.qty) fail('Not enough stock of ' + api._pname(x.product_id)); });
+      D.transfers = D.transfers || []; const id = D.transfers.reduce((a, t) => Math.max(a, t.id), 0) + 1, no = 'TR-' + String(id).padStart(4, '0');
+      list.forEach(x => { setQty(x.product_id, from, qty(x.product_id, from) - +x.qty);
+        D.moves.push({ id: ++D.seq.move, product_id: x.product_id, warehouse_id: from, qty_change: -x.qty, reason: 'transfer_out', ref: no, note: note || null, unit_cost: api._cost(x.product_id), created_by: me.id, created_at: now() }); });
+      D.transfers.push({ id, transfer_no: no, from_wh: from, to_wh: to, status: 'sent', note: (note || '').trim() || null, sent_by: me.id, sent_at: now(),
+        items: list.map(x => ({ product_id: x.product_id, qty_sent: +x.qty, unit_cost: api._cost(x.product_id) })) });
+      api._scAlert('🚚 Transfer sent ' + no + ' · ' + api._whName(from) + ' → ' + api._whName(to) + ' · by ' + me.full_name);
+      save(); return wait(id);
+    },
+    async transferReceive(id, lines, note) {
+      const t = (D.transfers || []).find(x => x.id === id); if (!t) fail('Transfer not found');
+      if (t.status !== 'sent') fail('This transfer is already ' + t.status);
+      if (!api._canReceive(t.to_wh)) fail('Only the people of the receiving stock can receive it');
+      const plan = t.items.map(it => { const x = (lines || []).find(l => +l.product_id === it.product_id) || {}, m = +x.missing || 0, d = +x.damaged || 0, r = x.received === '' || x.received == null ? it.qty_sent - m - d : +x.received;
+        if (r < 0 || m < 0 || d < 0 || r + m + d !== it.qty_sent) fail(api._pname(it.product_id) + ': received + missing + damaged must be ' + it.qty_sent + ' pcs');
+        if (m > 0 && !String(x.reason || '').trim()) fail(api._pname(it.product_id) + ': write why ' + m + ' pcs are missing');
+        return { it, r, m, d, why: String(x.reason || '').trim() || null }; });
+      let miss = '';
+      plan.forEach(({ it, r, m, d, why }) => { Object.assign(it, { qty_received: r, qty_missing: m, qty_damaged: d, missing_reason: why });
+        if (r) { setQty(it.product_id, t.to_wh, qty(it.product_id, t.to_wh) + r); D.moves.push({ id: ++D.seq.move, product_id: it.product_id, warehouse_id: t.to_wh, qty_change: r, reason: 'transfer_in', ref: t.transfer_no, note: note || null, unit_cost: it.unit_cost, created_by: me.id, created_at: now() }); }
+        if (d) api._brokenChange(it.product_id, d, 'transfer', t.transfer_no, 'Damaged on the way');
+        if (m || d) miss += '\n' + api._pname(it.product_id) + (m ? ' · missing ' + m + ' (' + why + ')' : '') + (d ? ' · damaged ' + d : ''); });
+      Object.assign(t, { status: 'received', received_by: me.id, received_at: now(), receive_note: (note || '').trim() || null });
+      api._scAlert('📥 Transfer received ' + t.transfer_no + ' · ' + api._whName(t.to_wh) + ' · by ' + me.full_name + (miss ? ' · with problems' : ' · all OK'));
+      if (miss) api._scAlert('❗ Transfer ' + t.transfer_no + ' received with problems · received by ' + me.full_name + miss);
+      save(); return wait(null);
+    },
+    async transferCancel(id, reason) {
+      const t = (D.transfers || []).find(x => x.id === id); if (!t) fail('Transfer not found');
+      if (t.status !== 'sent') fail('This transfer is already ' + t.status);
+      if (!(isBoss() || t.sent_by === me.id)) fail('Only the sender or admin / manager can cancel it');
+      if (!String(reason || '').trim()) fail('Write why it is cancelled');
+      t.items.forEach(it => { setQty(it.product_id, t.from_wh, qty(it.product_id, t.from_wh) + it.qty_sent);
+        D.moves.push({ id: ++D.seq.move, product_id: it.product_id, warehouse_id: t.from_wh, qty_change: it.qty_sent, reason: 'transfer_in', ref: t.transfer_no, note: 'Cancelled: ' + reason.trim(), unit_cost: it.unit_cost, created_by: me.id, created_at: now() }); });
+      Object.assign(t, { status: 'cancelled', received_by: me.id, received_at: now(), receive_note: 'Cancelled: ' + reason.trim() }); save(); return wait(null);
+    },
+    // hand adjustments with a reason (same rules as stock_adjust_request / stock_adjust_decide)
+    _adjApply(a) { const nq = qty(a.product_id, a.warehouse_id) + a.qty_change; if (nq < 0) fail('Not enough stock of ' + api._pname(a.product_id) + ' (would become ' + nq + ')');
+      setQty(a.product_id, a.warehouse_id, nq);
+      D.moves.push({ id: ++D.seq.move, product_id: a.product_id, warehouse_id: a.warehouse_id, qty_change: a.qty_change, reason: 'adjust', ref: a.adj_no, note: a.reason[0].toUpperCase() + a.reason.slice(1) + (a.note ? ' · ' + a.note : ''), unit_cost: a.unit_cost, created_by: a.created_by, created_at: now() });
+      if (a.reason === 'damaged') api._brokenChange(a.product_id, -a.qty_change, 'adjust', a.adj_no, a.note || 'Damaged');
+      a.status = 'applied'; },
+    async stockAdjustRequest(pid, wh, change, reason, note, photo) {
+      if (!role() || !allow('stock.manage')) fail('You are not allowed to change stock');
+      change = Math.trunc(+change || 0); if (!change) fail('Quantity cannot be 0');
+      if (!['damaged', 'lost', 'sample', 'gift', 'found', 'other'].includes(reason)) fail('Choose a reason');
+      if (['damaged', 'lost', 'sample', 'gift'].includes(reason) && change > 0) fail('This reason takes pieces OUT of stock');
+      if (reason === 'found' && change < 0) fail('"Found" adds pieces to stock');
+      if (reason === 'other' && !String(note || '').trim()) fail('Write a note for "Other"');
+      if (change < 0 && qty(pid, wh) + change < 0) fail('Not enough stock (only ' + qty(pid, wh) + ' pcs)');
+      const st = D.settings || {}, cost = api._cost(pid), val = Math.abs(change) * cost, big = Math.abs(change) > +(st.stock_adj_qty ?? 10) || val > +(st.stock_adj_value ?? 50);
+      D.adjustments = D.adjustments || []; const id = D.adjustments.reduce((a, x) => Math.max(a, x.id), 0) + 1;
+      const a = { id, adj_no: 'ADJ-' + String(id).padStart(4, '0'), product_id: pid, warehouse_id: wh, qty_change: change, reason, note: String(note || '').trim() || null, photo_url: photo || null, unit_cost: cost, status: 'pending', created_by: me.id, created_at: now() };
+      const txt = api._pname(pid) + ' ' + (change > 0 ? '+' : '') + change + ' pcs · ' + reason + ' · ' + api._whName(wh) + ' · value $' + val.toFixed(2) + ' · by ' + me.full_name;
+      if (big && !(isBoss() || allow('stock.adjust_approve'))) { D.adjustments.push(a); api._scAlert('✋ Stock adjustment ' + a.adj_no + ' waits for approval · ' + txt); save(); return wait({ id, adj_no: a.adj_no, status: 'pending' }); }
+      api._adjApply(a); D.adjustments.push(Object.assign(a, { decided_by: me.id, decided_at: now() })); api._scAlert('✏️ Stock adjustment ' + a.adj_no + ' · ' + txt); save(); return wait({ id, adj_no: a.adj_no, status: 'applied' }); },
+    async stockAdjustDecide(id, ok, note) {
+      if (!(role() === 'admin' || allow('stock.adjust_approve'))) fail('You are not allowed to approve stock adjustments');
+      const a = (D.adjustments || []).find(x => x.id === id); if (!a) fail('Adjustment not found'); if (a.status !== 'pending') fail('This adjustment is already ' + a.status);
+      if (!ok && !String(note || '').trim()) fail('Write why you say no');
+      if (ok) api._adjApply(a); else a.status = 'rejected';
+      Object.assign(a, { decided_by: me.id, decided_at: now(), decide_note: String(note || '').trim() || null }); save(); return wait(null); },
+    async listStockAdjustments(status, from, to) { if (!role()) return wait([]);
+      return wait((D.adjustments || []).filter(a => (!status || a.status === status) && (!from || localDay(a.created_at) >= from) && (!to || localDay(a.created_at) <= to))
+        .sort((x, y) => (y.status === 'pending') - (x.status === 'pending') || y.created_at.localeCompare(x.created_at))
+        .map(a => Object.assign(clone(a), { product_name: api._pname(a.product_id), warehouse_name: api._whName(a.warehouse_id), value: +(a.qty_change * (a.unit_cost || 0)).toFixed(2),
+          created_name: (user(a.created_by) || {}).full_name, decided_name: a.decided_by ? (user(a.decided_by) || {}).full_name : null, can_decide: a.status === 'pending' && (role() === 'admin' || allow('stock.adjust_approve')) }))); },
+    async stockSettingsSave(obj) { if (role() !== 'admin') fail('Only the admin can change these settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
+    // count sheets (same rules as count_start / count_save / count_submit / count_decide; blind = the counter never sees the system number)
+    _canCount(wid) { return api._canReceive(wid); },
+    _canApprove() { return isBoss() || allow('stock.adjust_approve'); },
+    _countMake(wh, blind, kind, note, by, due) {
+      D.counts = D.counts || []; const id = D.counts.reduce((a, c) => Math.max(a, c.id), 0) + 1;
+      D.counts.push({ id, count_no: 'CNT-' + String(id).padStart(4, '0'), warehouse_id: wh, blind: !!blind, kind, status: 'open', note: String(note || '').trim() || null, started_by: by, started_at: now(), due_date: due || null,
+        lines: D.products.filter(p => p.active !== false || qty(p.id, wh)).map(p => ({ product_id: p.id, counted: null, system_qty: null, unit_cost: null })) });
+      return id; },
+    async countStart(wh, blind, note) {
+      if (!D.warehouses.some(w => w.id === wh && !w.deleted_at)) fail('Stock not found');
+      if (!api._canCount(wh)) fail('You are not allowed to count this stock');
+      if ((D.counts || []).some(c => c.warehouse_id === wh && c.status === 'open')) fail('This stock already has an open count sheet. Finish it first.');
+      const id = api._countMake(wh, blind, 'manual', note, me.id, null); save(); return wait(id); },
+    _countOpen(id) { const c = (D.counts || []).find(x => x.id === id); if (!c) fail('Count sheet not found'); if (c.status !== 'open') fail('This count sheet is already ' + c.status);
+      if (!api._canCount(c.warehouse_id)) fail('You are not allowed to count this stock'); return c; },
+    async countSave(id, lines) { const c = api._countOpen(id);
+      (lines || []).forEach(x => { const v = x.counted === '' || x.counted == null ? null : Math.floor(+x.counted); if (v != null && v < 0) fail('Counted pieces cannot be below 0');
+        const l = c.lines.find(y => y.product_id === +x.product_id); if (l) l.counted = v; });
+      save(); return wait(null); },
+    async countSubmit(id) { const c = api._countOpen(id);
+      if (!c.lines.some(l => l.counted != null)) fail('Count at least one product first');
+      c.lines.forEach(l => { l.system_qty = qty(l.product_id, c.warehouse_id); l.unit_cost = api._cost(l.product_id); });
+      Object.assign(c, { status: 'submitted', submitted_by: me.id, submitted_at: now() });
+      const dl = c.lines.filter(l => l.counted != null && l.counted !== l.system_qty), d = dl.reduce((a, l) => a + l.counted - l.system_qty, 0), v = dl.reduce((a, l) => a + (l.counted - l.system_qty) * l.unit_cost, 0);
+      api._scAlert('📋 Count sheet ' + c.count_no + ' · ' + api._whName(c.warehouse_id) + ' waits for approval · ' + dl.length + ' products differ · ' + (d > 0 ? '+' : '') + d + ' pcs · $' + v.toFixed(2) + ' · by ' + me.full_name);
+      save(); return wait(null); },
+    async countDecide(id, ok, note) {
+      if (!api._canApprove()) fail('Only admin or a manager can approve count sheets');
+      const c = (D.counts || []).find(x => x.id === id); if (!c) fail('Count sheet not found'); if (c.status !== 'submitted') fail('This count sheet is ' + c.status);
+      if (!ok && !String(note || '').trim()) fail('Write why you say no');
+      const dl = c.lines.filter(l => l.counted != null && l.counted !== l.system_qty);
+      if (ok) { dl.forEach(l => { const nq = qty(l.product_id, c.warehouse_id) + l.counted - l.system_qty; if (nq < 0) fail(api._pname(l.product_id) + ': the stock changed since the count (would become ' + nq + '). Count again.'); });
+        dl.forEach(l => { setQty(l.product_id, c.warehouse_id, qty(l.product_id, c.warehouse_id) + l.counted - l.system_qty);
+          D.moves.push({ id: ++D.seq.move, product_id: l.product_id, warehouse_id: c.warehouse_id, qty_change: l.counted - l.system_qty, reason: 'adjust', ref: c.count_no, note: 'Count sheet', unit_cost: l.unit_cost, created_by: me.id, created_at: now() }); });
+        api._scAlert('✅ Count sheet ' + c.count_no + ' approved by ' + me.full_name + ' · ' + api._whName(c.warehouse_id) + ' · ' + dl.length + ' products corrected'); }
+      Object.assign(c, { status: ok ? 'approved' : 'rejected', decided_by: me.id, decided_at: now(), decide_note: String(note || '').trim() || null }); save(); return wait(null); },
+    _countSee(c) { return api._canApprove() || !c.blind; },
+    async listCounts(status) { if (!role()) return wait([]);
+      const nm = u => u ? (user(u) || {}).full_name : null;
+      return wait((D.counts || []).filter(c => (!status || c.status === status) && (api._canCount(c.warehouse_id) || api._canApprove()))
+        .sort((x, y) => (['open', 'submitted'].includes(y.status)) - (['open', 'submitted'].includes(x.status)) || y.started_at.localeCompare(x.started_at))
+        .map(c => { const see = api._countSee(c), cl = c.lines.filter(l => l.counted != null);
+          return { id: c.id, count_no: c.count_no, warehouse_id: c.warehouse_id, warehouse_name: api._whName(c.warehouse_id), blind: c.blind, kind: c.kind, status: c.status, note: c.note,
+            started_name: nm(c.started_by), started_at: c.started_at, due_date: c.due_date, submitted_name: nm(c.submitted_by), submitted_at: c.submitted_at || null, decided_name: nm(c.decided_by), decided_at: c.decided_at || null, decide_note: c.decide_note || null,
+            counted: cl.length, products: c.lines.length,
+            diff_products: see ? cl.filter(l => l.counted !== l.system_qty).length : null, diff_value: see ? +cl.reduce((a, l) => a + (l.counted - (l.system_qty ?? 0)) * (l.unit_cost || 0), 0).toFixed(2) : null,
+            can_count: c.status === 'open' && api._canCount(c.warehouse_id), can_decide: c.status === 'submitted' && api._canApprove() }; })); },
+    async stockCard(pid, wh, from, to) {
+      const w = wh ? D.warehouses.find(x => x.id === wh) : null;
+      if (wh && !(w && !w.deleted_at && (allow('stock.manage') || allow('stock.view_main') || allow('stock.move') || w.rep_id === me.id || api._canReceive(wh)))) fail('You cannot see this stock');
+      if (!wh && !(isBoss() || allow('stock.manage') || allow('stock.view_main'))) fail('Choose one stock');
+      const f = from || localDay(new Date(Date.now() - 30 * 864e5).toISOString()), t = to || localDay(now());
+      if (t < f) fail('The end date is before the start date');
+      const mine = D.moves.filter(m => m.product_id === pid && (!wh || m.warehouse_id === wh));
+      const nowq = D.warehouses.filter(x => !wh || x.id === wh).reduce((a, x) => a + qty(pid, x.id), 0);
+      const opening = nowq - mine.filter(m => localDay(m.created_at) >= f).reduce((a, m) => a + m.qty_change, 0);
+      let bal = opening;
+      const moves = mine.filter(m => localDay(m.created_at) >= f && localDay(m.created_at) <= t).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+        .map(m => { bal += m.qty_change; return { at: m.created_at, reason: m.reason, ref: m.ref || null, note: m.note || null, who: (user(m.created_by) || {}).full_name || null, warehouse: api._whName(m.warehouse_id),
+          qty: m.qty_change, unit_cost: m.unit_cost ?? null, value: m.unit_cost == null ? null : +(m.qty_change * m.unit_cost).toFixed(2), balance: bal }; });
+      const p = D.products.find(x => x.id === pid) || {};
+      return wait({ product_id: pid, product: p.name, sku: p.sku, cost: p.cost, warehouse: w ? w.name : null, from: f, to: t, opening, closing: bal,
+        qty_in: moves.filter(m => m.qty > 0).reduce((a, m) => a + m.qty, 0), qty_out: -moves.filter(m => m.qty < 0).reduce((a, m) => a + m.qty, 0), now: nowq, moves }); },
+    async countGet(id) { const c = (D.counts || []).find(x => x.id === id); if (!c || !(api._canCount(c.warehouse_id) || api._canApprove())) fail('Count sheet not found');
+      const see = api._countSee(c);
+      return wait({ id: c.id, count_no: c.count_no, warehouse_id: c.warehouse_id, warehouse_name: api._whName(c.warehouse_id), blind: c.blind, kind: c.kind, status: c.status, note: c.note, due_date: c.due_date, shows_system: see,
+        can_count: c.status === 'open' && api._canCount(c.warehouse_id), can_decide: c.status === 'submitted' && api._canApprove(),
+        lines: c.lines.map(l => { const p = D.products.find(x => x.id === l.product_id) || {};
+          return { product_id: l.product_id, name: p.name, sku: p.sku, category: p.category, counted: l.counted, system_qty: !see ? null : c.status === 'open' ? qty(l.product_id, c.warehouse_id) : l.system_qty, unit_cost: see ? (l.unit_cost ?? (+p.cost || 0)) : null }; })
+          .sort((a, b) => String(a.name).localeCompare(String(b.name))) }); },
+    async listTransfers(status, from, to) {
+      const seeWh = wid => { const w = D.warehouses.find(x => x.id === wid) || {}; return allow('stock.manage') || allow('stock.view_main') || allow('stock.move') || w.rep_id === me.id || (D.stockAccess || []).some(a => a.user_id === me.id && a.warehouse_id === wid); };
+      return wait((D.transfers || []).filter(t => (seeWh(t.from_wh) || seeWh(t.to_wh) || api._canReceive(t.to_wh) || isBoss()) && (!status || t.status === status)
+          && (!from || localDay(t.sent_at) >= from) && (!to || localDay(t.sent_at) <= to))
+        .sort((a, b) => (b.status === 'sent') - (a.status === 'sent') || b.sent_at.localeCompare(a.sent_at))
+        .map(t => Object.assign(clone(t), { from_name: api._whName(t.from_wh), to_name: api._whName(t.to_wh), sent_name: (user(t.sent_by) || {}).full_name, received_name: t.received_by ? (user(t.received_by) || {}).full_name : null,
+          can_receive: t.status === 'sent' && api._canReceive(t.to_wh), can_cancel: t.status === 'sent' && (isBoss() || t.sent_by === me.id),
+          items: t.items.map(i => Object.assign(clone(i), { name: api._pname(i.product_id), sku: (D.products.find(p => p.id === i.product_id) || {}).sku })),
+          pcs: t.items.reduce((a, i) => a + i.qty_sent, 0), value: +t.items.reduce((a, i) => a + i.qty_sent * (i.unit_cost || 0), 0).toFixed(2) }))); },
     async productMoves(pid) {
       return wait(D.moves.filter(m => m.product_id === pid).sort((a, b) => b.id - a.id).slice(0, 50).map(m => Object.assign(clone(m), {
         profiles: { full_name: (user(m.created_by) || {}).full_name }, warehouses: { name: D.warehouses.find(w => w.id === m.warehouse_id).name } })));
@@ -3786,6 +3976,8 @@ window.makeDemoApi = function () {
       save(); return wait(null); },
     async tgStatus() { if (role() !== 'admin') fail('Only the admin can see Telegram settings'); const T = D.tg = D.tg || {}; T.rules = T.rules || [];
       return wait({ token_set: !!T.token, bot_name: T.bot || null, pg_net: true, rules: T.rules.map(r => Object.assign({}, r)),
+        staff: D.users.filter(u => u.active && !['guest', 'partner'].includes(u.role)).sort((a, b) => a.full_name.localeCompare(b.full_name))
+          .map(u => ({ id: u.id, name: u.full_name, role: u.role, department_id: u.department_id || null, department: ((D.departments || []).find(d => d.id === u.department_id) || {}).name || null })),
         reps: D.users.filter(u => u.active && ['sales', 'online_sales'].includes(u.role)).map(u => ({ name: u.full_name, telegram: !!(D.stg || {})[u.id] })) }); },
     async tgSetToken(tk) { if (role() !== 'admin') fail('Only the admin can change Telegram settings'); const T = D.tg = D.tg || {}; tk = (tk || '').trim();
       if (!tk) { T.token = null; T.bot = null; save(); return wait(null); }
@@ -5128,6 +5320,196 @@ Object.assign(window.KT_KM, {"Commission for each rep": "កម្រៃជើ�
 // no-product target + commission (22 Oct)
 Object.assign(window.KT_KM, {"No-product %": "គ្មានផលិតផល %", "No-product bonus %": "ប្រាក់រង្វាន់គ្មានផលិតផល %", "Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).": "ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។ លក់អនឡាញ៖ ការលក់គ្មានផលិតផលមាន % និងប្រាក់រង្វាន់ % ផ្ទាល់ (លើសគោលដៅគ្មានផលិតផល)។", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ លក់អនឡាញមានគោលដៅទី 2 សម្រាប់ការលក់គ្មានផលិតផល។", "no products": "គ្មានផលិតផល", "No-product sales · this month": "ការលក់គ្មានផលិតផល · ខែនេះ", "No target yet.": "មិនទាន់មានគោលដៅ។", "Stock orders": "ការបញ្ជាទិញមានស្តុក", "Waiting approval:": "រង់ចាំការអនុម័ត៖", "Products target": "គោលដៅផលិតផល", "No-product sales": "ការលក់គ្មានផលិតផល", "No-product target": "គោលដៅគ្មានផលិតផល", "Stock orders and no-product sales are counted apart, each with its own target.": "ការបញ្ជាទិញមានស្តុក និងការលក់គ្មានផលិតផល រាប់ដាច់ដោយឡែក ម្នាក់ៗមានគោលដៅរៀងខ្លួន។", "Only for products that are NOT in this app (sold in the other system). No stock changes. Counted apart from stock sales, with its own target and its own commission %.": "សម្រាប់តែផលិតផលដែលមិនមានក្នុងកម្មវិធីនេះ (លក់ក្នុងប្រព័ន្ធផ្សេង)។ ស្តុកមិនប្តូរ។ រាប់ដាច់ពីការលក់មានស្តុក មានគោលដៅ និងកម្រៃជើងសារ % ផ្ទាល់។", "Each order and no-product sale (🧾) with its commission %.": "ការបញ្ជាទិញ និងការលក់គ្មានផលិតផល (🧾) នីមួយៗ ជាមួយកម្រៃជើងសារ %។", "Only for products that are not in this app. They are counted apart from stock sales, with their own target (Targets) and own commission % (HR → Commission). Admin and managers can change or delete them.": "សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។ រាប់ដាច់ពីការលក់មានស្តុក មានគោលដៅផ្ទាល់ (គោលដៅ) និងកម្រៃជើងសារ % ផ្ទាល់ (HR → កម្រៃជើងសារ)។ ម្ចាស់ និងអ្នកគ្រប់គ្រងអាចកែ ឬលុបបាន។"});
 
+// Stock control (23 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Stock control': 'ការគ្រប់គ្រងស្តុក',
+  'Transfers, adjustments, counts': 'ការផ្ទេរ ការកែតម្រូវ ការរាប់',
+  'Transfers': 'ការផ្ទេរ',
+  'Adjustments': 'ការកែតម្រូវ',
+  'Counts': 'ការរាប់ស្តុក',
+  'Stock card': 'កាតស្តុក',
+  'Movements': 'ចលនាស្តុក',
+  'Stock movements': 'ចលនាស្តុក',
+  '📦 Stock control (transfers, adjustments, counts)': '📦 ការគ្រប់គ្រងស្តុក (ផ្ទេរ កែតម្រូវ រាប់)',
+  '📦 Stock control': '📦 ការគ្រប់គ្រងស្តុក',
+  'New transfer (sent → received)': 'ការផ្ទេរថ្មី (ផ្ញើ → ទទួល)',
+  'New transfer': 'ការផ្ទេរថ្មី',
+  'In transit': 'កំពុងដឹក',
+  'in transit': 'កំពុងដឹក',
+  'Nothing in transit': 'គ្មានទំនិញកំពុងដឹក',
+  'No transfers': 'គ្មានការផ្ទេរ',
+  'Goods left the first stock and are not in the second stock yet.': 'ទំនិញចេញពីស្តុកទីមួយហើយ តែមិនទាន់ចូលស្តុកទីពីរ។',
+  'The old "Move stock" button still moves at once. A transfer here leaves the first stock when sent and enters the second stock only when someone there taps "Received".': 'ប៊ូតុង "ផ្ទេរស្តុក" ចាស់នៅតែផ្ទេរភ្លាមៗ។ ការផ្ទេរនៅទីនេះ ចេញពីស្តុកទីមួយពេលផ្ញើ ហើយចូលស្តុកទីពីរ តែពេលអ្នកនៅទីនោះចុច "បានទទួល"។',
+  'Tap to receive': 'ចុចដើម្បីទទួល',
+  'The goods leave the first stock now and wait "in transit" until the second stock taps "Received".': 'ទំនិញចេញពីស្តុកទីមួយឥឡូវ ហើយរង់ចាំ "កំពុងដឹក" រហូតដល់ស្តុកទីពីរចុច "បានទទួល"។',
+  'Type how many of each product': 'វាយចំនួននៃទំនិញនីមួយៗ',
+  'No stock in this place': 'គ្មានស្តុកនៅកន្លែងនេះ',
+  'Send': 'ផ្ញើ',
+  'Sent': 'បានផ្ញើ',
+  'Damaged': 'ខូច',
+  'Cancel transfer': 'បោះបង់ការផ្ទេរ',
+  'Confirm received': 'បញ្ជាក់ថាបានទទួល',
+  'Count what arrived. Missing pieces need a reason (admin is told). Damaged pieces go to Broken goods.': 'រាប់អ្វីដែលមកដល់។ គ្រឿងបាត់ត្រូវមានមូលហេតុ (អ្នកគ្រប់គ្រងនឹងដឹង)។ គ្រឿងខូចទៅក្នុងទំនិញខូច។',
+  'Why missing? (needed if missing)': 'ហេតុអ្វីបាត់? (ត្រូវការបើបាត់)',
+  'Value (cost)': 'តម្លៃ (ថ្លៃដើម)',
+  'Transfer sent': 'បានផ្ញើការផ្ទេរ',
+  'Transfer received': 'បានទទួលការផ្ទេរ',
+  'Choose two different stocks': 'ជ្រើសស្តុកពីរផ្សេងគ្នា',
+  'Type a quantity first': 'វាយចំនួនជាមុនសិន',
+  'Transfer not found': 'រកមិនឃើញការផ្ទេរ',
+  'Add a second stock first': 'បន្ថែមស្តុកទីពីរជាមុនសិន',
+  'New adjustment (with a reason)': 'ការកែតម្រូវថ្មី (មានមូលហេតុ)',
+  'New adjustment': 'ការកែតម្រូវថ្មី',
+  'waiting for approval': 'រង់ចាំការអនុម័ត',
+  'waiting for your approval': 'រង់ចាំការអនុម័តរបស់អ្នក',
+  'Not approved': 'មិនអនុម័ត',
+  'No adjustments': 'គ្មានការកែតម្រូវ',
+  'The old "Stock in/out" button still works at once. Here every change has a reason; big changes (above the limit in Settings → Stock control) wait for admin / manager.': 'ប៊ូតុង "ស្តុកចូល/ចេញ" ចាស់នៅតែដំណើរការភ្លាមៗ។ នៅទីនេះ ការផ្លាស់ប្តូរនីមួយៗមានមូលហេតុ ហើយការផ្លាស់ប្តូរធំ (លើសកម្រិតក្នុង ការកំណត់ → ការគ្រប់គ្រងស្តុក) រង់ចាំអ្នកគ្រប់គ្រង។',
+  'Lost': 'បាត់បង់',
+  'Sample': 'គំរូ',
+  'Gift': 'អំណោយ',
+  'Found': 'រកឃើញ',
+  'Add or take out': 'បន្ថែម ឬដកចេញ',
+  'Take out': 'ដកចេញ',
+  'What happened?': 'មានរឿងអ្វីកើតឡើង?',
+  'Photo (optional)': 'រូបថត (មិនចាំបាច់)',
+  'Save adjustment': 'រក្សាទុកការកែតម្រូវ',
+  'Note (needed to say no)': 'កំណត់ចំណាំ (ត្រូវការពេលបដិសេធ)',
+  'Say no': 'បដិសេធ',
+  'decided by': 'សម្រេចដោយ',
+  'Type how many pieces': 'វាយចំនួនគ្រឿង',
+  'New count sheet': 'សន្លឹករាប់ស្តុកថ្មី',
+  'Counting': 'កំពុងរាប់',
+  'No count sheets': 'គ្មានសន្លឹករាប់ស្តុក',
+  'The old "Stock count" button still changes stock at once. A count sheet changes stock only when admin / manager approves it, and every sheet is kept.': 'ប៊ូតុង "រាប់ស្តុក" ចាស់នៅតែប្តូរស្តុកភ្លាមៗ។ សន្លឹករាប់ស្តុកប្តូរស្តុក តែពេលអ្នកគ្រប់គ្រងអនុម័ត ហើយសន្លឹកនីមួយៗត្រូវរក្សាទុក។',
+  'blind': 'មើលមិនឃើញ',
+  'monthly': 'ប្រចាំខែ',
+  'counted': 'បានរាប់',
+  'differ': 'ខុសគ្នា',
+  'Blind count': 'រាប់ដោយមិនឃើញលេខ',
+  'The counter does not see the system numbers (more honest count).': 'អ្នករាប់មិនឃើញលេខក្នុងប្រព័ន្ធ (រាប់ត្រឹមត្រូវជាង)។',
+  'e.g. month end': 'ឧ. ចុងខែ',
+  'Start counting': 'ចាប់ផ្តើមរាប់',
+  'Monthly check': 'ការពិនិត្យប្រចាំខែ',
+  'Type what you really count on the shelf. Empty = not counted. Save any time; tap "Submit" when finished.': 'វាយចំនួនដែលអ្នករាប់ឃើញពិតនៅលើធ្នើ។ ទទេ = មិនទាន់រាប់។ រក្សាទុកពេលណាក៏បាន ហើយចុច "ដាក់ស្នើ" ពេលរួចរាល់។',
+  'Only differences': 'តែភាពខុសគ្នា',
+  'System': 'ប្រព័ន្ធ',
+  'Counted': 'បានរាប់',
+  'Diff': 'ខុសគ្នា',
+  'Submit': 'ដាក់ស្នើ',
+  'No products': 'គ្មានទំនិញ',
+  'Submit this count sheet? You cannot change it after.': 'ដាក់ស្នើសន្លឹករាប់នេះ? អ្នកមិនអាចកែបានទេបន្ទាប់ពីនេះ។',
+  'Submitted · admin / manager will check it': 'បានដាក់ស្នើ · អ្នកគ្រប់គ្រងនឹងពិនិត្យ',
+  'Approved · stock corrected': 'បានអនុម័ត · ស្តុកត្រូវបានកែ',
+  'Count at least one product first': 'រាប់យ៉ាងហោចណាស់ទំនិញមួយជាមុន',
+  'No stock to count': 'គ្មានស្តុកត្រូវរាប់',
+  'All stocks together': 'ស្តុកទាំងអស់រួមគ្នា',
+  'You have no stock to show': 'អ្នកគ្មានស្តុកត្រូវបង្ហាញ',
+  'Opening': 'ដើមគ្រា',
+  'Closing': 'ចុងគ្រា',
+  'In': 'ចូល',
+  'Balance': 'សមតុល្យ',
+  'No movements in these dates': 'គ្មានចលនាក្នុងថ្ងៃទាំងនេះ',
+  'Value = pieces × cost on that day. Movements before 23 Oct 2026 have no cost (—).': 'តម្លៃ = ចំនួនគ្រឿង × ថ្លៃដើមនៅថ្ងៃនោះ។ ចលនាមុន ២៣ តុលា ២០២៦ គ្មានថ្លៃដើម (—)។',
+  'Download (Excel)': 'ទាញយក (Excel)',
+  'Adjustment': 'ការកែតម្រូវ',
+  'Count sheet': 'សន្លឹករាប់ស្តុក',
+  'Stock count / adjust': 'រាប់ / កែស្តុក',
+  'Transfer out': 'ផ្ទេរចេញ',
+  'Transfer in': 'ផ្ទេរចូល',
+  'Exchange': 'ប្តូរទំនិញ',
+  'Transfers sent': 'ការផ្ទេរបានផ្ញើ',
+  'Still in transit': 'នៅកំពុងដឹក',
+  'Missing + damaged on the way': 'បាត់ + ខូចតាមផ្លូវ',
+  'Adjustments: taken out': 'ការកែតម្រូវ: ដកចេញ',
+  'Adjustments: added': 'ការកែតម្រូវ: បន្ថែម',
+  'Count sheets: difference': 'សន្លឹករាប់: ភាពខុសគ្នា',
+  'Count sheets': 'សន្លឹករាប់ស្តុក',
+  'Number': 'លេខ',
+  'From → To': 'ពី → ទៅ',
+  'Differ': 'ខុសគ្នា',
+  'Difference value': 'តម្លៃខុសគ្នា',
+  'No transfers in these dates': 'គ្មានការផ្ទេរក្នុងថ្ងៃទាំងនេះ',
+  'No adjustments in these dates': 'គ្មានការកែតម្រូវក្នុងថ្ងៃទាំងនេះ',
+  'No count sheets in these dates': 'គ្មានសន្លឹករាប់ក្នុងថ្ងៃទាំងនេះ',
+  'Stock control settings': 'ការកំណត់ការគ្រប់គ្រងស្តុក',
+  'Transfer is late (admin is told) after how many days': 'ការផ្ទេរយឺត (ប្រាប់អ្នកគ្រប់គ្រង) បន្ទាប់ពីប៉ុន្មានថ្ងៃ',
+  'Adjustments that need approval': 'ការកែតម្រូវដែលត្រូវការអនុម័ត',
+  'More than how many pieces': 'លើសពីប៉ុន្មានគ្រឿង',
+  'Or worth more than ($ at cost)': 'ឬមានតម្លៃលើស ($ តាមថ្លៃដើម)',
+  'Smaller adjustments are done at once. Admin and people with "Approve stock adjustments" are never stopped. 0 = every adjustment waits.': 'ការកែតម្រូវតូចៗធ្វើភ្លាមៗ។ អ្នកគ្រប់គ្រង និងអ្នកមានសិទ្ធិ "អនុម័តការកែតម្រូវស្តុក" មិនត្រូវរង់ចាំទេ។ 0 = ការកែតម្រូវទាំងអស់ត្រូវរង់ចាំ។',
+  'Monthly rep stock check (blind count)': 'ការពិនិត្យស្តុកអ្នកលក់ប្រចាំខែ (រាប់មិនឃើញលេខ)',
+  'Day of the month (1–28, empty = off)': 'ថ្ងៃនៃខែ (1–28, ទទេ = បិទ)',
+  'Rep must submit within how many days': 'អ្នកលក់ត្រូវដាក់ស្នើក្នុងរយៈពេលប៉ុន្មានថ្ងៃ',
+  'On that day every sales rep with an own stock gets a count sheet (bell + Telegram). If it is not submitted in time, admin is told. Differences wait for approval in Counts.': 'នៅថ្ងៃនោះ អ្នកលក់ដែលមានស្តុកផ្ទាល់ខ្លួន ទទួលបានសន្លឹករាប់ស្តុក (កណ្តឹង + Telegram)។ បើមិនដាក់ស្នើទាន់ពេល អ្នកគ្រប់គ្រងនឹងដឹង។ ភាពខុសគ្នារង់ចាំការអនុម័តក្នុង ការរាប់ស្តុក។',
+  'Which alerts go where: Settings → Telegram alerts and each alert channel → Automatic alerts (group "Stock control").': 'ការជូនដំណឹងណាទៅកន្លែងណា: ការកំណត់ → ការជូនដំណឹង Telegram និងឆានែលជូនដំណឹងនីមួយៗ → ការជូនដំណឹងស្វ័យប្រវត្តិ (ក្រុម "ការគ្រប់គ្រងស្តុក")។',
+  'Only the admin can change these': 'មានតែអ្នកគ្រប់គ្រងទេដែលអាចប្តូរបាន',
+  'Approve stock adjustments': 'អនុម័តការកែតម្រូវស្តុក',
+  'Stock control: big hand adjustments (above the limit in Settings) wait for this person': 'ការគ្រប់គ្រងស្តុក: ការកែតម្រូវធំៗ (លើសកម្រិតក្នុងការកំណត់) រង់ចាំអ្នកនេះ',
+  'Transfer received with missing / damaged pieces': 'បានទទួលការផ្ទេរ មានគ្រឿងបាត់ / ខូច',
+  'Transfer not received in time': 'ការផ្ទេរមិនបានទទួលទាន់ពេល',
+  'Stock adjustment waiting for approval': 'ការកែតម្រូវស្តុករង់ចាំការអនុម័ត',
+  'Stock adjustment done': 'ការកែតម្រូវស្តុករួចរាល់',
+  'Count sheet waiting for approval': 'សន្លឹករាប់ស្តុករង់ចាំការអនុម័ត',
+  'Count sheet approved': 'សន្លឹករាប់ស្តុកបានអនុម័ត',
+  'Monthly rep stock check not done': 'អ្នកលក់មិនទាន់ពិនិត្យស្តុកប្រចាំខែ',
+  'This stock already has an open count sheet. Finish it first.': 'ស្តុកនេះមានសន្លឹករាប់ស្តុកបើករួចហើយ។ សូមបញ្ចប់វាជាមុន។',
+  'You are not allowed to count this stock': 'អ្នកមិនមានសិទ្ធិរាប់ស្តុកនេះទេ',
+  'Only admin or a manager can approve count sheets': 'មានតែអ្នកគ្រប់គ្រង ឬអ្នកចាត់ការទេដែលអាចអនុម័តសន្លឹករាប់',
+  'Write why you say no': 'សរសេរហេតុផលដែលបដិសេធ',
+  'Counted pieces cannot be below 0': 'ចំនួនរាប់មិនអាចតិចជាង 0',
+  'You cannot see this stock': 'អ្នកមិនអាចមើលស្តុកនេះបានទេ',
+  'Choose one stock': 'ជ្រើសស្តុកមួយ',
+  'The end date is before the start date': 'ថ្ងៃបញ្ចប់មុនថ្ងៃចាប់ផ្តើម',
+  'Choose a reason': 'ជ្រើសមូលហេតុ',
+  'Write a note for "Other"': 'សរសេរកំណត់ចំណាំសម្រាប់ "ផ្សេងៗ"',
+  'You are not allowed to move stock': 'អ្នកមិនមានសិទ្ធិផ្ទេរស្តុកទេ',
+  'Only the people of the receiving stock can receive it': 'មានតែអ្នកនៃស្តុកទទួលទេដែលអាចទទួលបាន',
+  'Only the sender or admin / manager can cancel it': 'មានតែអ្នកផ្ញើ ឬអ្នកគ្រប់គ្រងទេដែលអាចបោះបង់',
+  'Write why it is cancelled': 'សរសេរហេតុផលដែលបោះបង់',
+  'Type': 'ប្រភេទ',
+  'Value': 'តម្លៃ',
+  'Search product': 'ស្វែងរកទំនិញ',
+  'e.g. for this week': 'ឧ. សម្រាប់សប្តាហ៍នេះ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^([+-]\d+) pcs$/, '$1 គ្រឿង'],
+  [/^In this stock now: (\d+) pcs$/, 'នៅក្នុងស្តុកនេះឥឡូវ: $1 គ្រឿង'],
+  [/^(\d+) \/ (\d+) counted$/, 'បានរាប់ $1 / $2'],
+  [/^(\d+) \/ (\d+) counted · (\d+) differ · (.+) pcs · (.+)$/, 'បានរាប់ $1 / $2 · ខុសគ្នា $3 · $4 គ្រឿង · $5'],
+  [/^Receive (TR-\d+)$/, 'ទទួល $1'],
+  [/^Cancel (TR-\d+)$/, 'បោះបង់ $1'],
+  [/^(\d+) products · (\d+) pcs$/, 'ទំនិញ $1 · $2 គ្រឿង'],
+  [/^Value \(cost\): (.+)$/, 'តម្លៃ (ថ្លៃដើម): $1'],
+  [/^Due (.+)$/, 'ត្រូវរួចមុន $1'],
+  [/^(ADJ-\d+) waits for approval \(big change\)$/, '$1 រង់ចាំការអនុម័ត (ការផ្លាស់ប្តូរធំ)'],
+  [/^(ADJ-\d+) done$/, '$1 រួចរាល់'],
+  [/^(.+): received \+ missing \+ damaged must be (\d+) pcs$/, '$1: ទទួល + បាត់ + ខូច ត្រូវតែ $2 គ្រឿង'],
+  [/^(.+): write why (\d+) pcs are missing$/, '$1: សរសេរហេតុផលដែលបាត់ $2 គ្រឿង'],
+  [/^Not enough stock \(only (\d+) pcs\)$/, 'ស្តុកមិនគ្រប់ (មានតែ $1 គ្រឿង)']
+);
+
+// Telegram summary: staff choice + new parts (23 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Which staff it shows': 'បង្ហាញបុគ្គលិកណាខ្លះ',
+  'Totals stay for the whole company. You choose whose own lines are shown (sales by rep, visits, attendance, expenses, each rep\'s report…). Turned-off staff are never in this list.': 'សរុបនៅតែសម្រាប់ក្រុមហ៊ុនទាំងមូល។ អ្នកជ្រើសថាបន្ទាត់របស់អ្នកណាត្រូវបង្ហាញ (ការលក់តាមអ្នកលក់ ការចុះហាង វត្តមាន ចំណាយ របាយការណ៍អ្នកលក់…)។ បុគ្គលិកដែលបានបិទ មិនមានក្នុងបញ្ជីនេះទេ។',
+  'None': 'គ្មាន',
+  '+ Add by role': '+ បន្ថែមតាមតួនាទី',
+  '+ Add by department': '+ បន្ថែមតាមផ្នែក',
+  'Add new staff automatically': 'បន្ថែមបុគ្គលិកថ្មីដោយស្វ័យប្រវត្តិ',
+  'Staff added after you save are shown too.': 'បុគ្គលិកដែលបន្ថែមក្រោយពេលរក្សាទុក ក៏បង្ហាញដែរ។',
+  'Big order: from how much ($)': 'ការបញ្ជាទិញធំ: ចាប់ពីប៉ុន្មាន ($)',
+  'only chosen staff': 'តែបុគ្គលិកដែលបានជ្រើស',
+  '🌐 Online sales (orders, sales without products, new online customers, follow-ups, each online seller)': '🌐 ការលក់អនឡាញ (ការបញ្ជាទិញ ការលក់គ្មានទំនិញក្នុងស្តុក អតិថិជនអនឡាញថ្មី ការតាមដាន អ្នកលក់អនឡាញម្នាក់ៗ)',
+  '📍 Shops not visited + 😴 sleeping shops (same days as the morning alerts, by rep)': '📍 ហាងមិនបានចុះ + 😴 ហាងដេកលក់ (ចំនួនថ្ងៃដូចការជូនដំណឹងពេលព្រឹក តាមអ្នកលក់)',
+  '🤫 Silent customers (bought 2+ times, then nothing)': '🤫 អតិថិជនស្ងាត់ (ទិញ 2 ដងឡើង រួចឈប់)',
+  '🏷 Below price, 🎁 free items and 💰 big orders': '🏷 លក់ក្រោមតម្លៃ 🎁 ទំនិញឥតគិតថ្លៃ និង 💰 ការបញ្ជាទិញធំ',
+  '🚚 Stock moved and adjustments (transfers, missing / damaged, adjustments, count sheets)': '🚚 ចលនាស្តុក និងការកែតម្រូវ (ការផ្ទេរ បាត់ / ខូច ការកែតម្រូវ សន្លឹករាប់ស្តុក)',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Showing (\d+) of (\d+) staff$/, 'បង្ហាញ $1 ក្នុងចំណោម $2 នាក់']
+);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -6120,6 +6502,196 @@ Object.assign(window.KT_ZH, {"Commission for each rep": "每位销售的提成",
 
 // no-product target + commission (22 Oct)
 Object.assign(window.KT_ZH, {"No-product %": "无产品 %", "No-product bonus %": "无产品奖金 %", "Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).": "空 = 0%。某个订单上设置的 % 用于该订单。线上销售：无产品销售有自己的 % 和奖金 %（超过无产品目标部分）。", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.": "目标 = 每位销售本月应卖多少（已批准订单）。留空 = 无目标。线上销售还有第 2 个目标：无产品销售。", "no products": "无产品", "No-product sales · this month": "无产品销售 · 本月", "No target yet.": "还没有目标。", "Stock orders": "库存订单", "Waiting approval:": "等待批准：", "Products target": "产品目标", "No-product sales": "无产品销售", "No-product target": "无产品目标", "Stock orders and no-product sales are counted apart, each with its own target.": "库存订单和无产品销售分开计算，各有自己的目标。", "Only for products that are NOT in this app (sold in the other system). No stock changes. Counted apart from stock sales, with its own target and its own commission %.": "只用于不在本应用里的产品（在另一个系统销售）。库存不变。与库存销售分开计算，有自己的目标和提成 %。", "Each order and no-product sale (🧾) with its commission %.": "每个订单和无产品销售（🧾）及其提成 %。", "Only for products that are not in this app. They are counted apart from stock sales, with their own target (Targets) and own commission % (HR → Commission). Admin and managers can change or delete them.": "只用于不在本应用里的产品。与库存销售分开计算，有自己的目标（目标）和提成 %（人事 → 提成）。老板和经理可以修改或删除。"});
+
+// Stock control (23 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Stock control': '库存管控',
+  'Transfers, adjustments, counts': '调拨、调整、盘点',
+  'Transfers': '调拨',
+  'Adjustments': '调整',
+  'Counts': '盘点',
+  'Stock card': '库存卡',
+  'Movements': '库存变动',
+  'Stock movements': '库存变动',
+  '📦 Stock control (transfers, adjustments, counts)': '📦 库存管控（调拨、调整、盘点）',
+  '📦 Stock control': '📦 库存管控',
+  'New transfer (sent → received)': '新调拨（发出 → 收到）',
+  'New transfer': '新调拨',
+  'In transit': '在途',
+  'in transit': '在途',
+  'Nothing in transit': '没有在途货物',
+  'No transfers': '没有调拨',
+  'Goods left the first stock and are not in the second stock yet.': '货物已离开第一个库存，还未进入第二个库存。',
+  'The old "Move stock" button still moves at once. A transfer here leaves the first stock when sent and enters the second stock only when someone there taps "Received".': '旧的"移动库存"按钮仍然立即移动。这里的调拨在发出时离开第一个库存，只有当对方点击"已收到"时才进入第二个库存。',
+  'Tap to receive': '点击收货',
+  'The goods leave the first stock now and wait "in transit" until the second stock taps "Received".': '货物现在离开第一个库存，处于"在途"，直到第二个库存点击"已收到"。',
+  'Type how many of each product': '输入每个产品的数量',
+  'No stock in this place': '此处没有库存',
+  'Send': '发出',
+  'Sent': '已发出',
+  'Damaged': '损坏',
+  'Cancel transfer': '取消调拨',
+  'Confirm received': '确认收到',
+  'Count what arrived. Missing pieces need a reason (admin is told). Damaged pieces go to Broken goods.': '清点到货。缺少的件数需要原因（会通知管理员）。损坏的件数进入损坏商品。',
+  'Why missing? (needed if missing)': '为什么缺少？（缺少时必填）',
+  'Value (cost)': '价值（成本）',
+  'Transfer sent': '调拨已发出',
+  'Transfer received': '调拨已收到',
+  'Choose two different stocks': '请选择两个不同的库存',
+  'Type a quantity first': '请先输入数量',
+  'Transfer not found': '找不到调拨',
+  'Add a second stock first': '请先添加第二个库存',
+  'New adjustment (with a reason)': '新调整（需写原因）',
+  'New adjustment': '新调整',
+  'waiting for approval': '等待批准',
+  'waiting for your approval': '等待您批准',
+  'Not approved': '未批准',
+  'No adjustments': '没有调整',
+  'The old "Stock in/out" button still works at once. Here every change has a reason; big changes (above the limit in Settings → Stock control) wait for admin / manager.': '旧的"入库/出库"按钮仍然立即生效。这里每次修改都要写原因；大的修改（超过 设置 → 库存管控 中的限额）需等待管理员/经理批准。',
+  'Lost': '丢失',
+  'Sample': '样品',
+  'Gift': '赠品',
+  'Found': '找到',
+  'Add or take out': '增加或取出',
+  'Take out': '取出',
+  'What happened?': '发生了什么？',
+  'Photo (optional)': '照片（可选）',
+  'Save adjustment': '保存调整',
+  'Note (needed to say no)': '备注（拒绝时必填）',
+  'Say no': '拒绝',
+  'decided by': '决定人',
+  'Type how many pieces': '请输入件数',
+  'New count sheet': '新盘点表',
+  'Counting': '盘点中',
+  'No count sheets': '没有盘点表',
+  'The old "Stock count" button still changes stock at once. A count sheet changes stock only when admin / manager approves it, and every sheet is kept.': '旧的"盘点"按钮仍然立即修改库存。盘点表只有在管理员/经理批准后才修改库存，每张表都会保存。',
+  'blind': '盲盘',
+  'monthly': '每月',
+  'counted': '已盘点',
+  'differ': '有差异',
+  'Blind count': '盲盘',
+  'The counter does not see the system numbers (more honest count).': '盘点人看不到系统数量（盘点更真实）。',
+  'e.g. month end': '例如：月底',
+  'Start counting': '开始盘点',
+  'Monthly check': '月度盘点',
+  'Type what you really count on the shelf. Empty = not counted. Save any time; tap "Submit" when finished.': '输入您在货架上实际清点的数量。空白 = 未盘点。可随时保存；完成后点击"提交"。',
+  'Only differences': '只看差异',
+  'System': '系统',
+  'Counted': '实盘',
+  'Diff': '差异',
+  'Submit': '提交',
+  'No products': '没有产品',
+  'Submit this count sheet? You cannot change it after.': '提交此盘点表？提交后不能修改。',
+  'Submitted · admin / manager will check it': '已提交 · 管理员/经理会检查',
+  'Approved · stock corrected': '已批准 · 库存已更正',
+  'Count at least one product first': '请先至少盘点一个产品',
+  'No stock to count': '没有可盘点的库存',
+  'All stocks together': '所有库存合计',
+  'You have no stock to show': '您没有可显示的库存',
+  'Opening': '期初',
+  'Closing': '期末',
+  'In': '入',
+  'Balance': '结存',
+  'No movements in these dates': '这些日期没有变动',
+  'Value = pieces × cost on that day. Movements before 23 Oct 2026 have no cost (—).': '价值 = 件数 × 当天成本。2026年10月23日之前的变动没有成本（—）。',
+  'Download (Excel)': '下载（Excel）',
+  'Adjustment': '调整',
+  'Count sheet': '盘点表',
+  'Stock count / adjust': '盘点 / 调整',
+  'Transfer out': '调出',
+  'Transfer in': '调入',
+  'Exchange': '换货',
+  'Transfers sent': '已发出调拨',
+  'Still in transit': '仍在途',
+  'Missing + damaged on the way': '途中缺少 + 损坏',
+  'Adjustments: taken out': '调整：取出',
+  'Adjustments: added': '调整：增加',
+  'Count sheets: difference': '盘点表：差异',
+  'Count sheets': '盘点表',
+  'Number': '编号',
+  'From → To': '从 → 到',
+  'Differ': '有差异',
+  'Difference value': '差异价值',
+  'No transfers in these dates': '这些日期没有调拨',
+  'No adjustments in these dates': '这些日期没有调整',
+  'No count sheets in these dates': '这些日期没有盘点表',
+  'Stock control settings': '库存管控设置',
+  'Transfer is late (admin is told) after how many days': '调拨多少天后算迟到（通知管理员）',
+  'Adjustments that need approval': '需要批准的调整',
+  'More than how many pieces': '超过多少件',
+  'Or worth more than ($ at cost)': '或价值超过（成本价 $）',
+  'Smaller adjustments are done at once. Admin and people with "Approve stock adjustments" are never stopped. 0 = every adjustment waits.': '小的调整立即生效。管理员和有"批准库存调整"权限的人不受限制。0 = 每次调整都要等待批准。',
+  'Monthly rep stock check (blind count)': '销售员每月盘点（盲盘）',
+  'Day of the month (1–28, empty = off)': '每月第几天（1–28，空白 = 关闭）',
+  'Rep must submit within how many days': '销售员需在多少天内提交',
+  'On that day every sales rep with an own stock gets a count sheet (bell + Telegram). If it is not submitted in time, admin is told. Differences wait for approval in Counts.': '当天每个有自己库存的销售员都会收到一张盘点表（铃铛 + Telegram）。未按时提交会通知管理员。差异在"盘点"中等待批准。',
+  'Which alerts go where: Settings → Telegram alerts and each alert channel → Automatic alerts (group "Stock control").': '哪些提醒发到哪里：设置 → Telegram 提醒，以及每个提醒频道 → 自动提醒（"库存管控"组）。',
+  'Only the admin can change these': '只有管理员可以修改',
+  'Approve stock adjustments': '批准库存调整',
+  'Stock control: big hand adjustments (above the limit in Settings) wait for this person': '库存管控：大的手动调整（超过设置中的限额）等待此人批准',
+  'Transfer received with missing / damaged pieces': '调拨已收到，有缺少/损坏',
+  'Transfer not received in time': '调拨未按时收到',
+  'Stock adjustment waiting for approval': '库存调整等待批准',
+  'Stock adjustment done': '库存调整已完成',
+  'Count sheet waiting for approval': '盘点表等待批准',
+  'Count sheet approved': '盘点表已批准',
+  'Monthly rep stock check not done': '销售员月度盘点未完成',
+  'This stock already has an open count sheet. Finish it first.': '此库存已有一张未完成的盘点表。请先完成它。',
+  'You are not allowed to count this stock': '您无权盘点此库存',
+  'Only admin or a manager can approve count sheets': '只有管理员或经理可以批准盘点表',
+  'Write why you say no': '请写拒绝的原因',
+  'Counted pieces cannot be below 0': '盘点件数不能小于 0',
+  'You cannot see this stock': '您不能查看此库存',
+  'Choose one stock': '请选择一个库存',
+  'The end date is before the start date': '结束日期早于开始日期',
+  'Choose a reason': '请选择原因',
+  'Write a note for "Other"': '请为"其他"写备注',
+  'You are not allowed to move stock': '您无权移动库存',
+  'Only the people of the receiving stock can receive it': '只有收货库存的人可以收货',
+  'Only the sender or admin / manager can cancel it': '只有发送人或管理员/经理可以取消',
+  'Write why it is cancelled': '请写取消的原因',
+  'Type': '类型',
+  'Value': '价值',
+  'Search product': '搜索产品',
+  'e.g. for this week': '例如：本周用',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^([+-]\d+) pcs$/, '$1 件'],
+  [/^In this stock now: (\d+) pcs$/, '此库存现有：$1 件'],
+  [/^(\d+) \/ (\d+) counted$/, '已盘点 $1 / $2'],
+  [/^(\d+) \/ (\d+) counted · (\d+) differ · (.+) pcs · (.+)$/, '已盘点 $1 / $2 · $3 个有差异 · $4 件 · $5'],
+  [/^Receive (TR-\d+)$/, '收货 $1'],
+  [/^Cancel (TR-\d+)$/, '取消 $1'],
+  [/^(\d+) products · (\d+) pcs$/, '$1 个产品 · $2 件'],
+  [/^Value \(cost\): (.+)$/, '价值（成本）：$1'],
+  [/^Due (.+)$/, '截止 $1'],
+  [/^(ADJ-\d+) waits for approval \(big change\)$/, '$1 等待批准（大的修改）'],
+  [/^(ADJ-\d+) done$/, '$1 已完成'],
+  [/^(.+): received \+ missing \+ damaged must be (\d+) pcs$/, '$1：收到 + 缺少 + 损坏 必须是 $2 件'],
+  [/^(.+): write why (\d+) pcs are missing$/, '$1：请写为什么缺少 $2 件'],
+  [/^Not enough stock \(only (\d+) pcs\)$/, '库存不足（只有 $1 件）']
+);
+
+// Telegram summary: staff choice + new parts (23 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Which staff it shows': '显示哪些员工',
+  'Totals stay for the whole company. You choose whose own lines are shown (sales by rep, visits, attendance, expenses, each rep\'s report…). Turned-off staff are never in this list.': '总数仍是全公司的。您选择显示谁的个人行（按销售员的销售、拜访、考勤、费用、每个销售员的报告…）。已停用的员工不会出现在此列表中。',
+  'None': '全不选',
+  '+ Add by role': '+ 按角色添加',
+  '+ Add by department': '+ 按部门添加',
+  'Add new staff automatically': '自动添加新员工',
+  'Staff added after you save are shown too.': '保存后新增的员工也会显示。',
+  'Big order: from how much ($)': '大订单：从多少（$）起',
+  'only chosen staff': '仅所选员工',
+  '🌐 Online sales (orders, sales without products, new online customers, follow-ups, each online seller)': '🌐 网上销售（订单、无库存产品销售、新网上客户、跟进、每个网上销售员）',
+  '📍 Shops not visited + 😴 sleeping shops (same days as the morning alerts, by rep)': '📍 未拜访的商店 + 😴 沉睡商店（天数与早上的提醒相同，按销售员）',
+  '🤫 Silent customers (bought 2+ times, then nothing)': '🤫 沉默客户（买过 2 次以上，然后不再购买）',
+  '🏷 Below price, 🎁 free items and 💰 big orders': '🏷 低于价格、🎁 免费商品和 💰 大订单',
+  '🚚 Stock moved and adjustments (transfers, missing / damaged, adjustments, count sheets)': '🚚 库存变动和调整（调拨、缺少/损坏、调整、盘点表）',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Showing (\d+) of (\d+) staff$/, '显示 $1 / $2 名员工']
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -7276,6 +7848,7 @@ Object.assign(window.KT_ZH, {"No-product %": "无产品 %", "No-product bonus %"
       ${!manage && mine && warehouses.length === 1 ? '<div class="small muted">Your stock: the goods you carry. Ask the warehouse or admin to give you more.</div>' : ''}
       ${K.catalogMode() && mine ? `<a class="btn ghost block" href="#/stock?cat=1">${icon('list', 20)} Product list (order from main warehouse)</a>` : ''}
       ${manage || K.allow('stock.move') ? `<button class="btn ghost block" id="loadrep">${icon('swap', 20)} Move stock (to a rep, back, or between stocks)</button>` : ''}
+      ${manage || K.allow('stock.move') || mine ? `<a class="btn ghost block" href="#/stockctl" style="text-decoration:none">📦 Stock control (transfers, adjustments, counts)</a>` : ''}
       ${K.canSeeBroken && K.canSeeBroken() ? `<button class="btn ghost block" id="brk">🔁 Broken goods (pieces shops gave back)</button>` : ''}
       <div class="stats three" id="sum"></div>
       <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
@@ -9817,6 +10390,405 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     if (!act.length && !edit) { K.toast('Add your first supplier'); K.supplierSheet({}, x => { s.close(); K.newPurchaseSheet(onDone, x.id); }); }
     cur(); drawL(); drawT();
+  };
+})();
+
+// Stock control (23 Oct 2026, Mr. Lee): NEW screens next to the old stock buttons (which stay as they are).
+// Transfers Sent → Received (TR-0001), hand adjustments with a reason (ADJ-), count sheets (CNT-), stock card, movements.
+// One page "Stock control" (#/stockctl) in the staff app and in the admin web.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy } = K;
+  const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
+  const money = v => K.money(v);
+  const ADMIN = !!(window.KT_CONFIG || {}).ADMIN;
+  const dayTxt = d => d ? new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
+  const ago = d => Math.max(0, Math.floor((Date.now() - new Date(d)) / 864e5));
+  const TABS = [['transfers', 'Transfers'], ['adjust', 'Adjustments'], ['count', 'Counts'], ['card', 'Stock card'], ['moves', 'Movements'], ['settings', 'Settings']];
+  const isAdmin = () => !!K.S.me && K.S.me.role === 'admin';
+  const tabsFor = () => TABS.filter(t => t[0] !== 'settings' || isAdmin());
+  K.SC = { TABS };
+
+  // ---------- page ----------
+  const open = async (q, current) => {
+    const tab = tabsFor().some(t => t[0] === q.t) ? q.t : 'transfers';
+    let main;
+    if (ADMIN) main = K.adm.shell('products', 'Stock control', '', 'Transfers, adjustments, counts');
+    else main = K.page({ title: 'Stock control', sub: 'Transfers, adjustments, counts', back: '#/stock' });
+    main.innerHTML = `${ADMIN ? '<div class="chips" id="sctabs"></div><div class="apad" id="scb"></div>' : '<div class="chips" id="sctabs" style="padding:12px 16px 0"></div><div class="pad" id="scb"></div>'}`;
+    $('#sctabs').innerHTML = tabsFor().map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" href="#/stockctl?t=${k}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${esc(l)}</a>`).join('');
+    await K.SC[tab]($('#scb'), q, current);
+  };
+  K.route(/^\/stockctl$/, (_, q, current) => open(q || {}, current));
+  K.route(/^\/counts\/(\d+)$/, async ([id], q, current) => { await open({ t: 'count' }, current); K.SC.countSheet(+id); });
+  K.route(/^\/transfers\/(\d+)$/, async ([id], q, current) => { await open({ t: 'transfers' }, current); K.SC.transferSheet(+id); });
+
+  // ---------- transfers ----------
+  const canSend = () => K.allow('stock.manage') || K.allow('stock.move');
+  const stPill = t => t.status === 'sent' ? `<span class="pill or"><span>In transit</span>${ago(t.sent_at) ? ' · ' + ago(t.sent_at) + 'd' : ''}</span>` : t.status === 'received'
+    ? `<span class="pill ${t.items.some(i => +i.qty_missing || +i.qty_damaged) ? 'rd' : 'gr'}">Received</span>` : '<span class="pill gy">Cancelled</span>';
+  const trRow = t => `<button class="list-item" data-tr="${t.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
+      <div class="ic-av sq">${icon('swap', 20)}</div><div class="grow"><div class="tt">${esc(t.transfer_no)} · ${esc(t.from_name)} → ${esc(t.to_name)}</div>
+      <div class="st">${dayTxt(t.sent_at)} · <span>${t.pcs} pcs</span> · ${esc(t.sent_name || '')}${t.note ? ' · ' + esc(t.note) : ''}</div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${stPill(t)}${t.can_receive ? '<span class="small" style="color:var(--p);font-weight:700">Tap to receive</span>' : ''}</div></button>`;
+  K.SC.transfers = async (el, q, current) => {
+    let f = q.f || 'sent';
+    const draw = async () => {
+      el.innerHTML = K.loading;
+      const list = await api.listTransfers(f === 'all' ? null : f).catch(e => { toast(e.message); return []; });
+      if (current && !current()) return;
+      const transit = list.filter(t => t.status === 'sent');
+      el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+        ${canSend() ? `<button class="btn block" id="trnew">${icon('swap', 20)} New transfer (sent → received)</button>` : ''}
+        <div class="seg">${[['sent', 'In transit'], ['received', 'Received'], ['all', 'All']].map(([k, l]) => `<button data-tf="${k}" class="${k === f ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+        ${f === 'sent' && transit.length ? `<div class="small muted">${transit.length} <span>in transit</span> · <span>${transit.reduce((a, t) => a + t.pcs, 0)} pcs</span> · ${money(transit.reduce((a, t) => a + +t.value, 0))}. <span>Goods left the first stock and are not in the second stock yet.</span></div>` : ''}
+        <div class="card flush">${list.length ? list.map(trRow).join('') : `<div class="empty">${f === 'sent' ? 'Nothing in transit' : 'No transfers'}</div>`}</div>
+        <div class="small muted">The old "Move stock" button still moves at once. A transfer here leaves the first stock when sent and enters the second stock only when someone there taps "Received".</div></div>`;
+      if ($('#trnew', el)) $('#trnew', el).onclick = () => K.SC.newTransfer(() => draw());
+      $$('[data-tf]', el).forEach(b => b.onclick = () => { f = b.dataset.tf; draw(); });
+      $$('[data-tr]', el).forEach(b => b.onclick = () => K.SC.transferSheet(+b.dataset.tr, list.find(t => t.id === +b.dataset.tr), () => draw()));
+    };
+    await draw();
+  };
+
+  K.SC.newTransfer = async onDone => {
+    const [products, whs] = await Promise.all([K.data.products(true), K.data.warehouses(true)]);
+    const all = whs.filter(w => !w.rep_id).concat(whs.filter(w => w.rep_id));
+    if (all.length < 2) return toast('Add a second stock first');
+    let fromId = all[0].id, toId = all[1].id; const lines = {};
+    const opt = sel => all.map(w => `<option value="${w.id}" ${w.id === sel ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('');
+    const s = K.sheet('New transfer', `<div class="small muted">The goods leave the first stock now and wait "in transit" until the second stock taps "Received".</div>
+      <div class="btns"><label class="f">From<select class="inp" id="tf">${opt(fromId)}</select></label><label class="f">To<select class="inp" id="tt">${opt(toId)}</select></label></div>
+      <div class="search">${icon('search', 18)}<input id="tq" placeholder="Search product" aria-label="Search product"></div>
+      <div class="card flush" id="tl" style="max-height:320px;overflow:auto"></div>
+      <label class="f">Note (optional)<input class="inp" id="tn" placeholder="e.g. for this week"></label>
+      <div class="small muted" id="tsum"></div>
+      <button class="btn block" id="tok">${icon('swap', 20)} Send</button>`);
+    const short = id => K.whLabel(all.find(w => w.id === id) || {});
+    const sum = () => { const n = Object.values(lines).reduce((a, b) => a + b, 0); $('#tsum', s.el).textContent = n ? Object.keys(lines).length + ' products · ' + n + ' pcs' : 'Type how many of each product'; };
+    const draw = () => {
+      const t = $('#tq', s.el).value.toLowerCase();
+      $('#tl', s.el).innerHTML = products.filter(p => (p.stock[fromId] || 0) > 0 || lines[p.id]).filter(p => !t || p.name.toLowerCase().includes(t) || (p.sku || '').toLowerCase().includes(t)).map(p => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(p.name)}</div>
+        <div class="st">${esc(short(fromId))} ${p.stock[fromId] || 0} · ${esc(short(toId))} ${p.stock[toId] || 0}</div></div><input class="inp" data-q="${p.id}" type="number" inputmode="numeric" min="0" placeholder="0" value="${lines[p.id] || ''}" style="width:80px;text-align:center" aria-label="Quantity ${esc(p.name)}"></div>`).join('') || '<div class="empty">No stock in this place</div>';
+      $$('[data-q]', s.el).forEach(i => i.oninput = () => { const v = Math.max(0, Math.floor(+i.value || 0)); if (v) lines[i.dataset.q] = v; else delete lines[i.dataset.q]; sum(); });
+      sum();
+    };
+    $('#tf', s.el).onchange = e => { fromId = +e.target.value; Object.keys(lines).forEach(k => delete lines[k]); draw(); };
+    $('#tt', s.el).onchange = e => { toId = +e.target.value; draw(); };
+    $('#tq', s.el).oninput = draw;
+    draw();
+    $('#tok', s.el).onclick = async e => {
+      const items = Object.entries(lines).map(([pid, qty]) => ({ product_id: +pid, qty }));
+      if (!items.length) return toast('Type a quantity first');
+      if (fromId === toId) return toast('Choose two different stocks');
+      const bad = items.find(x => (products.find(p => p.id === x.product_id).stock[fromId] || 0) < x.qty);
+      if (bad) return toast('Not enough ' + products.find(p => p.id === bad.product_id).name);
+      const id = await busy(e.currentTarget, () => api.transferSend(fromId, toId, items, $('#tn', s.el).value.trim()));
+      s.close(); K.forget('products'); toast('Transfer sent'); onDone && onDone(id);
+    };
+  };
+
+  K.SC.transferSheet = async (id, t, onDone) => {
+    if (!t) t = (await api.listTransfers(null).catch(() => [])).find(x => x.id === id);
+    if (!t) return toast('Transfer not found');
+    const done = t.status === 'received';
+    const s = K.sheet(t.transfer_no, `<div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">${esc(t.from_name)} → ${esc(t.to_name)}</b>${stPill(t)}</div>
+      <div class="small muted"><span>Sent</span> ${esc(K.when(t.sent_at))} · ${esc(t.sent_name || '')}${t.note ? ' · ' + esc(t.note) : ''}</div>
+      ${t.received_at ? `<div class="small muted">${t.status === 'cancelled' ? '' : '<span>Received</span> '}${esc(K.when(t.received_at))} · ${esc(t.received_name || '')}${t.receive_note ? ' · ' + esc(t.receive_note) : ''}</div>` : ''}
+      <div class="tbl"><table><thead><tr><th style="text-align:left">Product</th><th style="text-align:right">Sent</th>${done ? '<th style="text-align:right">Received</th><th style="text-align:right">Missing</th><th style="text-align:right">Damaged</th>' : ''}</tr></thead><tbody>
+        ${t.items.map(i => `<tr><td>${esc(i.name)}${i.missing_reason ? `<div class="small" style="color:var(--rd)">${esc(i.missing_reason)}</div>` : ''}</td><td style="text-align:right">${i.qty_sent}</td>${done ? `<td style="text-align:right">${i.qty_received}</td><td style="text-align:right;${+i.qty_missing ? 'color:var(--rd);font-weight:700' : ''}">${i.qty_missing || 0}</td><td style="text-align:right;${+i.qty_damaged ? 'color:var(--or);font-weight:700' : ''}">${i.qty_damaged || 0}</td>` : ''}</tr>`).join('')}
+      </tbody></table></div>
+      <div class="row small"><span class="grow muted">Value (cost)</span><b>${money(t.value)}</b></div>
+      <div class="btns">${t.can_receive ? `<button class="btn green" id="trrec">${icon('check', 18)}Received</button>` : ''}${t.can_cancel ? '<button class="btn out" id="trcan" style="color:var(--rd)">Cancel transfer</button>' : ''}</div>`);
+    if ($('#trrec', s.el)) $('#trrec', s.el).onclick = () => { s.close(); K.SC.receiveSheet(t, onDone); };
+    if ($('#trcan', s.el)) $('#trcan', s.el).onclick = () => {
+      const c = K.sheet('Cancel ' + t.transfer_no, `<div class="small muted">The goods go back into ${esc(t.from_name)}.</div><label class="f">Why?<input class="inp" id="cr"></label><button class="btn red block" id="cok">Cancel transfer</button>`);
+      $('#cok', c.el).onclick = async e => { await busy(e.currentTarget, () => api.transferCancel(t.id, $('#cr', c.el).value.trim())); c.close(); s.close(); K.forget('products'); toast('Cancelled'); onDone && onDone(); };
+    };
+  };
+
+  K.SC.receiveSheet = (t, onDone) => {
+    const s = K.sheet('Receive ' + t.transfer_no, `<div class="small muted">Count what arrived. Missing pieces need a reason (admin is told). Damaged pieces go to Broken goods.</div>
+      ${t.items.map(i => `<div class="card" style="gap:8px;padding:12px" data-ri="${i.product_id}"><div class="row"><b class="grow">${esc(i.name)}</b><span class="small muted"><span>Sent</span> ${i.qty_sent}</span></div>
+        <div class="btns"><label class="f"><span>Received</span><input class="inp" data-r type="number" min="0" inputmode="numeric" value="${i.qty_sent}"></label><label class="f"><span>Missing</span><input class="inp" data-m type="number" min="0" inputmode="numeric" value="0"></label><label class="f"><span>Damaged</span><input class="inp" data-d type="number" min="0" inputmode="numeric" value="0"></label></div>
+        <input class="inp" data-w placeholder="Why missing? (needed if missing)" style="display:none"></div>`).join('')}
+      <label class="f">Note (optional)<input class="inp" id="rn"></label>
+      <button class="btn green block" id="rok">${icon('check', 20)} Confirm received</button>`);
+    $$('[data-ri]', s.el).forEach(c => { const sent = t.items.find(i => i.product_id === +c.dataset.ri).qty_sent;
+      const fix = src => { const m = Math.max(0, +$('[data-m]', c).value || 0), d = Math.max(0, +$('[data-d]', c).value || 0);
+        if (src !== 'r') $('[data-r]', c).value = Math.max(0, sent - m - d); $('[data-w]', c).style.display = m > 0 ? '' : 'none'; };
+      $('[data-m]', c).oninput = () => fix('m'); $('[data-d]', c).oninput = () => fix('d'); $('[data-r]', c).oninput = () => fix('r'); });
+    $('#rok', s.el).onclick = async e => {
+      const lines = $$('[data-ri]', s.el).map(c => ({ product_id: +c.dataset.ri, received: +$('[data-r]', c).value || 0, missing: +$('[data-m]', c).value || 0, damaged: +$('[data-d]', c).value || 0, reason: $('[data-w]', c).value.trim() }));
+      await busy(e.currentTarget, () => api.transferReceive(t.id, lines, $('#rn', s.el).value.trim()));
+      s.close(); K.forget('products'); toast('Received'); onDone && onDone();
+    };
+  };
+  // ---------- hand adjustments with a reason ----------
+  const REASONS = [['damaged', 'Damaged', -1], ['lost', 'Lost', -1], ['sample', 'Sample', -1], ['gift', 'Gift', -1], ['found', 'Found', 1], ['other', 'Other', 0]];
+  const reasonName = k => (REASONS.find(r => r[0] === k) || [k, k])[1];
+  const adjPill = a => a.status === 'pending' ? '<span class="pill or">Waiting approval</span>' : a.status === 'applied' ? '<span class="pill gr">Done</span>' : '<span class="pill rd">Not approved</span>';
+  K.SC.adjust = async (el, q, current) => {
+    let f = q.f || 'all';
+    const draw = async () => {
+      el.innerHTML = K.loading;
+      const list = await api.listStockAdjustments(f === 'all' ? null : f).catch(e => { toast(e.message); return []; });
+      if (current && !current()) return;
+      const wait = list.filter(a => a.status === 'pending');
+      el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+        ${K.allow('stock.manage') ? `<button class="btn block" id="adjnew">${icon('pen', 20)} New adjustment (with a reason)</button>` : ''}
+        <div class="seg">${[['all', 'All'], ['pending', 'Waiting'], ['applied', 'Done'], ['rejected', 'Not approved']].map(([k, l]) => `<button data-af="${k}" class="${k === f ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+        ${wait.length ? `<div class="small" style="color:var(--or);font-weight:700">${wait.length} <span>waiting for approval</span></div>` : ''}
+        <div class="card flush">${list.map(a => `<button class="list-item" data-ad="${a.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
+            <div class="grow"><div class="tt">${esc(a.adj_no)} · ${esc(a.product_name)} <b style="color:${a.qty_change < 0 ? 'var(--rd)' : 'var(--gr)'}">${a.qty_change > 0 ? '+' : ''}${a.qty_change}</b></div>
+            <div class="st"><span>${esc(reasonName(a.reason))}</span> · ${esc(a.warehouse_name)} · ${dayTxt(a.created_at)} · ${esc(a.created_name || '')}${a.note ? ' · ' + esc(a.note) : ''}</div></div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(Math.abs(a.value))}</b>${adjPill(a)}</div></button>`).join('') || '<div class="empty">No adjustments</div>'}</div>
+        <div class="small muted">The old "Stock in/out" button still works at once. Here every change has a reason; big changes (above the limit in Settings → Stock control) wait for admin / manager.</div></div>`;
+      if ($('#adjnew', el)) $('#adjnew', el).onclick = () => K.SC.newAdjust(() => draw());
+      $$('[data-af]', el).forEach(b => b.onclick = () => { f = b.dataset.af; draw(); });
+      $$('[data-ad]', el).forEach(b => b.onclick = () => K.SC.adjustSheet(list.find(a => a.id === +b.dataset.ad), () => draw()));
+    };
+    await draw();
+  };
+  K.SC.newAdjust = async onDone => {
+    const [products, whs] = await Promise.all([K.data.products(true), K.data.warehouses(true)]);
+    let reason = 'damaged', photo = null;
+    const s = K.sheet('New adjustment', `<label class="f">Stock<select class="inp" id="aw">${whs.map(w => `<option value="${w.id}">${esc(K.whLabel(w))}</option>`).join('')}</select></label>
+      <label class="f">Product<select class="inp" id="ap">${products.filter(p => p.active !== false).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+      <div class="small muted" id="ahave"></div>
+      <div class="f"><span>Reason</span><div class="seg" style="flex-wrap:wrap">${REASONS.map(([k, l]) => `<button type="button" data-ar="${k}" class="${k === reason ? 'on' : ''}">${esc(l)}</button>`).join('')}</div></div>
+      <div class="btns"><label class="f" id="adirw" style="display:none">Add or take out<select class="inp" id="adir"><option value="-1">Take out</option><option value="1">Add</option></select></label><label class="f">Pieces<input class="inp" id="aq" type="number" min="1" inputmode="numeric"></label></div>
+      <label class="f">Note<input class="inp" id="an" placeholder="What happened?"></label>
+      <div class="row" style="gap:8px"><button class="btn sm out" type="button" id="aph">${icon('camera', 16)}Photo (optional)</button><span class="small muted" id="aphs"></span><input type="file" accept="image/*" id="aphf" class="hidden"></div>
+      <div class="small muted" id="aval"></div>
+      <button class="btn block" id="aok">Save adjustment</button>`);
+    const sign = () => { const r = REASONS.find(x => x[0] === reason)[2]; return r || +$('#adir', s.el).value; };
+    const info = () => { const p = products.find(x => x.id === +$('#ap', s.el).value) || {}, wid = +$('#aw', s.el).value, n = Math.abs(Math.floor(+$('#aq', s.el).value || 0)), st = K.S.settings || {};
+      $('#ahave', s.el).textContent = 'In this stock now: ' + ((p.stock || {})[wid] || 0) + ' pcs';
+      $('#aval', s.el).textContent = n ? 'Value (cost): ' + money(n * (+p.cost || 0)) : ''; $('#adirw', s.el).style.display = reason === 'other' ? '' : 'none'; };
+    $$('[data-ar]', s.el).forEach(b => b.onclick = () => { reason = b.dataset.ar; $$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); info(); });
+    ['#aw', '#ap', '#aq', '#adir'].forEach(id => $(id, s.el).oninput = $(id, s.el).onchange = info); info();
+    $('#aph', s.el).onclick = () => $('#aphf', s.el).click();
+    $('#aphf', s.el).onchange = async e => { const f = e.target.files[0]; if (!f) return; photo = await busy($('#aph', s.el), () => api.uploadPhoto(f, 'stock')); $('#aphs', s.el).textContent = '✓ photo added'; };
+    $('#aok', s.el).onclick = async e => {
+      const n = Math.abs(Math.floor(+$('#aq', s.el).value || 0)); if (!n) return toast('Type how many pieces');
+      const r = await busy(e.currentTarget, () => api.stockAdjustRequest(+$('#ap', s.el).value, +$('#aw', s.el).value, n * sign(), reason, $('#an', s.el).value.trim(), photo));
+      s.close(); K.forget('products'); toast(r.status === 'pending' ? r.adj_no + ' waits for approval (big change)' : r.adj_no + ' done'); onDone && onDone();
+    };
+  };
+  K.SC.adjustSheet = (a, onDone) => {
+    const s = K.sheet(a.adj_no, `<div class="row" style="gap:8px"><b class="grow">${esc(a.product_name)}</b>${adjPill(a)}</div>
+      <div class="row"><span class="grow muted">Change</span><b style="color:${a.qty_change < 0 ? 'var(--rd)' : 'var(--gr)'}">${a.qty_change > 0 ? '+' : ''}${a.qty_change} pcs</b></div>
+      <div class="row"><span class="grow muted">Value (cost)</span><b>${money(Math.abs(a.value))}</b></div>
+      <div class="small"><span>${esc(reasonName(a.reason))}</span> · ${esc(a.warehouse_name)}${a.note ? ' · ' + esc(a.note) : ''}</div>
+      <div class="small muted">${esc(K.when(a.created_at))} · ${esc(a.created_name || '')}${a.decided_name ? ' · <span>decided by</span> ' + esc(a.decided_name) : ''}${a.decide_note ? ' · ' + esc(a.decide_note) : ''}</div>
+      ${a.photo_url ? `<img src="${esc(a.photo_url)}" alt="" style="width:100%;border-radius:12px">` : ''}
+      ${a.can_decide ? `<input class="inp" id="dn" placeholder="Note (needed to say no)"><div class="btns"><button class="btn red" id="dno">Say no</button><button class="btn green" id="dok">${icon('check', 18)}Approve</button></div>` : ''}`);
+    const go = ok => async e => { await busy(e.currentTarget, () => api.stockAdjustDecide(a.id, ok, $('#dn', s.el).value.trim())); s.close(); K.forget('products'); toast(ok ? 'Approved' : 'Not approved'); onDone && onDone(); };
+    if ($('#dok', s.el)) { $('#dok', s.el).onclick = go(true); $('#dno', s.el).onclick = go(false); }
+  };
+  // ---------- count sheets (CNT-0001): count → submit → admin / manager approves; stock changes only on approve ----------
+  const cntPill = c => c.status === 'open' ? `<span class="pill or">${c.due_date ? 'Due ' + dayTxt(c.due_date) : 'Counting'}</span>` : c.status === 'submitted' ? '<span class="pill or">Waiting approval</span>'
+    : c.status === 'approved' ? '<span class="pill gr">Approved</span>' : '<span class="pill rd">Not approved</span>';
+  const sgn = n => (n > 0 ? '+' : '') + n;
+  K.SC.count = async (el, q, current) => {
+    let f = q.f || 'all';
+    const draw = async () => {
+      el.innerHTML = K.loading;
+      const list = await api.listCounts(f === 'all' ? null : f).catch(e => { toast(e.message); return []; });
+      if (current && !current()) return;
+      const wait = list.filter(c => c.status === 'submitted' && c.can_decide);
+      el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn block" id="cntnew">${icon('list', 20)} New count sheet</button>
+        <div class="seg">${[['all', 'All'], ['open', 'Counting'], ['submitted', 'Waiting'], ['approved', 'Approved']].map(([k, l]) => `<button data-cf="${k}" class="${k === f ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+        ${wait.length ? `<div class="small" style="color:var(--or);font-weight:700">${wait.length} <span>waiting for your approval</span></div>` : ''}
+        <div class="card flush">${list.map(c => `<button class="list-item" data-cn="${c.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
+            <div class="grow"><div class="tt">${esc(c.count_no)} · ${esc(c.warehouse_name)}${c.blind ? ' · <span>blind</span>' : ''}${c.kind === 'monthly' ? ' · <span>monthly</span>' : ''}</div>
+            <div class="st">${dayTxt(c.started_at)} · ${esc(c.started_name || '')} · ${c.counted}/${c.products} <span>counted</span>${c.diff_products != null && c.status !== 'open' ? ' · ' + c.diff_products + ' <span>differ</span>' : ''}</div></div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${c.diff_value != null && c.status !== 'open' ? `<b style="color:${+c.diff_value < 0 ? 'var(--rd)' : 'inherit'}">${money(c.diff_value)}</b>` : ''}${cntPill(c)}</div></button>`).join('') || '<div class="empty">No count sheets</div>'}</div>
+        <div class="small muted">The old "Stock count" button still changes stock at once. A count sheet changes stock only when admin / manager approves it, and every sheet is kept.</div></div>`;
+      $('#cntnew', el).onclick = () => K.SC.newCount(id => { draw(); K.SC.countSheet(id, () => draw()); });
+      $$('[data-cf]', el).forEach(b => b.onclick = () => { f = b.dataset.cf; draw(); });
+      $$('[data-cn]', el).forEach(b => b.onclick = () => K.SC.countSheet(+b.dataset.cn, () => draw()));
+    };
+    await draw();
+  };
+  K.SC.newCount = async onDone => {
+    const whs = await K.data.warehouses(true), mine = K.myRepWh(whs);
+    const list = K.isBoss() || K.allow('stock.manage') ? whs.filter(w => !w.rep_id).concat(whs.filter(w => w.rep_id)) : whs.filter(w => w === mine || !w.rep_id);
+    if (!list.length) return toast('No stock to count');
+    const s = K.sheet('New count sheet', `<label class="f">Stock<select class="inp" id="cw">${list.map(w => `<option value="${w.id}" ${mine && w.id === mine.id ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label>
+      <label class="row" style="gap:10px"><input type="checkbox" id="cb"><span><b>Blind count</b><br><span class="small muted">The counter does not see the system numbers (more honest count).</span></span></label>
+      <label class="f">Note (optional)<input class="inp" id="cnote" placeholder="e.g. month end"></label>
+      <button class="btn block" id="cok">Start counting</button>`);
+    $('#cok', s.el).onclick = async e => { const id = await busy(e.currentTarget, () => api.countStart(+$('#cw', s.el).value, $('#cb', s.el).checked, $('#cnote', s.el).value.trim())); s.close(); onDone && onDone(id); };
+  };
+  K.SC.countSheet = async (id, onDone) => {
+    const c = await api.countGet(id).catch(e => { toast(e.message); return null; });
+    if (!c) return;
+    const see = c.shows_system, edit = c.can_count, vals = {};
+    c.lines.forEach(l => { vals[l.product_id] = l.counted == null ? '' : String(l.counted); });
+    const diffOf = l => vals[l.product_id] === '' || l.system_qty == null ? null : +vals[l.product_id] - l.system_qty;
+    const s = K.sheet(c.count_no + ' · ' + c.warehouse_name, `<div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow small muted">${c.blind ? '<span>Blind count</span> · ' : ''}${c.kind === 'monthly' ? '<span>Monthly check</span> · ' : ''}${esc(c.note || '')}</span>${cntPill(c)}</div>
+      ${edit ? '<div class="small muted">Type what you really count on the shelf. Empty = not counted. Save any time; tap "Submit" when finished.</div>' : ''}
+      <div class="search">${icon('search', 18)}<input id="cq" placeholder="Search product" aria-label="Search product"></div>
+      ${see ? '<div class="row small" style="gap:8px"><label class="row" style="gap:6px"><input type="checkbox" id="conly"> <span>Only differences</span></label></div>' : ''}
+      <div class="tbl" id="ct" style="max-height:380px;overflow:auto"></div>
+      <div class="small" id="csum"></div>
+      ${edit ? '<div class="btns"><button class="btn out" id="csave">Save</button><button class="btn" id="csub">Submit</button></div>' : ''}
+      ${c.can_decide ? `<input class="inp" id="cdn" placeholder="Note (needed to say no)"><div class="btns"><button class="btn red" id="cno">Say no</button><button class="btn green" id="cyes">${icon('check', 18)}Approve</button></div>` : ''}`);
+    const draw = () => {
+      const t = $('#cq', s.el).value.toLowerCase(), only = $('#conly', s.el) && $('#conly', s.el).checked;
+      const rows = c.lines.filter(l => !t || String(l.name).toLowerCase().includes(t) || String(l.sku || '').toLowerCase().includes(t)).filter(l => !only || (diffOf(l) || 0) !== 0);
+      $('#ct', s.el).innerHTML = `<table><thead><tr><th style="text-align:left">Product</th>${see ? '<th style="text-align:right">System</th>' : ''}<th style="text-align:right">Counted</th>${see ? '<th style="text-align:right">Diff</th><th style="text-align:right">Value</th>' : ''}</tr></thead><tbody>
+        ${rows.map(l => { const d = diffOf(l); return `<tr><td>${esc(l.name)}</td>${see ? `<td style="text-align:right">${l.system_qty ?? ''}</td>` : ''}
+          <td style="text-align:right">${edit ? `<input class="inp" data-cc="${l.product_id}" type="number" min="0" inputmode="numeric" value="${esc(vals[l.product_id])}" style="width:72px;text-align:center;padding:6px" aria-label="Counted ${esc(l.name)}">` : esc(vals[l.product_id])}</td>
+          ${see ? `<td style="text-align:right;${d ? 'font-weight:700;color:' + (d < 0 ? 'var(--rd)' : 'var(--gr)') : ''}">${d == null ? '' : d ? sgn(d) : '0'}</td><td style="text-align:right">${d ? money(d * (+l.unit_cost || 0)) : ''}</td>` : ''}</tr>`; }).join('') || `<tr><td colspan="5" class="muted">No products</td></tr>`}</tbody></table>`;
+      $$('[data-cc]', s.el).forEach(i => i.oninput = () => { vals[i.dataset.cc] = i.value === '' ? '' : String(Math.max(0, Math.floor(+i.value || 0))); sum(); });
+      sum();
+    };
+    const sum = () => {
+      const counted = c.lines.filter(l => vals[l.product_id] !== '').length;
+      let txt = counted + ' / ' + c.lines.length + ' counted';
+      if (see) { const dl = c.lines.map(l => [l, diffOf(l)]).filter(([, d]) => d); txt += ' · ' + dl.length + ' differ · ' + sgn(dl.reduce((a, [, d]) => a + d, 0)) + ' pcs · ' + money(dl.reduce((a, [l, d]) => a + d * (+l.unit_cost || 0), 0)); }
+      $('#csum', s.el).textContent = txt;
+    };
+    $('#cq', s.el).oninput = draw; if ($('#conly', s.el)) $('#conly', s.el).onchange = draw;
+    draw();
+    const lines = () => c.lines.map(l => ({ product_id: l.product_id, counted: vals[l.product_id] === '' ? null : +vals[l.product_id] }));
+    if (edit) {
+      $('#csave', s.el).onclick = async e => { await busy(e.currentTarget, () => api.countSave(c.id, lines())); toast('Saved'); onDone && onDone(); };
+      $('#csub', s.el).onclick = async e => {
+        const n = c.lines.filter(l => vals[l.product_id] !== '').length; if (!n) return toast('Count at least one product first');
+        if (!confirm('Submit this count sheet? You cannot change it after.')) return;
+        await busy(e.currentTarget, async () => { await api.countSave(c.id, lines()); await api.countSubmit(c.id); });
+        s.close(); toast('Submitted · admin / manager will check it'); onDone && onDone();
+      };
+    }
+    if (c.can_decide) {
+      const go = ok => async e => { await busy(e.currentTarget, () => api.countDecide(c.id, ok, $('#cdn', s.el).value.trim())); s.close(); K.forget('products'); toast(ok ? 'Approved · stock corrected' : 'Not approved'); onDone && onDone(); };
+      $('#cyes', s.el).onclick = go(true); $('#cno', s.el).onclick = go(false);
+    }
+  };
+  // ---------- download: Excel in the admin web, CSV (opens in Excel) in the staff app ----------
+  const download = (name, sheets) => {
+    let blob, file;
+    if (K.xlsxBlob) { blob = K.xlsxBlob(sheets); file = name + '.xlsx'; }
+    else { blob = new Blob(['﻿' + sheets[0].rows.map(r => r.map(c => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' }); file = name + '.csv'; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file; document.body.appendChild(a); a.click(); a.remove();
+  };
+  const today = () => K.today ? K.today() : new Date().toISOString().slice(0, 10);
+  const daysBack = n => { const d = new Date(today() + 'T00:00:00'); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+  const dates = (f, t) => `<div class="btns"><label class="f">From<input class="inp" type="date" id="df" value="${f}"></label><label class="f">To<input class="inp" type="date" id="dt" value="${t}"></label></div>`;
+  K.SC.moveType = m => m.reason === 'adjust' ? (String(m.ref || '').startsWith('CNT-') ? 'Count sheet' : String(m.ref || '').startsWith('ADJ-') ? 'Adjustment' : 'Stock count / adjust')
+    : ({ in: 'Stock in', out: 'Stock out', order: 'Sale', cancel: 'Order cancelled', transfer: 'Move stock', transfer_out: 'Transfer out', transfer_in: 'Transfer in', return: 'Return', deleted: 'Deleted', exchange: 'Exchange' })[m.reason] || m.reason;
+
+  // ---------- stock card: opening, every movement, closing ----------
+  K.SC.card = async (el, q, current) => {
+    const [products, whs] = await Promise.all([K.data.products(true), K.data.warehouses(true)]);
+    if (current && !current()) return;
+    const all = K.isBoss() || K.allow('stock.manage') || K.allow('stock.view_main');
+    const list = all || K.allow('stock.move') || K.allow('stock.access') || K.allow('stock.warehouses') ? whs : whs.filter(w => w.rep_id && K.S.me && w.rep_id === K.S.me.id);
+    if (!all && !list.length) { el.innerHTML = '<div class="empty">You have no stock to show</div>'; return; }
+    let pid = +q.p || (products[0] || {}).id, wid = q.w ? +q.w : all ? '' : (K.myRepWh(list) || list[0]).id, f = daysBack(30), t = today(), card = null;
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+      <div class="search">${icon('search', 18)}<input id="kq" placeholder="Search product" aria-label="Search product"></div>
+      <div class="btns"><label class="f">Product<select class="inp" id="kp"></select></label>
+        <label class="f">Stock<select class="inp" id="kw">${all ? '<option value="">All stocks together</option>' : ''}${list.map(w => `<option value="${w.id}" ${w.id === wid ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('')}</select></label></div>
+      ${dates(f, t)}
+      <div id="kbody"></div></div>`;
+    const fillP = () => { const t2 = $('#kq', el).value.toLowerCase(), list = products.filter(p => !t2 || p.name.toLowerCase().includes(t2) || (p.sku || '').toLowerCase().includes(t2));
+      if (list.length && !list.some(p => p.id === pid)) pid = list[0].id;
+      $('#kp', el).innerHTML = list.map(p => `<option value="${p.id}" ${p.id === pid ? 'selected' : ''}>${esc(p.name)}</option>`).join('') || '<option value="">No product</option>'; };
+    const load = async () => {
+      const b = $('#kbody', el); if (!pid) { b.innerHTML = '<div class="empty">No product</div>'; return; }
+      b.innerHTML = K.loading;
+      card = await api.stockCard(pid, wid || null, f, t).catch(e => { b.innerHTML = `<div class="card" style="color:var(--rd)">${esc(e.message)}</div>`; return null; });
+      if (!card) return;
+      const many = !wid, n = v => (+v).toLocaleString();
+      b.innerHTML = `<div class="kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${[['Opening', card.opening], ['In', '+' + n(card.qty_in)], ['Out', '−' + n(card.qty_out)], ['Closing', card.closing]].map(([l, v]) => `<div class="card" style="padding:10px;gap:2px;text-align:center"><b style="font-size:18px">${v}</b><span class="small muted">${l}</span></div>`).join('')}</div>
+        <div class="tbl"><table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Type</th>${many ? '<th style="text-align:left">Stock</th>' : ''}<th style="text-align:right">In</th><th style="text-align:right">Out</th><th style="text-align:right">Balance</th><th style="text-align:right">Value</th></tr></thead><tbody>
+          <tr style="background:var(--bg)"><td colspan="${many ? 5 : 4}"><b>Opening</b> · ${esc(dayTxt(card.from))}</td><td style="text-align:right"><b>${card.opening}</b></td><td></td></tr>
+          ${card.moves.map(m => `<tr><td>${esc(K.when(m.at))}</td><td><span>${esc(K.SC.moveType(m))}</span>${m.ref ? ' · ' + esc(m.ref) : ''}<div class="small muted">${esc(m.who || '')}${m.note ? ' · ' + esc(m.note) : ''}</div></td>${many ? `<td>${esc(m.warehouse || '')}</td>` : ''}
+            <td style="text-align:right;color:var(--gr)">${+m.qty > 0 ? '+' + m.qty : ''}</td><td style="text-align:right;color:var(--rd)">${+m.qty < 0 ? '−' + -m.qty : ''}</td><td style="text-align:right"><b>${m.balance}</b></td><td style="text-align:right">${m.value == null ? '<span class="muted">—</span>' : money(m.value)}</td></tr>`).join('') || `<tr><td colspan="7" class="muted">No movements in these dates</td></tr>`}
+          <tr style="background:var(--bg)"><td colspan="${many ? 5 : 4}"><b>Closing</b> · ${esc(dayTxt(card.to))}</td><td style="text-align:right"><b>${card.closing}</b></td><td></td></tr></tbody></table></div>
+        <div class="small muted">Value = pieces × cost on that day. Movements before 23 Oct 2026 have no cost (—).</div>
+        <button class="btn out block" id="kx">${icon('list', 18)} Download (Excel)</button>`;
+      $('#kx', b).onclick = () => download('stock-card-' + (card.sku || card.product_id) + '-' + f + '-to-' + t, [{ name: 'Stock card', rows: [['Product', card.product], ['Stock', card.warehouse || 'All stocks'], ['From', card.from, 'To', card.to], [],
+        ['Date', 'Type', 'Number', 'Stock', 'Who', 'Note', 'In', 'Out', 'Balance', 'Cost per piece', 'Value'], ['', 'Opening', '', '', '', '', '', '', +card.opening]]
+        .concat(card.moves.map(m => [K.when(m.at), K.SC.moveType(m), m.ref || '', m.warehouse || '', m.who || '', m.note || '', +m.qty > 0 ? +m.qty : '', +m.qty < 0 ? -m.qty : '', +m.balance, m.unit_cost == null ? '' : +m.unit_cost, m.value == null ? '' : +m.value]))
+        .concat([['', 'Closing', '', '', '', '', +card.qty_in, +card.qty_out, +card.closing]]) }]);
+    };
+    fillP();
+    $('#kq', el).oninput = () => { fillP(); load(); };
+    $('#kp', el).onchange = e => { pid = +e.target.value; load(); };
+    $('#kw', el).onchange = e => { wid = e.target.value ? +e.target.value : ''; load(); };
+    $('#df', el).onchange = e => { f = e.target.value || f; load(); };
+    $('#dt', el).onchange = e => { t = e.target.value || t; load(); };
+    await load();
+  };
+  K.SC.openCard = (pid, wid) => K.go('#/stockctl?t=card&p=' + pid + (wid ? '&w=' + wid : ''));
+
+  // ---------- movement report: transfers, adjustments, counts in the dates chosen ----------
+  K.SC.movesReport = async (el, f, t) => {
+    const [trs, adjs, cnts] = await Promise.all([api.listTransfers(null, f, t).catch(() => []), api.listStockAdjustments(null, f, t).catch(() => []), api.listCounts(null).catch(() => [])]);
+    const day = d => { if (!d) return ''; const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+    const counts = cnts.filter(c => { const d = day(c.submitted_at || c.started_at); return d >= f && d <= t; });
+    const iv = (i, k) => +i[k] * +(i.unit_cost || 0);
+    const sent = trs.filter(x => x.status !== 'cancelled'), transit = trs.filter(x => x.status === 'sent');
+    const lostTr = sent.reduce((a, x) => a + x.items.reduce((b, i) => b + iv(i, 'qty_missing') + iv(i, 'qty_damaged'), 0), 0);
+    const applied = adjs.filter(a => a.status === 'applied'), adjOut = applied.filter(a => a.qty_change < 0).reduce((a, x) => a - +x.value, 0), adjIn = applied.filter(a => a.qty_change > 0).reduce((a, x) => a + +x.value, 0);
+    const cntNet = counts.filter(c => c.status === 'approved').reduce((a, c) => a + +(c.diff_value || 0), 0);
+    const kpi = (v, l, c) => `<div class="card" style="padding:12px;gap:2px"><b style="font-size:20px;${c ? 'color:' + c : ''}">${v}</b><span class="small muted">${l}</span></div>`;
+    const tbl = (title, head, rows, empty) => `<div class="card"><b>${title}</b><div class="tbl"><table><thead><tr>${head.map((h, i) => `<th style="text-align:${i < 2 ? 'left' : 'right'}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => `<td style="text-align:${i < 2 ? 'left' : 'right'}">${c}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}" class="muted">${empty}</td></tr>`}</tbody></table></div></div>`;
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+        ${kpi(sent.length, 'Transfers sent')}${kpi(transit.length, 'Still in transit', transit.length ? 'var(--or)' : '')}${kpi(money(lostTr), 'Missing + damaged on the way', lostTr ? 'var(--rd)' : '')}
+        ${kpi(money(adjOut), 'Adjustments: taken out', adjOut ? 'var(--rd)' : '')}${kpi(money(adjIn), 'Adjustments: added')}${kpi(money(cntNet), 'Count sheets: difference', cntNet < 0 ? 'var(--rd)' : '')}</div>
+      ${tbl('Transfers', ['Number', 'From → To', 'Date', 'Pcs', 'Missing', 'Damaged', 'Value', 'Status'], trs.map(x => { const m = x.items.reduce((a, i) => a + +(i.qty_missing || 0), 0), d = x.items.reduce((a, i) => a + +(i.qty_damaged || 0), 0);
+        return [esc(x.transfer_no), esc(x.from_name + ' → ' + x.to_name), dayTxt(x.sent_at), x.pcs, m ? `<b style="color:var(--rd)">${m}</b>` : 0, d ? `<b style="color:var(--or)">${d}</b>` : 0, money(x.value), stPill(x)]; }), 'No transfers in these dates')}
+      ${tbl('Adjustments', ['Number', 'Product', 'Date', 'Change', 'Reason', 'Value', 'Status'], adjs.map(a => [esc(a.adj_no), esc(a.product_name) + `<div class="small muted">${esc(a.warehouse_name)} · ${esc(a.created_name || '')}</div>`, dayTxt(a.created_at), (a.qty_change > 0 ? '+' : '') + a.qty_change, esc(reasonName(a.reason)), money(a.value), adjPill(a)]), 'No adjustments in these dates')}
+      ${tbl('Count sheets', ['Number', 'Stock', 'Date', 'Counted', 'Differ', 'Difference value', 'Status'], counts.map(c => [esc(c.count_no), esc(c.warehouse_name), dayTxt(c.submitted_at || c.started_at), c.counted + '/' + c.products, c.diff_products ?? '—', c.diff_value == null ? '—' : money(c.diff_value), cntPill(c)]), 'No count sheets in these dates')}`;
+    const sheets = [
+      { name: 'Transfers', rows: [['Number', 'From', 'To', 'Sent', 'Sent by', 'Status', 'Received', 'Received by', 'Product', 'Sent pcs', 'Received', 'Missing', 'Why missing', 'Damaged', 'Cost per piece', 'Value sent', 'Value missing + damaged']]
+        .concat(...trs.map(x => x.items.map(i => [x.transfer_no, x.from_name, x.to_name, day(x.sent_at), x.sent_name || '', x.status, day(x.received_at), x.received_name || '', i.name, +i.qty_sent, i.qty_received ?? '', +(i.qty_missing || 0), i.missing_reason || '', +(i.qty_damaged || 0), +(i.unit_cost || 0), +(iv(i, 'qty_sent')).toFixed(2), +(iv(i, 'qty_missing') + iv(i, 'qty_damaged')).toFixed(2)]))) },
+      { name: 'Adjustments', rows: [['Number', 'Date', 'Product', 'Stock', 'Change', 'Reason', 'Note', 'Value', 'Status', 'By', 'Decided by', 'Decision note']]
+        .concat(adjs.map(a => [a.adj_no, day(a.created_at), a.product_name, a.warehouse_name, a.qty_change, reasonName(a.reason), a.note || '', +a.value, a.status, a.created_name || '', a.decided_name || '', a.decide_note || ''])) },
+      { name: 'Count sheets', rows: [['Number', 'Stock', 'Kind', 'Blind', 'Started', 'Started by', 'Submitted', 'Status', 'Counted', 'Products', 'Differ', 'Difference value', 'Decided by', 'Decision note']]
+        .concat(counts.map(c => [c.count_no, c.warehouse_name, c.kind, c.blind ? 'yes' : 'no', day(c.started_at), c.started_name || '', day(c.submitted_at), c.status, c.counted, c.products, c.diff_products ?? '', c.diff_value ?? '', c.decided_name || '', c.decide_note || ''])) }];
+    return { name: 'stock-movements', rows: [[]].concat(trs, adjs, counts), sheets };   // rows: only counted by Reports (nothing to download?)
+  };
+  K.SC.moves = async (el, q, current) => {
+    let f = daysBack(30), t = today(), sheets = null;
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">${dates(f, t)}<div id="mbody" style="display:flex;flex-direction:column;gap:12px"></div>
+      <button class="btn out block" id="mx">${icon('list', 18)} Download (Excel)</button></div>`;
+    const load = async () => { const b = $('#mbody', el); b.innerHTML = K.loading; const r = await K.SC.movesReport(b, f, t).catch(e => { b.innerHTML = `<div class="card" style="color:var(--rd)">${esc(e.message)}</div>`; return null; }); sheets = r && r.sheets; };
+    $('#df', el).onchange = e => { f = e.target.value || f; load(); };
+    $('#dt', el).onchange = e => { t = e.target.value || t; load(); };
+    $('#mx', el).onclick = () => { if (!sheets) return toast('Please wait'); if (sheets.every(s2 => s2.rows.length < 2)) return toast('Nothing to download for these dates'); download('stock-movements-' + f + '-to-' + t, sheets); };
+    await load();
+  };
+
+  // ---------- settings (admin): the numbers of stock control ----------
+  K.SC.settings = async (el) => {
+    if (!isAdmin()) { el.innerHTML = '<div class="empty">Only the admin can change these</div>'; return; }
+    const st = await api.getSettings();
+    const fld = (k, label, def, extra) => `<label class="f">${label}<input class="inp" data-ss="${k}" type="number" inputmode="numeric" value="${esc(st[k] ?? def)}" ${extra || ''}></label>`;
+    el.innerHTML = `<div class="card" style="max-width:560px;gap:10px"><b>Stock control settings</b>
+      ${fld('stock_transit_days', 'Transfer is late (admin is told) after how many days', '3', 'min="1" max="60"')}
+      <div class="sec" style="margin:6px 0 0">Adjustments that need approval</div>
+      ${fld('stock_adj_qty', 'More than how many pieces', '10', 'min="0"')}
+      ${fld('stock_adj_value', 'Or worth more than ($ at cost)', '50', 'min="0" step="0.01"')}
+      <div class="small muted">Smaller adjustments are done at once. Admin and people with "Approve stock adjustments" are never stopped. 0 = every adjustment waits.</div>
+      <div class="sec" style="margin:6px 0 0">Monthly rep stock check (blind count)</div>
+      ${fld('rep_count_day', 'Day of the month (1–28, empty = off)', '1', 'min="1" max="28"')}
+      ${fld('rep_count_confirm_days', 'Rep must submit within how many days', '3', 'min="1" max="60"')}
+      <div class="small muted">On that day every sales rep with an own stock gets a count sheet (bell + Telegram). If it is not submitted in time, admin is told. Differences wait for approval in Counts.</div>
+      <button class="btn" id="sssave">Save</button>
+      <div class="small muted">Which alerts go where: Settings → Telegram alerts and each alert channel → Automatic alerts (group "Stock control").</div></div>`;
+    $('#sssave', el).onclick = async e => {
+      const o = {}; $$('[data-ss]', el).forEach(i => { o[i.dataset.ss] = i.value.trim(); });
+      await busy(e.currentTarget, () => api.stockSettingsSave(o)); toast('Saved');
+    };
   };
 })();
 
