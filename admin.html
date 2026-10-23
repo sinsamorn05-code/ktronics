@@ -1532,7 +1532,10 @@ window.makeSupabaseApi = function (cfg) {
     commissionReport: month => q(sb.rpc('commission_report', { p_month: month })),
     listCommissionRates: () => q(sb.from('commission_rates').select('*')),
     setCommissionRate: (uid, rate) => q(sb.rpc('set_commission_rate', { p_user: uid, p_rate: rate === '' || rate == null ? null : +rate })),
-    setCommission: (uid, rate, bonus) => q(sb.rpc('set_commission', { p_user: uid, p_rate: rate === '' || rate == null ? null : +rate, p_bonus: bonus === '' || bonus == null ? null : +bonus })),
+    setCommission: (uid, rate, bonus, nopRate, nopBonus) => { const n = v => v === '' || v == null ? null : +v;
+      return q(sb.rpc('set_commission', { p_user: uid, p_rate: n(rate), p_bonus: n(bonus), p_nop_rate: n(nopRate), p_nop_bonus: n(nopBonus) })); },
+    setNopTarget: (uid, month, amount) => q(sb.rpc('set_nop_target', { p_user: uid, p_month: month, p_amount: amount })),
+    listNopTargets: month => q(sb.from('nop_targets').select('*').eq('month', month)),
 
     // attendance, leave, HR
     listAttendance: (from, to) => all(() => sb.from('attendance').select('*, profiles(full_name)').gte('work_date', from).lte('work_date', to).order('work_date', { ascending: false }).order('id', { ascending: false }), 10000),
@@ -3654,6 +3657,8 @@ window.makeDemoApi = function () {
         people.push({ id: u.id, full_name: u.full_name, new_customers: mine.filter(c => c.first_followup_at && inR(localDay(c.first_followup_at))).length,
           added: oc.filter(c => c.created_by === u.id && inR(localDay(c.created_at))).length, followups: (D.followups || []).filter(f => f.staff_id === u.id && inR(localDay(f.created_at))).length,
           orders: so.length, orders_amount: +so.reduce((s, x) => s + x.amt, 0).toFixed(2), np_count: np.length, np_amount: nopSum(u.id, a, b),
+          target: Object.entries((D.targets || {})[u.id] || {}).filter(([m]) => m >= a.slice(0, 7) + '-01' && m <= b).reduce((q, [, v]) => q + v, 0) || null,
+          np_target: Object.entries((D.nopTargets || {})[u.id] || {}).filter(([m]) => m >= a.slice(0, 7) + '-01' && m <= b).reduce((q, [, v]) => q + v, 0) || null,
           buyers: new Set(all.filter(x => x.uid === u.id && inR(x.d)).map(x => x.customer_id)).size, statuses: st,
           silent: mine.filter(c => { const l = lastOf(c.id); return l.length >= 2 && l[l.length - 1] <= localDay(new Date(Date.now() - sleep * 864e5).toISOString()); }).length,
           workdays: work.length, days_new_ok: dn, days_orders_ok: dok }); }
@@ -3832,7 +3837,7 @@ window.makeDemoApi = function () {
       const all = await api._teamSalesAll(m0 + '-01'), mx = Math.max(1, ...all.map(r => +r.total));
       const ranking = all.map(r => { const bar = Math.round(r.total / mx * 100); return r.user_id === me.id || allow('dashboard.view') ? { id: r.user_id, name: r.full_name, total: r.total, target: r.target, bar } : { bar }; });
       return wait({
-        sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)), np_month: nopSum(me.id, m0 + '-01', today), np_month_count: nopOf(me.id, m0 + '-01', today).length,
+        sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)), np_month: nopSum(me.id, m0 + '-01', today), np_target: api._nopTarget(me.id, m0), np_month_count: nopOf(me.id, m0 + '-01', today).length,
         target: ((D.targets || {})[me.id] || {})[m0 + '-01'] || null, last7: days,
         orders_pending: D.orders.filter(o => (o.sales_rep_id || o.created_by) === me.id && o.status === 'pending').length,
         orders_approved: D.orders.filter(o => (o.sales_rep_id || o.created_by) === me.id && o.status === 'approved').length,
@@ -3868,27 +3873,33 @@ window.makeDemoApi = function () {
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     // ---------- commission ----------
     // commission set for each rep (22 Oct 2026): own % and own bonus % on sales above target; nothing set = 0%
-    _crate(u) { const x = (D.crates || {})[u]; return x == null ? { rate: 0, bonus: 0 } : typeof x === 'object' ? { rate: +x.rate || 0, bonus: +x.bonus || 0 } : { rate: +x || 0, bonus: 0 }; },
+    _crate(u) { const x = (D.crates || {})[u]; return x == null ? { rate: 0, bonus: 0, nop_rate: 0, nop_bonus: 0 } : typeof x === 'object' ? { rate: +x.rate || 0, bonus: +x.bonus || 0, nop_rate: +x.nop_rate || 0, nop_bonus: +x.nop_bonus || 0 } : { rate: +x || 0, bonus: 0, nop_rate: 0, nop_bonus: 0 }; },
+    _nopTarget(u, month) { return ((D.nopTargets || {})[u] || {})[String(month).slice(0, 7) + '-01'] || null; },
     _commissionLines(month) {
       const m = String(month).slice(0, 7);
       const L = D.orders.filter(o => SOLD.includes(o.status) && !o.is_opening && localDay(o.created_at).slice(0, 7) === m)
-        .map(o => ({ user_id: o.sales_rep_id || o.created_by, kind: 'order', ref_id: o.id, ref_no: o.order_no, customer: shopName(o.customer_id), day: localDay(o.created_at), amount: o.total, cr: o.commission_rate }));   // sales without products: no commission
-      return L.map(l => { const rate = l.cr != null ? +l.cr : api._crate(l.user_id).rate; return { user_id: l.user_id, kind: l.kind, ref_id: l.ref_id, ref_no: l.ref_no, customer: l.customer, day: l.day, amount: l.amount, rate, own_rate: l.cr != null, commission: +(l.amount * rate / 100).toFixed(2) }; });
+        .map(o => ({ user_id: o.sales_rep_id || o.created_by, kind: 'order', ref_id: o.id, ref_no: o.order_no, customer: shopName(o.customer_id), day: localDay(o.created_at), amount: o.total, cr: o.commission_rate }))
+        .concat(nopOf(null, m + '-01', m + '-31').map(x => ({ user_id: x.sales_rep_id, kind: 'nop', ref_id: x.id, ref_no: x.sale_no, customer: shopName(x.customer_id), day: x.sale_date, amount: x.amount, cr: null })));   // no-product sales: the rep's no-product %
+      return L.map(l => { const c = api._crate(l.user_id), rate = l.cr != null ? +l.cr : l.kind === 'nop' ? c.nop_rate : c.rate; return { user_id: l.user_id, kind: l.kind, ref_id: l.ref_id, ref_no: l.ref_no, customer: l.customer, day: l.day, amount: l.amount, rate, own_rate: l.cr != null, commission: +(l.amount * rate / 100).toFixed(2) }; });
     },
     async commissionLines(month, uid) { if (!role()) return wait([]);
       return wait(api._commissionLines(month).filter(l => (!uid || l.user_id === uid) && (l.user_id === me.id || allow('hr.manage') || allow('dashboard.view'))).sort((a, b) => a.day.localeCompare(b.day) || a.ref_id - b.ref_id)); },
     async commissionReport(month) {
       const lines = api._commissionLines(month);
       const rows = (await api.teamSales(month)).map(r => { const c = api._crate(r.user_id); return { user_id: r.user_id, full_name: r.full_name, sales: r.total, target: r.target, rate: c.rate, bonus_rate: c.bonus,
-        commission: +(lines.filter(l => l.user_id === r.user_id).reduce((a, l) => a + l.commission, 0) + (r.target > 0 ? Math.max(0, r.total - r.target) * c.bonus / 100 : 0)).toFixed(2) }; });
+        commission: +(lines.filter(l => l.user_id === r.user_id).reduce((a, l) => a + l.commission, 0) + (r.target > 0 ? Math.max(0, r.total - r.target) * c.bonus / 100 : 0)
+          + (api._nopTarget(r.user_id, month) ? Math.max(0, nopSum(r.user_id, String(month).slice(0, 7) + '-01', String(month).slice(0, 7) + '-31') - api._nopTarget(r.user_id, month)) * c.nop_bonus / 100 : 0)).toFixed(2) }; });
       return wait(allow('hr.manage') || allow('dashboard.view') ? rows : rows.filter(r => r.user_id === me.id));
     },
-    async listCommissionRates() { return wait(Object.keys(D.crates || {}).filter(u => allow('hr.manage') || u === me.id).map(u => { const c = api._crate(u), x = D.crates[u]; return { user_id: u, rate: c.rate, bonus: typeof x === 'object' ? x.bonus ?? null : null }; })); },
+    async listCommissionRates() { return wait(Object.keys(D.crates || {}).filter(u => allow('hr.manage') || u === me.id).map(u => { const c = api._crate(u), x = D.crates[u]; return { user_id: u, rate: c.rate, bonus: typeof x === 'object' ? x.bonus ?? null : null, nop_rate: typeof x === 'object' ? x.nop_rate ?? null : null, nop_bonus: typeof x === 'object' ? x.nop_bonus ?? null : null }; })); },
+    async listNopTargets(month) { const k = String(month).slice(0, 7) + '-01'; return wait(Object.entries(D.nopTargets || {}).filter(([, t]) => t[k]).map(([user_id, t]) => ({ user_id, month: k, amount: t[k] }))); },
+    async setNopTarget(uid, month, amount) { if (!allow('dashboard.view')) fail('Only admin or managers can set targets');
+      D.nopTargets = D.nopTargets || {}; const k = String(month).slice(0, 7) + '-01', t = D.nopTargets[uid] = D.nopTargets[uid] || {}; if (+amount > 0) t[k] = +amount; else delete t[k]; save(); return wait(null); },
     async setCommissionRate(uid, rate) { return api.setCommission(uid, rate, (api._crate(uid) || {}).bonus || null); },
-    async setCommission(uid, rate, bonus) { if (!allow('hr.manage')) fail('You are not allowed to change commission');
-      const n = v => v === '' || v == null ? null : +v; rate = n(rate); bonus = n(bonus);
-      if ([rate, bonus].some(v => v != null && !(v >= 0 && v <= 100))) fail('Commission % must be 0–100');
-      D.crates = D.crates || {}; if (rate == null && bonus == null) delete D.crates[uid]; else D.crates[uid] = { rate: rate || 0, bonus }; save(); return wait(null); },
+    async setCommission(uid, rate, bonus, nopRate, nopBonus) { if (!allow('hr.manage')) fail('You are not allowed to change commission');
+      const n = v => v === '' || v == null ? null : +v; const v = [n(rate), n(bonus), n(nopRate), n(nopBonus)];
+      if (v.some(x => x != null && !(x >= 0 && x <= 100))) fail('Commission % must be 0–100');
+      D.crates = D.crates || {}; if (v.every(x => x == null)) delete D.crates[uid]; else D.crates[uid] = { rate: v[0] || 0, bonus: v[1], nop_rate: v[2], nop_bonus: v[3] }; save(); return wait(null); },
     // ---------- attendance, leave, HR ----------
     async listAttendance(from, to) { if (!role()) return []; return wait(D.attendance.filter(a => a.work_date >= from && a.work_date <= to && (a.staff_id === me.id || allow('attendance.view') || allow('hr.manage') || headOf(a.staff_id)))
       .sort((a, b) => b.work_date.localeCompare(a.work_date)).map(a => Object.assign(clone(a), { profiles: { full_name: (user(a.staff_id) || {}).full_name } }))); },
@@ -4855,6 +4866,9 @@ Object.assign(window.KT_KM, {"Only for products that are NOT in this app (sold i
 
 // commission for each rep (22 Oct)
 Object.assign(window.KT_KM, {"Commission for each rep": "កម្រៃជើងសារសម្រាប់អ្នកលក់ម្នាក់ៗ", "Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.": "កម្រៃជើងសារ = ការបញ្ជាទិញដែលបានអនុម័តក្នុងខែ × % របស់គេ។ ប្រាក់រង្វាន់ % = បន្ថែមលើការលក់លើសគោលដៅ។ ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។", "Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.": "ឧទាហរណ៍៖ 2% និងប្រាក់រង្វាន់ 1% គោលដៅ $5,000 លក់បាន $6,000 → $6,000 × 2% + $1,000 × 1% = $130។", "Bonus % above target": "ប្រាក់រង្វាន់ % លើសគោលដៅ", "Save commission": "រក្សាទុកកម្រៃជើងសារ", "Commission saved": "បានរក្សាទុកកម្រៃជើងសារ", "No sales reps yet": "មិនទាន់មានអ្នកលក់"});
+
+// no-product target + commission (22 Oct)
+Object.assign(window.KT_KM, {"No-product %": "គ្មានផលិតផល %", "No-product bonus %": "ប្រាក់រង្វាន់គ្មានផលិតផល %", "Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).": "ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។ លក់អនឡាញ៖ ការលក់គ្មានផលិតផលមាន % និងប្រាក់រង្វាន់ % ផ្ទាល់ (លើសគោលដៅគ្មានផលិតផល)។", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ លក់អនឡាញមានគោលដៅទី 2 សម្រាប់ការលក់គ្មានផលិតផល។", "no products": "គ្មានផលិតផល", "No-product sales · this month": "ការលក់គ្មានផលិតផល · ខែនេះ", "No target yet.": "មិនទាន់មានគោលដៅ។", "Stock orders": "ការបញ្ជាទិញមានស្តុក", "Waiting approval:": "រង់ចាំការអនុម័ត៖", "Products target": "គោលដៅផលិតផល", "No-product sales": "ការលក់គ្មានផលិតផល", "No-product target": "គោលដៅគ្មានផលិតផល", "Stock orders and no-product sales are counted apart, each with its own target.": "ការបញ្ជាទិញមានស្តុក និងការលក់គ្មានផលិតផល រាប់ដាច់ដោយឡែក ម្នាក់ៗមានគោលដៅរៀងខ្លួន។", "Only for products that are NOT in this app (sold in the other system). No stock changes. Counted apart from stock sales, with its own target and its own commission %.": "សម្រាប់តែផលិតផលដែលមិនមានក្នុងកម្មវិធីនេះ (លក់ក្នុងប្រព័ន្ធផ្សេង)។ ស្តុកមិនប្តូរ។ រាប់ដាច់ពីការលក់មានស្តុក មានគោលដៅ និងកម្រៃជើងសារ % ផ្ទាល់។", "Each order and no-product sale (🧾) with its commission %.": "ការបញ្ជាទិញ និងការលក់គ្មានផលិតផល (🧾) នីមួយៗ ជាមួយកម្រៃជើងសារ %។", "Only for products that are not in this app. They are counted apart from stock sales, with their own target (Targets) and own commission % (HR → Commission). Admin and managers can change or delete them.": "សម្រាប់តែផលិតផលមិនមានក្នុងកម្មវិធី។ រាប់ដាច់ពីការលក់មានស្តុក មានគោលដៅផ្ទាល់ (គោលដៅ) និងកម្រៃជើងសារ % ផ្ទាល់ (HR → កម្រៃជើងសារ)។ ម្ចាស់ និងអ្នកគ្រប់គ្រងអាចកែ ឬលុបបាន។"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -5845,6 +5859,9 @@ Object.assign(window.KT_ZH, {"Only for products that are NOT in this app (sold i
 
 // commission for each rep (22 Oct)
 Object.assign(window.KT_ZH, {"Commission for each rep": "每位销售的提成", "Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.": "提成 = 该销售本月已批准的订单 × 其 %。奖金 % = 超出目标部分的额外提成。空 = 0%。某个订单上设置的 % 用于该订单。", "Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.": "例如：2%，奖金 1%，目标 $5,000，销售 $6,000 → $6,000 × 2% + $1,000 × 1% = $130。", "Bonus % above target": "超目标奖金 %", "Save commission": "保存提成", "Commission saved": "提成已保存", "No sales reps yet": "还没有销售"});
+
+// no-product target + commission (22 Oct)
+Object.assign(window.KT_ZH, {"No-product %": "无产品 %", "No-product bonus %": "无产品奖金 %", "Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).": "空 = 0%。某个订单上设置的 % 用于该订单。线上销售：无产品销售有自己的 % 和奖金 %（超过无产品目标部分）。", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.": "目标 = 每位销售本月应卖多少（已批准订单）。留空 = 无目标。线上销售还有第 2 个目标：无产品销售。", "no products": "无产品", "No-product sales · this month": "无产品销售 · 本月", "No target yet.": "还没有目标。", "Stock orders": "库存订单", "Waiting approval:": "等待批准：", "Products target": "产品目标", "No-product sales": "无产品销售", "No-product target": "无产品目标", "Stock orders and no-product sales are counted apart, each with its own target.": "库存订单和无产品销售分开计算，各有自己的目标。", "Only for products that are NOT in this app (sold in the other system). No stock changes. Counted apart from stock sales, with its own target and its own commission %.": "只用于不在本应用里的产品（在另一个系统销售）。库存不变。与库存销售分开计算，有自己的目标和提成 %。", "Each order and no-product sale (🧾) with its commission %.": "每个订单和无产品销售（🧾）及其提成 %。", "Only for products that are not in this app. They are counted apart from stock sales, with their own target (Targets) and own commission % (HR → Commission). Admin and managers can change or delete them.": "只用于不在本应用里的产品。与库存销售分开计算，有自己的目标（目标）和提成 %（人事 → 提成）。老板和经理可以修改或删除。"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -6987,7 +7004,7 @@ Object.assign(window.KT_ZH, {"Commission for each rep": "每位销售的提成",
       return;
     }
     const sellers = staff.filter(u => u.active && K.SELLERS.includes(u.role));
-    $('.sb', s.el).innerHTML = `<div class="small muted">Only for products that are NOT in this app (sold in the other system). No stock changes. Kept apart: NOT added to sales, target, ranking or commission.</div>
+    $('.sb', s.el).innerHTML = `<div class="small muted">Only for products that are NOT in this app (sold in the other system). No stock changes. Counted apart from stock sales, with its own target and its own commission %.</div>
       ${x.customer_id ? `<div class="card" style="padding:10px 14px"><b>${esc(x.customer_name || '')}</b></div>` : `<label class="f">Customer<select class="inp" id="npc"><option value="">Choose…</option>${shops.filter(c => c.status !== 'rejected').map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>`}
       <div class="btns"><label class="f">Amount ($)<input class="inp" id="npa" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount != null ? esc(x.amount) : ''}"></label>
         <label class="f">Date<input class="inp" id="npd" type="date" max="${today()}" value="${esc(x.sale_date || today())}"></label></div>
@@ -7044,7 +7061,7 @@ Object.assign(window.KT_ZH, {"Commission for each rep": "每位销售的提成",
     const list = await api.commissionLines(month, u.user_id).catch(e => { toast(e.message); return []; });
     if (!s.el.isConnected) return;
     const tot = list.reduce((a, l) => a + +l.commission, 0);
-    $('.sb', s.el).innerHTML = `<div class="small muted">Each order with its commission %. <b>Own %</b> = set on that order by admin/manager.</div>
+    $('.sb', s.el).innerHTML = `<div class="small muted">Each order and no-product sale (🧾) with its commission %. <b>Own %</b> = set on that order by admin/manager.</div>
       <div class="card flush">${list.map(l => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${l.kind === 'nop' ? '🧾 ' : ''}${esc(l.ref_no || '')} · ${esc(l.customer || '')}</div>
         <div class="st">${dayTxt(l.day)} · ${money(l.amount)} × ${+l.rate}%${l.own_rate ? ' <b style="color:var(--p)">(own %)</b>' : ''}</div></div><b>${money(l.commission)}</b></div>`).join('') || '<div class="empty">No sales this month</div>'}</div>
       <div class="row"><b class="grow">Total (without the bonus over target)</b><b>${money(tot)}</b></div>`;
@@ -7353,19 +7370,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let month = K.monthKey();
     const s = K.sheet('Sales targets', K.loading);
     const draw = async () => {
-      const rows = await K.api.teamSales(month);
+      const end = K.period.dstr(new Date(new Date(month + 'T00:00:00').getFullYear(), new Date(month + 'T00:00:00').getMonth() + 1, 0));
+      const [rows, staff, npT, npS] = await Promise.all([K.api.teamSales(month), K.data.staff().catch(() => []), K.api.listNopTargets ? K.api.listNopTargets(month).catch(() => []) : [], K.api.listNopSales ? K.api.listNopSales(null, month, end).catch(() => []) : []]);
+      const online = id => (staff.find(u => u.id === id) || {}).role === 'online_sales', npTarget = id => (npT.find(t => t.user_id === id) || {}).amount, npSold = id => npS.filter(x => x.sales_rep_id === id).reduce((a, x) => a + +x.amount, 0);
       const next = new Date(month + 'T00:00:00'); next.setMonth(next.getMonth() + 1);
       const prev = new Date(month + 'T00:00:00'); prev.setMonth(prev.getMonth() - 1);
       K.$('.sb', s.el).innerHTML = `<div class="row"><button class="btn sm out" id="pm">‹</button><b class="grow" style="text-align:center">${K.monthName(month)}</b><button class="btn sm out" id="nm">›</button></div>
-        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target.</div>
-        <div class="card flush">${rows.map(r => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:15px">${esc(r.full_name)}</div><div class="st">Sold ${money(r.total)}</div></div>
-          <label class="row" style="gap:6px"><span class="muted">$</span><input class="inp" data-t="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${r.target ? +r.target : ''}" style="width:120px;text-align:right"></label></div>`).join('') || '<div class="empty">No active sales reps</div>'}</div>
+        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.</div>
+        <div class="card flush">${rows.map(r => `<div class="list-item" style="flex-wrap:wrap"><div class="grow"><div class="tt" style="font-size:15px">${esc(r.full_name)}</div><div class="st">Sold ${money(r.total)}${online(r.user_id) ? ' · <span>no products</span> ' + money(npSold(r.user_id)) : ''}</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end"><label class="row" style="gap:6px">${online(r.user_id) ? '<span class="small muted">Products</span>' : ''}<span class="muted">$</span><input class="inp" data-t="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${r.target ? +r.target : ''}" style="width:120px;text-align:right"></label>
+          ${online(r.user_id) ? `<label class="row" style="gap:6px"><span class="small muted">No products</span><span class="muted">$</span><input class="inp" data-nt="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${npTarget(r.user_id) ? +npTarget(r.user_id) : ''}" style="width:120px;text-align:right"></label>` : ''}</div></div>`).join('') || '<div class="empty">No active sales reps</div>'}</div>
         <button class="btn block" id="sv">Save targets</button>`;
       K.$('#pm', s.el).onclick = () => { month = K.monthKey(prev); draw(); };
       K.$('#nm', s.el).onclick = () => { month = K.monthKey(next); draw(); };
       K.$('#sv', s.el).onclick = async ev => {
         await K.busy(ev.currentTarget, async () => { for (const i of K.$$('[data-t]', s.el)) { const r = rows.find(x => x.user_id === i.dataset.t); const v = +i.value || 0;
-          if (v !== (+r.target || 0)) await K.api.setSalesTarget(i.dataset.t, month, v); } });
+          if (v !== (+r.target || 0)) await K.api.setSalesTarget(i.dataset.t, month, v); }
+          for (const i of K.$$('[data-nt]', s.el)) { const v = +i.value || 0; if (v !== (+npTarget(i.dataset.nt) || 0)) await K.api.setNopTarget(i.dataset.nt, month, v); } });
         s.close(); K.toast('Targets saved'); onDone && onDone();
       };
     };
@@ -8339,7 +8360,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     main.innerHTML = `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">All orders</a><span class="chip on">🧾 No products</span></div><div class="apad">
       <div class="filters"><select class="inp" id="sf" aria-label="Filter by staff" style="width:auto;min-width:150px"><option value="">All staff</option>${staff.filter(u => u.active && K.SELLERS.includes(u.role)).map(u => `<option value="${esc(u.id)}">${esc(u.full_name)}</option>`).join('')}</select></div>
       <div id="per" style="display:flex;flex-direction:column;gap:10px"></div><div class="row small muted" id="sum"></div><div class="card flush" id="olist"></div>
-      <div class="small muted">Only for products that are not in this app. They are kept apart: not added to sales, targets, ranking or commission. Admin and managers can change or delete them.</div></div>`;
+      <div class="small muted">Only for products that are not in this app. They are counted apart from stock sales, with their own target (Targets) and own commission % (HR → Commission). Admin and managers can change or delete them.</div></div>`;
     const draw = async () => {
       const [a, b] = P.range(st.p, st.from, st.to);
       $('#per').innerHTML = P.html(st.p, st.from, st.to) + `<div class="small muted">${esc(P.label(st))}</div>`;
@@ -9097,13 +9118,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const r = await K.api.reportOnline(from, to), ppl = r.people || [], src = r.sources || [], prods = r.products || [], daily = r.daily;
     const T = k => ppl.reduce((a, x) => a + +(x[k] || 0), 0), stN = (x, k) => +((x.statuses || {})[k] || 0);
     const ST = [['new', 'New'], ['contacted', 'Contacted'], ['interested', 'Interested'], ['ordered', 'Ordered'], ['not_interested', 'Not interested']];
+    const tgt = (v, t) => +t ? `${money(t)}<div class="small" style="color:${colPct(pct(+v, +t))};font-weight:700">${pct(+v, +t)}%</div>` : '<span class="muted">—</span>';
     const okDays = (n, w) => w ? `<b style="color:${colPct(pct(n, w))}">${n} / ${w}</b>` : '—';
-    el.innerHTML = `<div class="kpis">${kpi(n0(T('new_customers')), 'New customers (after the first follow-up)')}${kpi(n0(T('followups')), 'Follow-ups')}${kpi(n0(T('orders')), 'Orders')}${kpi(money(T('orders_amount')), 'Sales (stock orders)')}${kpi(money(T('np_amount')) + ' · ' + T('np_count'), 'Sales without products (not counted)', 'var(--mu)')}</div>
-      <div class="small muted">This report counts only orders with stock products. Sales without products are shown apart and are not in any total.</div>
+    el.innerHTML = `<div class="kpis">${kpi(n0(T('new_customers')), 'New customers (after the first follow-up)')}${kpi(n0(T('followups')), 'Follow-ups')}${kpi(n0(T('orders')), 'Orders')}${kpi(money(T('orders_amount')), 'Sales (stock orders)')}${kpi(money(T('np_amount')) + ' · ' + T('np_count'), 'No-product sales')}</div>
+      <div class="small muted">Stock orders and no-product sales are counted apart, each with its own target.</div>
       ${table('Online sales people', 'New = customers whose first follow-up was in these dates. Orders and target days count only stock orders. Target days = working days (no Sundays or holidays) when the daily target was reached (today\'s targets). Status and silent = now.',
-        [['Sales person', 'l'], ['New', 'r'], ['Added', 'r'], ['Follow-ups', 'r'], ['Orders', 'r'], ['Sales', 'r'], ['Buyers', 'r'], ['Without products (not counted)', 'r'], ['New-customer target days', 'r'], ['Order target days', 'r'], ['Silent', 'r']],
+        [['Sales person', 'l'], ['New', 'r'], ['Added', 'r'], ['Follow-ups', 'r'], ['Orders', 'r'], ['Sales', 'r'], ['Products target', 'r'], ['Buyers', 'r'], ['No-product sales', 'r'], ['No-product target', 'r'], ['New-customer target days', 'r'], ['Order target days', 'r'], ['Silent', 'r']],
         ppl.map(x => [`<b>${esc(x.full_name)}</b><div class="small muted">${ST.map(([k, l]) => stN(x, k) ? esc(l) + ' ' + stN(x, k) : '').filter(Boolean).join(' · ')}</div>`, x.new_customers, x.added, x.followups,
-          x.orders, `<b>${money(x.orders_amount)}</b>`, x.buyers, x.np_count ? `<span class="muted">${x.np_count} · ${money(x.np_amount)}</span>` : '<span class="muted">—</span>',
+          x.orders, `<b>${money(x.orders_amount)}</b>`, tgt(x.orders_amount, x.target), x.buyers, x.np_count ? `${x.np_count} · <b>${money(x.np_amount)}</b>` : '<span class="muted">—</span>', tgt(x.np_amount, x.np_target),
           okDays(x.days_new_ok, x.workdays), okDays(x.days_orders_ok, x.workdays), x.silent ? `<b style="color:var(--or)">${x.silent}</b>` : '0']), 'No online sales people yet')}
       <div class="agrid">
       ${table('By source', 'Where online customers came from. New = added in these dates; buyers and sales = stock orders in these dates.', [['Source', 'l'], ['Customers', 'r'], ['New', 'r'], ['Buyers', 'r'], ['Sales', 'r']],
@@ -9115,8 +9137,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         daily.filter(d => +d.new_today || +d.orders_today || +d.followups_today || new Date(d.day + 'T00:00:00').getDay() !== 0).map(d => [fmtD(d.day), esc(d.name), `<b style="color:${+d.new_today >= Math.max(1, +d.target_new) ? 'var(--gr)' : 'inherit'}">${d.new_today} / ${d.target_new}</b>`,
           `<b style="color:${+d.stock_orders_today >= Math.max(1, +d.target_orders) ? 'var(--gr)' : 'inherit'}">${d.stock_orders_today} / ${d.target_orders}</b>`, d.followups_today]), 'Nothing in these dates')
         : '<div class="card small muted">Choose 2 months or less to see each day.</div>'}`;
-    const head = ['Sales person', 'New customers', 'Added', 'Follow-ups', 'Orders (stock)', 'Sales (stock orders)', 'Buyers', 'Sales without products - not counted (count)', 'Sales without products - not counted', 'Working days', 'New-customer target days', 'Order target days', 'Silent'].concat(ST.map(x => 'Status ' + x[1]));
-    const rows = [head].concat(ppl.map(x => [x.full_name, x.new_customers, x.added, x.followups, x.orders, (+x.orders_amount).toFixed(2), x.buyers, x.np_count, (+x.np_amount).toFixed(2), x.workdays, x.days_new_ok, x.days_orders_ok, x.silent].concat(ST.map(([k]) => stN(x, k)))));
+    const head = ['Sales person', 'New customers', 'Added', 'Follow-ups', 'Orders (stock)', 'Sales (stock orders)', 'Products target', 'Buyers', 'No-product sales (count)', 'No-product sales', 'No-product target', 'Working days', 'New-customer target days', 'Order target days', 'Silent'].concat(ST.map(x => 'Status ' + x[1]));
+    const rows = [head].concat(ppl.map(x => [x.full_name, x.new_customers, x.added, x.followups, x.orders, (+x.orders_amount).toFixed(2), x.target ? (+x.target).toFixed(2) : '', x.buyers, x.np_count, (+x.np_amount).toFixed(2), x.np_target ? (+x.np_target).toFixed(2) : '', x.workdays, x.days_new_ok, x.days_orders_ok, x.silent].concat(ST.map(([k]) => stN(x, k)))));
     const sheets = [{ name: 'Online sales people', rows },
       { name: 'By source', rows: [['Source', 'Customers', 'New', 'Buyers', 'Sales']].concat(src.map(x => [K.sourceName(x.source), x.customers, x.new, x.buyers, (+x.sales).toFixed(2)])) },
       { name: 'Products not in the app', rows: [['Product', 'Sales', 'Pieces', 'Amount of those sales', 'Last']].concat(prods.map(x => [x.name, x.times, x.pieces, (+x.amount).toFixed(2), x.last_day])) }]
@@ -9904,13 +9926,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
         // each rep has their own % and own bonus % (Mr. Lee, 22 Oct 2026); nothing typed = 0%
         h = `<div class="card" style="gap:10px"><b>Commission for each rep</b>
-            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order.</div>
+            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).</div>
             <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
-            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th></tr></thead><tbody>
+            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th>${reps.some(u => u.role === 'online_sales') ? '<th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th>' : ''}</tr></thead><tbody>
             ${reps.map(u => { const r = rates.find(x => x.user_id === u.id) || {};
               return `<tr><td><b>${esc(u.full_name)}</b><div class="small muted">${esc(K.ROLE_LABEL[u.role] || u.role)}</div></td>
                 <td style="text-align:right"><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Commission %"></td>
-                <td style="text-align:right"><input class="inp" data-cb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Bonus %"></td></tr>`; }).join('') || '<tr><td colspan="3" class="muted">No sales reps yet</td></tr>'}
+                <td style="text-align:right"><input class="inp" data-cb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Bonus %"></td>
+                ${!reps.some(x => x.role === 'online_sales') ? '' : u.role !== 'online_sales' ? '<td></td><td></td>' : `<td style="text-align:right"><input class="inp" data-cn="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product %"></td>
+                <td style="text-align:right"><input class="inp" data-cnb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product bonus %"></td>`}</tr>`; }).join('') || '<tr><td colspan="3" class="muted">No sales reps yet</td></tr>'}
             </tbody></table></div>
             <button class="btn" id="scr" style="align-self:flex-start">Save commission</button></div>
           <div class="card"><div class="row"><button class="btn sm out" data-cm="${pm}" id="pm">‹</button><b class="grow" style="text-align:center">Commission · ${esc(K.monthName(cmonth))}</b><button class="btn sm out" data-cm="${nx}" id="nm">›</button></div>
@@ -10000,8 +10024,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         await busy(b, () => api.saveSettings(obj)); Object.assign(st, obj); await K.loadSettings(); toast('Saved'); if (tab === 'commission') draw();
       });
       if ($('#scr')) $('#scr').onclick = async e => { await busy(e.currentTarget, async () => { for (const i of $$('[data-cr]')) { const id = i.dataset.cr, old = rates.find(x => x.user_id === id) || {};
-          const v = i.value.trim(), b = $(`[data-cb="${id}"]`).value.trim();
-          if (v !== String(old.rate ?? '') || b !== String(old.bonus ?? '')) await api.setCommission(id, v === '' ? null : +v, b === '' ? null : +b); } });
+          const val = sel => { const x = $(sel); return x ? x.value.trim() : null; };
+          const v = i.value.trim(), b = val(`[data-cb="${id}"]`), nr = val(`[data-cn="${id}"]`), nb = val(`[data-cnb="${id}"]`);
+          const keepNr = nr == null ? String(old.nop_rate ?? '') : nr, keepNb = nb == null ? String(old.nop_bonus ?? '') : nb;
+          if (v !== String(old.rate ?? '') || b !== String(old.bonus ?? '') || keepNr !== String(old.nop_rate ?? '') || keepNb !== String(old.nop_bonus ?? ''))
+            await api.setCommission(id, v, b, keepNr, keepNb); } });
         rates.splice(0, rates.length, ...(await api.listCommissionRates())); toast('Commission saved'); draw(); };
     };
     const staffSheet = u => K.staffSheet(u, { hrs });
