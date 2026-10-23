@@ -1582,7 +1582,7 @@ window.makeSupabaseApi = function (cfg) {
       if (x.id) return q(sb.from('suppliers').update(row).eq('id', x.id).select().single());
       return q(sb.from('suppliers').insert(row).select().single());
     },
-    listPurchases: () => all(() => sb.from('purchases').select('*, suppliers(name, country), warehouses(name)').order('id', { ascending: false }), 5000),
+    listPurchases: () => all(() => sb.from('purchases').select('*, suppliers(name, country, partner_id), warehouses(name)').order('id', { ascending: false }), 5000),
     listPurchaseItems: () => all(() => sb.from('purchase_items').select('*, products(name, sku)').order('id', { ascending: false }), 20000),
     async getPurchase(id) {
       const [p, items, pays, returns, edits] = await Promise.all([
@@ -4159,7 +4159,7 @@ window.makeDemoApi = function () {
     },
     async listPurchases() {
       if (!(allow('purchases.manage') || allow('purchases.receive'))) return [];
-      return wait(D.purchases.slice().sort((a, b) => b.id - a.id).map(p => Object.assign(clone(p), { suppliers: (({ name, country }) => ({ name, country }))(D.suppliers.find(s => s.id === p.supplier_id)), warehouses: { name: D.warehouses.find(w => w.id === p.warehouse_id).name } })));
+      return wait(D.purchases.slice().sort((a, b) => b.id - a.id).map(p => Object.assign(clone(p), { suppliers: (({ name, country, partner_id }) => ({ name, country, partner_id: partner_id || null }))(D.suppliers.find(s => s.id === p.supplier_id)), warehouses: { name: D.warehouses.find(w => w.id === p.warehouse_id).name } })));
     },
     async listPurchaseItems() { if (!(allow('purchases.manage') || allow('purchases.receive'))) return []; return wait(D.pitems.map(i => Object.assign(clone(i), { products: (({ name, sku }) => ({ name, sku }))(D.products.find(p => p.id === i.product_id)) }))); },
     async getPurchase(id) {
@@ -4701,7 +4701,7 @@ window.makeDemoApi = function () {
     render().then(() => { const m2 = document.getElementById('main'); if (m2) m2.scrollTop = y; window.scrollTo(0, wy); });
   }
   const data = {
-    staff: f => ensure('staff', api.listStaff, f),
+    staff: f => ensure('staff', () => api.listStaff().then(l => l.filter(u => u.role !== 'partner')), f),   // partner accounts are not staff: only in the Partners tab
     products: f => ensure('products', api.listProducts, f),
     customers: f => ensure('customers', api.listCustomers, f),
     warehouses: f => ensure('warehouses', api.listWarehouses, f),
@@ -5508,6 +5508,29 @@ Object.assign(window.KT_KM, {
 });
 window.KT_KM_PATTERNS.push(
   [/^Showing (\d+) of (\d+) staff$/, 'បង្ហាញ $1 ក្នុងចំណោម $2 នាក់']
+);
+
+// Partners: buying from partners in the Partners tab (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  '🛒 Buying from partners': '🛒 ការទិញពីដៃគូ',
+  '🛒 Bought by K-TRONiCS': '🛒 K-TRONiCS បានទិញ',
+  'Bought by K-TRONiCS': 'K-TRONiCS បានទិញ',
+  'Goods K-TRONiCS buys from partners (from a stock request). Tap one to:': 'ទំនិញដែល K-TRONiCS ទិញពីដៃគូ (ពីសំណើស្តុក)។ ចុចមួយដើម្បី:',
+  'Goods K-TRONiCS buys from this partner (from a stock request). Tap one to:': 'ទំនិញដែល K-TRONiCS ទិញពីដៃគូនេះ (ពីសំណើស្តុក)។ ចុចមួយដើម្បី:',
+  '(into the Main warehouse),': '(ចូលឃ្លាំងធំ),',
+  '(into the Main warehouse).': '(ចូលឃ្លាំងធំ)។',
+  'Pay partner': 'បង់ប្រាក់ដៃគូ',
+  'Return goods': 'ប្រគល់ទំនិញវិញ',
+  'K-TRONiCS owes': 'K-TRONiCS ជំពាក់',
+  'To pay': 'ត្រូវបង់',
+  'All purchases from partners': 'ការទិញទាំងអស់ពីដៃគូ',
+  'All purchases from this partner': 'ការទិញទាំងអស់ពីដៃគូនេះ',
+  'Nothing bought from partners yet': 'មិនទាន់បានទិញអ្វីពីដៃគូទេ',
+  'Loading purchases from partners…': 'កំពុងផ្ទុកការទិញពីដៃគូ…',
+  'Goods from a partner: open Partners on the admin web': 'ទំនិញពីដៃគូ: សូមបើក ដៃគូ នៅលើគេហទំព័រអ្នកគ្រប់គ្រង',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Show all (\d+)$/, 'បង្ហាញទាំង $1']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -6693,6 +6716,29 @@ window.KT_ZH_PATTERNS.push(
   [/^Showing (\d+) of (\d+) staff$/, '显示 $1 / $2 名员工']
 );
 
+// Partners: buying from partners in the Partners tab (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  '🛒 Buying from partners': '🛒 从合作伙伴采购',
+  '🛒 Bought by K-TRONiCS': '🛒 K-TRONiCS 采购',
+  'Bought by K-TRONiCS': 'K-TRONiCS 采购',
+  'Goods K-TRONiCS buys from partners (from a stock request). Tap one to:': 'K-TRONiCS 从合作伙伴采购的货物（来自库存申请）。点击一项可以：',
+  'Goods K-TRONiCS buys from this partner (from a stock request). Tap one to:': 'K-TRONiCS 从此合作伙伴采购的货物（来自库存申请）。点击一项可以：',
+  '(into the Main warehouse),': '（进入主仓库），',
+  '(into the Main warehouse).': '（进入主仓库）。',
+  'Pay partner': '付款给合作伙伴',
+  'Return goods': '退货',
+  'K-TRONiCS owes': 'K-TRONiCS 欠款',
+  'To pay': '待付款',
+  'All purchases from partners': '所有从合作伙伴的采购',
+  'All purchases from this partner': '所有从此合作伙伴的采购',
+  'Nothing bought from partners yet': '还没有从合作伙伴采购',
+  'Loading purchases from partners…': '正在加载从合作伙伴的采购…',
+  'Goods from a partner: open Partners on the admin web': '合作伙伴的货物：请在管理网页打开"合作伙伴"',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Show all (\d+)$/, '显示全部 $1']
+);
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -6945,7 +6991,7 @@ window.KT_ZH_PATTERNS.push(
       if (fresh.length) { fresh.forEach(id => { S.bnSeen[id] = 1; }); api.bannerSeen(fresh).catch(() => {}); }
     }).catch(() => {});
     const [orders, convs, visit, custs, pays, pos] = await Promise.all([data.orders(true), data.convs(true), K.allow('visits.create') ? api.activeVisit() : null, K.allow('customers.approve') ? data.customers(true) : [],
-      K.allow('payments.confirm') ? api.listPayments() : [], K.allow('purchases.receive') || K.allow('purchases.manage') ? api.listPurchases() : []]);
+      K.allow('payments.confirm') ? api.listPayments() : [], K.allow('purchases.receive') || K.allow('purchases.manage') ? api.listPurchases().then(l => l.filter(p => !K.poPartner(p))) : []]);   // partner goods: only in Partners
     if (!current()) return;
     S.unread = convs.reduce((s, c) => s + (c.unread || 0), 0); K.updateBadge();
     let html = '';
@@ -7031,7 +7077,6 @@ window.KT_ZH_PATTERNS.push(
         ${window.L && ['admin', 'manager'].includes(S.me.role) ? item('#/live', 'nav', 'Live team map', 'Where your team is now (during work hours)', 'var(--grs)', 'var(--gr)') : ''}
         ${window.L && K.allow('visits.view_all') ? item('#/routemap', 'nav', 'Route map', 'Where each sales rep went today', 'var(--bls)', 'var(--bl)') : ''}
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
-        ${K.canSeePartnerStock && K.canSeePartnerStock() ? item('#/pstock', 'store', 'Partner stock', 'What each partner has (pieces only)', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
         ${K.guideTopics ? item('#/guide', 'book', 'How to use the app', 'Short guides with pictures', 'var(--bls)', 'var(--bl)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
@@ -10193,6 +10238,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const bal = p => +(+p.total - +(p.returned_amount || 0) - +p.paid_amount).toFixed(2);
   const owed = p => Math.max(0, bal(p));
   K.poOwed = owed;
+  // goods bought from a partner: shown and handled only in the Partners tab (24 Oct 2026)
+  K.poPartner = p => !!(p && p.suppliers && p.suppliers.partner_id);
   K.poCredit = p => Math.max(0, -bal(p));
   K.poOwedPill = p => p.status === 'cancelled' || (K.poAllReturned(p) && bal(p) === 0 && !+p.paid_amount) ? '' : bal(p) < 0 ? `<span class="pill bl">Supplier owes ${money(-bal(p))}</span>` : owed(p) <= 0 ? '<span class="pill gr">Paid</span>' : +p.paid_amount > 0 ? `<span class="pill or">${money(owed(p))} to pay</span>` : `<span class="pill rd">${money(owed(p))} to pay</span>`;
   const dstr = d => new Date(d + (String(d).length === 10 ? 'T12:00:00' : '')).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
@@ -10330,7 +10377,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // ---- new purchase ----
   K.newPurchaseSheet = async function (onDone, presetSupplier, edit) {
-    const [sups, products, whs] = await Promise.all([K.api.listSuppliers(), K.data.products(true), K.data.warehouses()]);
+    let [sups, products, whs] = await Promise.all([K.api.listSuppliers(), K.data.products(true), K.data.warehouses()]);
+    sups = sups.filter(x => !x.partner_id || (edit && edit.supplier_id === x.id));   // partners: only in the Partners tab
     const mains = whs.filter(w => !w.rep_id);
     const act = sups.filter(x => x.active !== false || (edit && x.id === edit.supplier_id));
     const d = { sup: presetSupplier || (act[0] || {}).id, wh: mains[0].id, cur: 'USD', rate: 1, extra: 0, lines: {}, cost: {} };
@@ -10980,7 +11028,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = page({ title: 'From suppliers', sub: 'Purchases and goods arriving', back: '#/more', right: mgr ? `<button class="ib" id="npo" aria-label="New purchase">${icon('plus')}</button>` : '' });
     const reload = () => { K.forget('purchases'); if (/[?&]o=/.test(location.hash)) go('#/purchases'); else K.render(); };
     if ($('#npo')) $('#npo').onclick = () => K.newPurchaseSheet(id => { reload(); setTimeout(() => K.purchaseSheet(id, reload), 400); });
-    const pos = await api.listPurchases();
+    const all = await api.listPurchases(), pos = all.filter(p => !K.poPartner(p));   // goods from partners: only in Partners (admin web)
     if (!current()) return;
     const waiting = pos.filter(p => p.status === 'ordered'), recent = pos.filter(p => p.status === 'received').slice(0, 20);
     const owed = pos.filter(p => p.status !== 'cancelled').reduce((a, p) => a + K.poOwed(p), 0);
@@ -10993,7 +11041,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="sec">Received recently</div><div class="card flush">${recent.map(row).join('') || '<div class="empty">No goods received yet</div>'}</div>
       ${mgr ? '<div class="small muted">Suppliers list, price history and spending are on the admin web.</div>' : ''}</div>`;
     $$('[data-po]').forEach(b => b.onclick = () => K.purchaseSheet(+b.dataset.po, reload));
-    if (q.o) K.purchaseSheet(+q.o, reload);
+    if (q.o) { if (all.some(p => p.id === +q.o && K.poPartner(p))) K.toast('Goods from a partner: open Partners on the admin web'); else K.purchaseSheet(+q.o, reload); }
   });
 })();
 
@@ -11109,7 +11157,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
-      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner'].concat(u.role === 'agent' ? ['agent'] : []);
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'].concat(u.role === 'agent' ? ['agent'] : []).concat(u.role === 'partner' ? ['partner'] : []);   // partner logins: only from the Partners tab
       const hints = K.ROLE_HINTS;
       let role = u.role, gender = hh.gender || '';
       const sups = (K.S.cache.staff || []).filter(x => x.active && x.role !== 'guest' && x.id !== u.id), deps = K.S.cache.departments || [];
@@ -11187,7 +11235,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
   K.addStaffSheet = function addStaffSheet(onCreated) {
-      const roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin', 'partner']; let role = 'sales';
+      const roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';   // partner logins: Partners → Add partner user
       const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
         <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
         <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
@@ -11278,7 +11326,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = A.shell('hr', seeAll ? 'HR & Payroll' : 'My department', `<button class="btn sm out" id="myleave">${icon('bed', 18)}<span class="hide-sm">Ask for leave</span></button>`);
     $('#myleave').onclick = () => K.leaveSheet(() => K.render());
     const P = K.period, since = P.range('custom')[0] < P.range('last')[0] ? P.range('custom')[0] : P.range('last')[0];
-    const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave() : [], hr ? api.listStaffHr() : [],
+    const notPartner = l => l.filter(u => u.role !== 'partner');   // partner accounts are not staff: only in the Partners tab (K.data.staff already leaves them out)
+    const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true).then(notPartner), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave() : [], hr ? api.listStaffHr() : [],
       boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
     if (!current()) return;
     const att_ = attList;
@@ -11496,7 +11545,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     const staffSheet = u => K.staffSheet(u, { hrs });
     K.adm.staffSheet = staffSheet;
-    const addStaffSheet = () => K.addStaffSheet(async () => { staff.splice(0, staff.length, ...(await K.data.staff(true))); await A.refreshCounts(); draw(); });
+    const addStaffSheet = () => K.addStaffSheet(async () => { staff.splice(0, staff.length, ...notPartner(await K.data.staff(true))); await A.refreshCounts(); draw(); });
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     draw();
   });
@@ -11625,7 +11674,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------- Salary advances ----------
   K.advancesSheet = async function (staff, onDone) {
     let list = await api.listAdvances(), changed = false, method = 'cash';
-    const people = staff.filter(u => u.active && u.role !== 'guest');
+    const people = staff.filter(u => u.active && u.role !== 'guest' && u.role !== 'partner');
     const s = K.sheet('Salary advances', `<div class="small muted" style="line-height:1.5">Money given to staff before payday. It is taken back automatically from their next payroll.</div>
       <div class="card" style="gap:10px"><b>Give an advance</b>
         <label class="f">Staff<select class="inp" id="aus"><option value="">Choose…</option>${people.map(u => `<option value="${esc(u.id)}">${esc(u.full_name)}</option>`).join('')}</select></label>
@@ -12797,31 +12846,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 // "See partner stock" or "Request stock from partner" (the admin always). Pieces only: never partner prices, customers or sales.
 (function () {
   const K = window.KT;
-  const { api, esc, icon, route, page, go } = K;
+  const { route, go } = K;
 
   K.canSeePartnerStock = () => K.S.me && K.S.me.role !== 'partner' && (K.allow('partners.stock') || K.allow('partners.request'));
 
-  route(/^\/pstock$/, async (_, __, current) => {
-    if (!K.canSeePartnerStock()) return go('#/more');
-    const req = K.canRequestPartnerStock();
-    const main = page({ title: 'Partner stock', sub: 'What each partner has', back: '#/more', right: req ? `<button class="ib" id="preqs" aria-label="Stock requests">${icon('list')}</button>` : '' });
-    if (req) K.$('#preqs').onclick = () => K.partnerRequestsSheet();
-    let ps = await api.partnerStockView();
-    if (!current()) return;
-    let term = '';
-    const draw = () => {
-      const t = term.toLowerCase(), hit = r => !t || (r.name + ' ' + r.sku + ' ' + (r.category || '')).toLowerCase().includes(t);
-      main.innerHTML = `<div class="pad">
-        <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product or SKU" value="${esc(term)}"></div>
-        ${ps.map(p => { const its = p.items.filter(hit);
-          return `<div class="card flush"><div class="list-item"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('store', 20)}</div><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${p.items.length} products · ${p.items.reduce((a, r) => a + r.qty, 0)} pieces</div></div>${req && p.items.length ? `<button class="btn sm" data-rq="${p.id}">${icon('send', 16)}Request</button>` : ''}</div>
-            ${its.map(r => `<div class="list-item"><div class="grow"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)}${r.category ? ' · ' + esc(r.category) : ''}</div></div><b style="font-size:16px">${r.qty}</b></div>`).join('') || `<div class="empty">${t ? 'No products found' : 'No stock'}</div>`}</div>`; }).join('') || `<div class="empty">No partners yet</div>`}
-        <div class="small muted">Partner stock is separate from K-TRONiCS stock. You cannot sell from it.${req ? ' Tap Request to buy goods from a partner: they come into the Main warehouse.' : ''}</div></div>`;
-      K.$$('[data-rq]', main).forEach(b => b.onclick = () => K.partnerRequestSheet(ps.find(p => p.id === +b.dataset.rq), async () => { ps = await api.partnerStockView(); draw(); }));
-      const q = K.$('#q', main); q.oninput = e => { term = e.target.value.trim(); const pos = e.target.selectionStart; draw(); const i = K.$('#q', main); i.focus(); i.setSelectionRange(pos, pos); };
-    };
-    draw();
-  });
+  // 24 Oct 2026 (Mr. Lee): everything about partners is only in the admin web Partners tab. An old link here goes back to More.
+  route(/^\/pstock$/, () => go('#/more'));
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
