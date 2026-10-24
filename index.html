@@ -1155,7 +1155,7 @@ window.KT_PERMS = [
     ['purchases.receive', 'Receive goods from suppliers', 'Adds the goods into stock']] },
   { group: 'Partners', items: [
     ['partners.stock', 'See partner stock', 'How many pieces each partner has. Never their prices, customers or sales'],
-    ['partners.request', 'Request stock from partner', 'Ask a partner for goods. They come into the Main stock, like a purchase order']] },
+    ['partners.request', 'Purchase order request to partner', 'Ask a partner for goods. They wait in Partners → Waiting to receive']] },
   { group: 'Shop visits', items: [
     ['visits.create', 'Check in at shops'],
     ['visits.view_all', 'See all staff visits'],
@@ -1357,6 +1357,11 @@ window.makeSupabaseApi = function (cfg) {
     partnerAdjustsList: (pid, status) => q(sb.rpc('partner_adjusts_list', { p_partner: pid || null, p_status: status || null })),
     partnerAlertsSave: (id, kinds) => q(sb.rpc('partner_alerts_save', { p_user: id, p_kinds: kinds || [] })),
     partnerTeam: () => q(sb.rpc('partner_team')),
+    partnerSellToKtronics: (items, note) => q(sb.rpc('partner_sell_to_ktronics', { p_items: items || [], p_note: note || null })),
+    partnerTgGroups: pid => q(sb.rpc('partner_tg_groups_list', { p_partner: pid })),
+    partnerTgGroupSave: x => q(sb.rpc('partner_tg_group_save', { p: x })),
+    partnerTgGroupDelete: id => q(sb.rpc('partner_tg_group_delete', { p_id: id })),
+    partnerTgGroupTest: id => q(sb.rpc('partner_tg_group_test', { p_id: id })),
     partnerStatement: (from, to) => q(sb.rpc('partner_statement', { p_from: from || null, p_to: to || null })),
     partnerStatementAdmin: (pid, from, to) => q(sb.rpc('partner_statement_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
@@ -4554,6 +4559,31 @@ window.makeDemoApi = function () {
   api.partnerTeam = async () => { const pid = pOwnerD();
     return wait(D.users.filter(u => u.role === 'partner' && u.partner_id === pid).map(u => ({ id: u.id, full_name: u.full_name, username: u.username, partner_role: u.partner_role || 'owner', active: u.active,
       telegram: !!(D.stg || {})[u.id], me: u.id === me.id, alerts: (u.partner_alerts || ((u.partner_role || 'owner') === 'owner' ? ['approve', 'requests', 'low', 'daily'] : ['low'])).filter(k => (u.partner_role || 'owner') === 'owner' || k === 'low') }))); };
+  // the partner owner sells to K-TRONiCS (24 Oct 2026) — same as partner_sell_to_ktronics
+  api.partnerSellToKtronics = async (items, note) => { const pid = pOwnerD(), pa = partnersOf().find(x => x.id === pid);
+    if (!Array.isArray(items) || !items.length) fail('Add at least one product');
+    const seen = new Set(), lines = items.map(it => { const prod = D.products.find(p => p.id === +it.product_id && ((!p.partner_id && p.active) || p.partner_id === pid)); if (!prod) fail('Product not found');
+      if (seen.has(prod.id)) fail('Each product only once, please'); seen.add(prod.id); const q = Math.floor(+it.qty); if (!(q > 0 && q <= 100000)) fail('Pieces must be between 1 and 100,000');
+      if (it.price === '' || it.price == null || !(+it.price >= 0)) fail('Write the price per piece for ' + prod.name); if (q > pStock(pid, prod.id)) fail('Not enough stock of ' + prod.name + ': only ' + pStock(pid, prod.id) + ' left');
+      return { product_id: prod.id, qty: q, price: Math.round(+it.price * 100) / 100, qty_given: q }; });
+    const id = Math.max(0, ...pReqs().map(r => r.id)) + 1, tot = +lines.reduce((a, l) => a + l.qty * l.price, 0).toFixed(2), nt = String(note || '').trim();
+    const r = { id, request_no: 'PR-' + String(id).padStart(5, '0'), partner_id: pid, status: 'approved', note: 'Sold to K-TRONiCS by ' + pa.name + (nt ? ' · ' + nt : ''), reply: null, total: tot, purchase_id: null,
+      flow: 'goods', from_partner: true, created_by: me.id, created_at: now(), answered_by: me.id, answered_at: now(), items: lines };
+    pReqs().push(r); const o = pReqOrder(r); o.notes = 'Sold to K-TRONiCS' + (nt ? ' · ' + nt : '');
+    lines.forEach(l => pStockChange(pid, l.product_id, -l.qty, 'to_ktronics', r.request_no, o.order_no));
+    notifyPerm('partners.request', '🛒 ' + pa.name + ' sold you goods · ' + r.request_no, 'Waiting in Partners · $' + tot.toFixed(2) + ' · tap Received when the goods are with you', '#/partners');
+    save(); return wait({ request_id: id, request_no: r.request_no, order_id: o.id, order_no: o.order_no, total: tot }); };
+  // Telegram groups made with a partner (24 Oct 2026) — admin only, like the database
+  api.partnerTgGroups = async pid => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); return wait(clone((D.pTg || []).filter(g => g.partner_id === +pid))); };
+  api.partnerTgGroupSave = async x => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); if (!partnersOf().some(p => p.id === +x.partner_id)) fail('Partner not found');
+    const ch = String(x.chat_id || '').trim(); if (!/^-?[0-9]{3,20}$/.test(ch) && !/^@[A-Za-z0-9_]{4,40}$/.test(ch)) fail('Choose a group (or paste its ID)');
+    if ((x.events || []).some(k => !['po', 'approvals', 'low', 'daily'].includes(k))) fail('Unknown alert');
+    D.pTg = D.pTg || []; let g = x.id ? D.pTg.find(y => y.id === +x.id) : D.pTg.find(y => y.partner_id === +x.partner_id && y.chat_id === ch);
+    if (x.id && !g) fail('Group not found'); if (!g) { g = { id: Math.max(0, ...D.pTg.map(y => y.id)) + 1, partner_id: +x.partner_id }; D.pTg.push(g); }
+    Object.assign(g, { chat_id: ch, title: String(x.title || '').trim() || null, events: [...(x.events || [])], enabled: x.enabled !== false }); save(); return wait(g.id); };
+  api.partnerTgGroupDelete = async id => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); D.pTg = (D.pTg || []).filter(g => g.id !== +id); save(); return wait(null); };
+  api.partnerTgGroupTest = async id => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
+    if (!(D.pTg || []).some(g => g.id === +id)) fail('Group not found'); T.last = { ok: true }; save(); return wait(4); };
   // owner / seller partner logins (24 Oct 2026): a seller only sells, sees customers and stock — same as the database
   api.adminSetPartnerRole = async (id, role) => { if (!hasRole('admin')) fail('Only the admin can change partner logins'); if (!['owner', 'seller'].includes(role)) fail('Choose Owner or Seller');
     const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login'); u.partner_role = role; save(); return wait(null); };
@@ -6009,6 +6039,67 @@ window.KT_KM_PATTERNS.push(
   [/^(PSA-\d+) · Stock count$/, '$1 · ការរាប់ស្តុក'],
   [/^(PSA-\d+) · Damaged \/ lost$/, '$1 · ខូច / បាត់']
 );
+Object.assign(window.KT_KM, {
+  'Purchase order request': 'សំណើបញ្ជាទិញ',
+  'Purchase order requests': 'សំណើបញ្ជាទិញ',
+  'Purchase order requests to partners': 'សំណើបញ្ជាទិញទៅដៃគូ',
+  'Send purchase order request': 'ផ្ញើសំណើបញ្ជាទិញ',
+  'Cancel purchase order request': 'បោះបង់សំណើបញ្ជាទិញ',
+  'Cancel this purchase order request?': 'បោះបង់សំណើបញ្ជាទិញនេះ?',
+  'Purchase order request cancelled': 'បានបោះបង់សំណើបញ្ជាទិញ',
+  'No waiting purchase order requests': 'គ្មានសំណើបញ្ជាទិញកំពុងរង់ចាំ',
+  'No purchase order requests yet': 'មិនទាន់មានសំណើបញ្ជាទិញ',
+  'Purchase order request not found': 'រកមិនឃើញសំណើបញ្ជាទិញ',
+  'Purchase order request from K-TRONiCS': 'សំណើបញ្ជាទិញពី K-TRONiCS',
+  'Purchase orders from K-TRONiCS': 'ការបញ្ជាទិញពី K-TRONiCS',
+  'Purchase order request to partner': 'សំណើបញ្ជាទិញទៅដៃគូ',
+  'Ask a partner for goods. They wait in Partners → Waiting to receive': 'ស្នើទំនិញពីដៃគូ។ វារង់ចាំក្នុង ដៃគូ → រង់ចាំទទួល',
+  'Sold to you by the partner': 'ដៃគូលក់ឱ្យអ្នក',
+  '🛒 K-TRONiCS (sell to K-TRONiCS)': '🛒 K-TRONiCS (លក់ឱ្យ K-TRONiCS)',
+  'Sent to K-TRONiCS · waits for Received': 'បានផ្ញើទៅ K-TRONiCS · រង់ចាំ "បានទទួល"',
+  'Your stock goes out now. It waits for K-TRONiCS to tap <b>Received</b> (or Cancel: the pieces come back). K-TRONiCS pays you the price you type here; it shows in your statement.': 'ស្តុករបស់អ្នកចេញឥឡូវ។ វារង់ចាំ K-TRONiCS ចុច <b>បានទទួល</b> (ឬបោះបង់៖ គ្រឿងត្រឡប់មកវិញ)។ K-TRONiCS បង់ឱ្យអ្នកតាមតម្លៃដែលអ្នកវាយនៅទីនេះ ហើយវាបង្ហាញក្នុងរបាយការណ៍គណនី។',
+  'When K-TRONiCS sends a purchase order request, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on it. To sell to K-TRONiCS yourself: New order → K-TRONiCS.': 'ពេល K-TRONiCS ផ្ញើសំណើបញ្ជាទិញ អ្នកជ្រើសចំនួនដែលត្រូវផ្តល់។ ទំនិញចេញពីស្តុករបស់អ្នក ហើយ K-TRONiCS បង់ឱ្យអ្នកតាមតម្លៃលើវា។ ដើម្បីលក់ឱ្យ K-TRONiCS ដោយខ្លួនឯង៖ ការបញ្ជាទិញថ្មី → K-TRONiCS។',
+  'Sold to K-TRONiCS. Each payment from K-TRONiCS shows here (you confirm it in Approvals). It is also in your Statement with K-TRONiCS.': 'បានលក់ឱ្យ K-TRONiCS។ ការបង់ប្រាក់នីមួយៗពី K-TRONiCS បង្ហាញនៅទីនេះ (អ្នកបញ្ជាក់វាក្នុង ការអនុម័ត)។ វាក៏មានក្នុងរបាយការណ៍គណនីជាមួយ K-TRONiCS ដែរ។',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Purchase order request · (.+)$/, 'សំណើបញ្ជាទិញ · $1'],
+  [/^Purchase order request sent to (.+)$/, 'បានផ្ញើសំណើបញ្ជាទិញទៅ $1'],
+  [/^(\d+) waiting for your answer$/, '$1 កំពុងរង់ចាំចម្លើយរបស់អ្នក'],
+  [/^(.+) gives all, part or none in the partner app\. What they give waits in Partners → Waiting to receive\. Tap Received there, then Move to my stock when you want it in your Main warehouse\.$/, '$1 ផ្តល់ទាំងអស់ មួយផ្នែក ឬមិនផ្តល់ក្នុងកម្មវិធីដៃគូ។ អ្វីដែលគេផ្តល់រង់ចាំក្នុង ដៃគូ → រង់ចាំទទួល។ ចុច បានទទួល នៅទីនោះ បន្ទាប់មក ផ្ទេរចូលស្តុកខ្ញុំ ពេលអ្នកចង់ដាក់ក្នុងឃ្លាំងធំ។']
+);
+Object.assign(window.KT_KM, {
+  'Telegram group': 'ក្រុម Telegram',
+  'Add Telegram group': 'បន្ថែមក្រុម Telegram',
+  'Edit Telegram group': 'កែក្រុម Telegram',
+  'Find my groups': 'ស្វែងរកក្រុមរបស់ខ្ញុំ',
+  'Group name': 'ឈ្មោះក្រុម',
+  'Group ID': 'លេខសម្គាល់ក្រុម',
+  'What goes to this group': 'អ្វីដែលផ្ញើទៅក្រុមនេះ',
+  'Untick to stop this group for a while': 'ដោះធីក ដើម្បីបញ្ឈប់ក្រុមនេះមួយរយៈ',
+  'Delete this group': 'លុបក្រុមនេះ',
+  'Delete this group?': 'លុបក្រុមនេះ?',
+  'It will stop getting partner news. The Telegram group itself stays.': 'វានឹងឈប់ទទួលព័ត៌មានដៃគូ។ ក្រុម Telegram នៅដដែល។',
+  'No group yet.': 'មិនទាន់មានក្រុម។',
+  'Nothing ticked': 'មិនបានធីកអ្វីទេ',
+  'Send test': 'ផ្ញើសាកល្បង',
+  'Saved. Press Send test to check it': 'បានរក្សាទុក។ ចុច ផ្ញើសាកល្បង ដើម្បីពិនិត្យ',
+  'Sent. Check the group in Telegram': 'បានផ្ញើ។ ពិនិត្យក្រុមក្នុង Telegram',
+  'Choose a group (or paste its ID)': 'ជ្រើសក្រុម (ឬបិទភ្ជាប់លេខសម្គាល់)',
+  'No groups found yet. Add the bot to the group, send /start there, wait a few seconds and press Find again.': 'មិនទាន់រកឃើញក្រុម។ បន្ថែម bot ទៅក្រុម ផ្ញើ /start នៅទីនោះ រង់ចាំបន្តិច ហើយចុចស្វែងរកម្តងទៀត។',
+  'Could not ask Telegram': 'មិនអាចសួរ Telegram',
+  '📨 Purchase orders': '📨 ការបញ្ជាទិញ',
+  '✅ Approvals': '✅ ការអនុម័ត',
+  '⚠️ Low stock': '⚠️ ស្តុកជិតអស់',
+  '📊 Daily sales summary': '📊 សង្ខេបការលក់ប្រចាំថ្ងៃ',
+  'Purchase order requests, the partner\'s answer, "partner sold you goods", received / cancelled': 'សំណើបញ្ជាទិញ ចម្លើយដៃគូ "ដៃគូលក់ទំនិញឱ្យអ្នក" បានទទួល / បោះបង់',
+  'Stock in, damaged / lost / count, payments — waiting and decided, both sides': 'ស្តុកចូល ខូច / បាត់ / រាប់ ការបង់ប្រាក់ — កំពុងរង់ចាំ និងបានសម្រេច ទាំងសងខាង',
+  'Every evening at 7 pm: products at or below "warn at"': 'រៀងរាល់ល្ងាចម៉ោង ៧៖ ទំនិញដែលស្មើ ឬតិចជាង "ព្រមាននៅ"',
+  'Every evening at 7 pm: the partner\'s sales, money collected, customers owe': 'រៀងរាល់ល្ងាចម៉ោង ៧៖ ការលក់ ប្រាក់ប្រមូលបាន និងអតិថិជនជំពាក់ របស់ដៃគូ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Make a Telegram group with (.+) \(your people, their people and your company bot\), send \/start in it, then add it here\. Only the news you tick goes there\.$/, 'បង្កើតក្រុម Telegram ជាមួយ $1 (មនុស្សរបស់អ្នក មនុស្សរបស់គេ និង bot ក្រុមហ៊ុន) ផ្ញើ /start ក្នុងក្រុម រួចបន្ថែមវានៅទីនេះ។ មានតែព័ត៌មានដែលអ្នកធីកប៉ុណ្ណោះ ដែលទៅទីនោះ។'],
+  [/^Add Telegram group · (.+)$/, 'បន្ថែមក្រុម Telegram · $1']
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7450,6 +7541,69 @@ window.KT_ZH_PATTERNS.push(
   [/^(PSA-\d+) · Stock count$/, '$1 · 盘点'],
   [/^(PSA-\d+) · Damaged \/ lost$/, '$1 · 损坏 / 丢失']
 );
+Object.assign(window.KT_ZH, {
+  'Purchase order request': '采购订单请求',
+  'Purchase order requests': '采购订单请求',
+  'Purchase order requests to partners': '给合作伙伴的采购订单请求',
+  'Send purchase order request': '发送采购订单请求',
+  'Cancel purchase order request': '取消采购订单请求',
+  'Cancel this purchase order request?': '取消这个采购订单请求？',
+  'Purchase order request cancelled': '采购订单请求已取消',
+  'No waiting purchase order requests': '没有等待中的采购订单请求',
+  'No purchase order requests yet': '还没有采购订单请求',
+  'Purchase order request not found': '未找到采购订单请求',
+  'Purchase order request from K-TRONiCS': '来自 K-TRONiCS 的采购订单请求',
+  'Purchase orders from K-TRONiCS': '来自 K-TRONiCS 的采购订单',
+  'Purchase order request to partner': '向合作伙伴发采购订单请求',
+  'Ask a partner for goods. They wait in Partners → Waiting to receive': '向合作伙伴要货。货物在 合作伙伴 → 等待收货 中等待',
+  'Sold to you by the partner': '合作伙伴卖给您',
+  '🛒 K-TRONiCS (sell to K-TRONiCS)': '🛒 K-TRONiCS（卖给 K-TRONiCS）',
+  'Sent to K-TRONiCS · waits for Received': '已发送给 K-TRONiCS · 等待"已收到"',
+  'Your stock goes out now. It waits for K-TRONiCS to tap <b>Received</b> (or Cancel: the pieces come back). K-TRONiCS pays you the price you type here; it shows in your statement.': '您的库存现在出库。等待 K-TRONiCS 点击<b>已收到</b>（或取消：件数退回）。K-TRONiCS 按您在这里输入的价格付款，并显示在对账单中。',
+  'When K-TRONiCS sends a purchase order request, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on it. To sell to K-TRONiCS yourself: New order → K-TRONiCS.': '当 K-TRONiCS 发送采购订单请求时，您选择给多少。货物从您的库存出库，K-TRONiCS 按上面的价格付款。要自己卖给 K-TRONiCS：新订单 → K-TRONiCS。',
+  'Sold to K-TRONiCS. Each payment from K-TRONiCS shows here (you confirm it in Approvals). It is also in your Statement with K-TRONiCS.': '已卖给 K-TRONiCS。K-TRONiCS 的每笔付款都显示在这里（您在"批准"中确认）。也在与 K-TRONiCS 的对账单中。',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Purchase order request · (.+)$/, '采购订单请求 · $1'],
+  [/^Purchase order request sent to (.+)$/, '已向 $1 发送采购订单请求'],
+  [/^(\d+) waiting for your answer$/, '$1 个等待您的回复'],
+  [/^(.+) gives all, part or none in the partner app\. What they give waits in Partners → Waiting to receive\. Tap Received there, then Move to my stock when you want it in your Main warehouse\.$/, '$1 在合作伙伴应用中给全部、部分或不给。给的货物在 合作伙伴 → 等待收货 中等待。在那里点击已收到，然后在需要放入主仓库时点击转入我的库存。']
+);
+Object.assign(window.KT_ZH, {
+  'Telegram group': 'Telegram 群组',
+  'Add Telegram group': '添加 Telegram 群组',
+  'Edit Telegram group': '编辑 Telegram 群组',
+  'Find my groups': '查找我的群组',
+  'Group name': '群组名称',
+  'Group ID': '群组 ID',
+  'What goes to this group': '发送到这个群组的内容',
+  'On': '开',
+  'Off': '关',
+  'Untick to stop this group for a while': '取消勾选可暂停这个群组',
+  'Delete this group': '删除这个群组',
+  'Delete this group?': '删除这个群组？',
+  'It will stop getting partner news. The Telegram group itself stays.': '它将不再收到合作伙伴消息。Telegram 群组本身保留。',
+  'No group yet.': '还没有群组。',
+  'Nothing ticked': '没有勾选',
+  'Send test': '发送测试',
+  'Saved. Press Send test to check it': '已保存。点击发送测试检查',
+  'Sent. Check the group in Telegram': '已发送。请在 Telegram 中查看群组',
+  'Choose a group (or paste its ID)': '选择群组（或粘贴其 ID）',
+  'No groups found yet. Add the bot to the group, send /start there, wait a few seconds and press Find again.': '还没有找到群组。把机器人加入群组，在群里发送 /start，等几秒再点查找。',
+  'Could not ask Telegram': '无法询问 Telegram',
+  '📨 Purchase orders': '📨 采购订单',
+  '✅ Approvals': '✅ 批准',
+  '⚠️ Low stock': '⚠️ 库存不足',
+  '📊 Daily sales summary': '📊 每日销售汇总',
+  'Purchase order requests, the partner\'s answer, "partner sold you goods", received / cancelled': '采购订单请求、合作伙伴的回复、"合作伙伴卖给您货物"、已收到 / 已取消',
+  'Stock in, damaged / lost / count, payments — waiting and decided, both sides': '入库、损坏 / 丢失 / 盘点、付款 — 等待中和已决定，双方',
+  'Every evening at 7 pm: products at or below "warn at"': '每天晚上 7 点：等于或低于"提醒数量"的产品',
+  'Every evening at 7 pm: the partner\'s sales, money collected, customers owe': '每天晚上 7 点：合作伙伴的销售、收款、客户欠款',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Make a Telegram group with (.+) \(your people, their people and your company bot\), send \/start in it, then add it here\. Only the news you tick goes there\.$/, '与 $1 建一个 Telegram 群组（您的人、他们的人和公司机器人），在群里发送 /start，然后在这里添加。只有您勾选的消息会发到那里。'],
+  [/^Add Telegram group · (.+)$/, '添加 Telegram 群组 · $1']
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -7795,7 +7949,6 @@ window.KT_ZH_PATTERNS.push(
         ${item('#/payslips', 'cash', 'My payslips', 'My salary each month, advances', 'var(--grs)', 'var(--gr)')}
         ${K.canOwnerAccount && K.canOwnerAccount() ? item('#/owner', 'cash', 'Owner\'s account', 'Money I take and put back', 'var(--ps)', 'var(--p)') : ''}
         ${K.canOffice && K.canOffice() ? item('#/office', 'receipt', 'Office expenses', 'Rent, bills and other company costs', 'var(--bls)', 'var(--bl)') : ''}
-        <button class="list-item" id="mytg" style="width:100%;text-align:left"><div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('send', 20)}</div><div class="grow"><div class="tt">Connect my Telegram</div><div class="st">${S.me.role === 'sales' ? 'Get my daily report in Telegram' : 'Daily report and low-stock alerts in Telegram'}</div></div></button>
         ${can('admin') || K.allow('hr.manage') || K.allow('attendance.view') || K.isDeptHead()
           ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + (can('admin') || K.allow('hr.manage') || K.allow('attendance.view') ? item('#/hr', 'users', 'HR & Payroll', 'Staff, attendance, leave, payroll', 'var(--ors)', 'var(--or)') : item('#/hr', 'users', 'My department', 'My people\'s attendance and leave', 'var(--ors)', 'var(--or)'))
           : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
@@ -7808,7 +7961,6 @@ window.KT_ZH_PATTERNS.push(
       ${!K.live ? `<button class="list-item" id="reset"><div class="ic-av sq" style="background:#EFEDF4;color:var(--mu)">${icon('refresh', 20)}</div><div class="grow"><div class="tt">Reset demo data</div><div class="st">Start the demo again from the beginning</div></div></button>` : ''}</div>
       <div class="small muted" style="text-align:center">K-TRONiCS Staff · Stage 1</div></div>` });
     $('#nlist').onclick = () => K.openNotifs(); K.bindPush($('#main'));
-    if ($('#mytg')) $('#mytg').onclick = () => K.staffTgSheet();
     $('#logout').onclick = async () => { if (await K.confirmSheet('Log out?', 'You will need your username and password to log in again.', 'Log out', true)) K.logout(); };
     if ($('#reset')) $('#reset').onclick = async () => { if (await K.confirmSheet('Reset demo?', 'All demo changes on this phone will be deleted.', 'Reset', true)) { api.resetDemo(); K.logout(); } };
   });
@@ -7851,34 +8003,6 @@ window.KT_ZH_PATTERNS.push(
     $('#tg').onclick = () => K.targetsSheet(() => K.render());
     if ($('#cashbox') && cash) $('#cashbox').onclick = () => K.cashSheet(cash, () => K.render());
   });
-})();
-
-// Staff app: connect my own Telegram, so the company bot can send me my daily report.
-(function () {
-  const K = window.KT;
-  const { api, esc, $, toast, busy } = K;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  K.staffTgSheet = async function () {
-    let st; try { st = await api.staffTgStatus(); } catch (e) { return toast(e.message); }
-    const draw = () => {
-      s.el.querySelector('.sb').innerHTML = st.connected
-        ? `<div class="card" style="background:var(--grs)"><b>✅ Your Telegram is connected</b>${st.username ? `<div class="small">@${esc(st.username)}</div>` : ''}
-            <div class="small muted" style="margin-top:4px">${(K.S.me || {}).role === 'partner' ? `Your partner alerts come from <b>@${esc(st.bot || '')}</b> in Telegram (which ones: your owner or K-TRONiCS chooses).` : ['admin', 'manager', 'warehouse'].includes((K.S.me || {}).role) ? `Low-stock alerts come from <b>@${esc(st.bot || '')}</b> in Telegram: when a product runs low or runs out, and a list every morning at 8:00.` : `Your daily report comes from <b>@${esc(st.bot || '')}</b> in Telegram. It is also in the app: Chat → "📊 My daily report".`}</div></div>
-           <button class="btn out red block" id="stu">Disconnect my Telegram</button>`
-        : !st.ready ? `<div class="small muted">${(K.S.me || {}).role === 'partner' ? 'The Telegram bot is not set up yet. Your alerts still come in the app (the bell).' : 'The company Telegram bot is not set up yet. Your daily report still comes in the app: Chat → "📊 My daily report".'}</div>`
-        : `<div class="small" style="line-height:1.7">${(K.S.me || {}).role === 'partner' ? 'Get your <b>partner alerts</b> in Telegram: things to approve, stock requests from K-TRONiCS, low stock and the evening sales summary.' : ['admin', 'manager', 'warehouse'].includes((K.S.me || {}).role) ? 'Get <b>low-stock alerts</b> (when a product runs low or runs out, and a list every morning at 8:00) in your Telegram.' : 'Get your full <b>daily report</b> (orders, shop visits, payments, attendance, shops you never visited) in Telegram too.'}<br>
-             1. Tap <b>Open Telegram</b>.<br>2. In Telegram, tap <b>Start</b>.<br>3. Come back here and tap <b>I tapped Start</b>.</div>
-           <button class="btn block" id="sto">📲 Open Telegram</button><button class="btn out block" id="stc">I tapped Start</button>`;
-      if ($('#sto', s.el)) $('#sto', s.el).onclick = async e => { const r = await busy(e.currentTarget, () => api.staffTgLink()).catch(() => null); if (r) window.open(r.link, '_blank'); };
-      if ($('#stc', s.el)) $('#stc', s.el).onclick = async e => {
-        const r = await busy(e.currentTarget, async () => { const id = await api.staffTgCheck(); for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const x = await api.staffTgResult(id); if (!x.pending) return x; } return { ok: false, error: 'Telegram did not answer. Try again.' }; }).catch(() => null);
-        if (!r) return; if (!r.ok) return toast(r.error || 'Not connected yet');
-        toast('Connected. Check Telegram'); st = await api.staffTgStatus(); draw();
-      };
-      if ($('#stu', s.el)) $('#stu', s.el).onclick = async e => { await busy(e.currentTarget, () => api.staffTgUnlink()); toast('Disconnected'); st = await api.staffTgStatus(); draw(); };
-    };
-    const s = K.sheet('My Telegram', ''); draw();
-  };
 })();
 
 // Chat: list, conversation, new chat / group, share order, photos.
@@ -12694,9 +12818,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       zh: ['打包和送货', ['打开 <b>订单</b>，点击 <b>已批准</b>。', '打开一个订单，备好货物。点击 <b>已打包</b>。', '出发时点击 <b>运送中</b>。到达商店后点击 <b>已送达</b>。', '如果商店货到付款，在订单中添加付款。']],
       km: ['វេចខ្ចប់ និងដឹកជញ្ជូន', ['បើក <b>ការបញ្ជាទិញ</b> ហើយចុច <b>បានអនុម័ត</b>។', 'បើកការបញ្ជាទិញ ហើយរៀបចំទំនិញ។ ចុច <b>បានវេចខ្ចប់</b>។', 'ពេលចេញដឹក ចុច <b>កំពុងដឹកជញ្ជូន</b>។ ដល់ហាង ចុច <b>បានដឹកដល់</b>។', 'បើហាងបង់ពេលទទួលទំនិញ សូមបន្ថែមការទូទាត់នៅក្នុងការបញ្ជាទិញ។']] },
     { id: 'stock', who: 'w', icon: 'box', img: 'products',
-      en: ['Stock and low stock', ['<b>Stock</b> shows every product and how many are left in each warehouse.', 'Red numbers are low or out of stock.', 'Use <b>Stock count</b> to correct the numbers after counting.', 'When a product runs low you get an alert in the app and in Telegram (connect it in More → Connect my Telegram).', 'Goods from suppliers: More → <b>From suppliers</b> → Receive.']],
-      zh: ['库存和库存不足', ['<b>库存</b> 显示每个产品以及每个仓库还剩多少。', '红色数字表示库存不足或缺货。', '盘点后使用 <b>库存盘点</b> 更正数量。', '产品快卖完时，你会在应用和 Telegram 中收到提醒（在 更多 → Connect my Telegram 中连接）。', '供应商的货物：更多 → <b>来自供应商</b> → 收货。']],
-      km: ['ស្តុក និងស្តុកជិតអស់', ['<b>ស្តុក</b> បង្ហាញទំនិញទាំងអស់ និងចំនួនដែលនៅសល់ក្នុងឃ្លាំងនីមួយៗ។', 'លេខពណ៌ក្រហម គឺជិតអស់ ឬអស់ស្តុក។', 'ប្រើ <b>រាប់ស្តុក</b> ដើម្បីកែលេខ ក្រោយពេលរាប់រួច។', 'ពេលទំនិញជិតអស់ អ្នកទទួលការជូនដំណឹងក្នុងកម្មវិធី និង Telegram (ភ្ជាប់នៅ ផ្សេងៗ → Connect my Telegram)។', 'ទំនិញពីអ្នកផ្គត់ផ្គង់៖ ផ្សេងៗ → <b>ពីអ្នកផ្គត់ផ្គង់</b> → ទទួល។']] },
+      en: ['Stock and low stock', ['<b>Stock</b> shows every product and how many are left in each warehouse.', 'Red numbers are low or out of stock.', 'Use <b>Stock count</b> to correct the numbers after counting.', 'When a product runs low you get an alert in the app (and in your Telegram group, if the admin set one).', 'Goods from suppliers: More → <b>From suppliers</b> → Receive.']],
+      zh: ['库存和库存不足', ['<b>库存</b> 显示每个产品以及每个仓库还剩多少。', '红色数字表示库存不足或缺货。', '盘点后使用 <b>库存盘点</b> 更正数量。', '产品快卖完时，你会在应用中收到提醒（如果管理员设置了，也会在 Telegram 群组中）。', '供应商的货物：更多 → <b>来自供应商</b> → 收货。']],
+      km: ['ស្តុក និងស្តុកជិតអស់', ['<b>ស្តុក</b> បង្ហាញទំនិញទាំងអស់ និងចំនួនដែលនៅសល់ក្នុងឃ្លាំងនីមួយៗ។', 'លេខពណ៌ក្រហម គឺជិតអស់ ឬអស់ស្តុក។', 'ប្រើ <b>រាប់ស្តុក</b> ដើម្បីកែលេខ ក្រោយពេលរាប់រួច។', 'ពេលទំនិញជិតអស់ អ្នកទទួលការជូនដំណឹងក្នុងកម្មវិធី (និងក្នុងក្រុម Telegram ប្រសិនបើអ្នកគ្រប់គ្រងបានរៀបចំ)។', 'ទំនិញពីអ្នកផ្គត់ផ្គង់៖ ផ្សេងៗ → <b>ពីអ្នកផ្គត់ផ្គង់</b> → ទទួល។']] },
     { id: 'approve', who: 'm', icon: 'check', img: 'home_mgr',
       en: ['Approve and check', ['<b>Home</b> shows everything waiting for you.', 'Tap a card: orders to approve, new shops, payments to check, expenses, shop changes.', 'Open it and tap <b>Approve</b> or <b>Reject</b>.', 'Staff get the answer in the app at once.']],
       zh: ['审批和核对', ['<b>首页</b> 显示所有等待你处理的事项。', '点击卡片：待批准订单、新商店、待核对付款、费用、商店修改。', '打开后点击 <b>批准</b> 或 <b>拒绝</b>。', '员工会马上在应用中收到结果。']],
@@ -12712,11 +12836,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     { id: 'offline', who: 'a', icon: 'wifi', img: 'offline',
       en: ['No internet? Keep working', ['With no signal you can still: take orders, check in / check out, collect payments, add expenses and start / finish work.', 'A black bar shows <b>No internet · 2 saved on the phone</b>.', 'When the signal comes back, everything is sent by itself, with the real time it happened.', 'Tap the bar to see what is waiting.', 'Do not log out or delete the app until everything is sent.']],
       zh: ['没有网络？照样工作', ['没有信号时你仍然可以：下订单、签到/签出、收款、添加费用以及上班/下班。', '黑色横条会显示 <b>没有网络 · 2 已保存在手机上</b>。', '信号恢复后，所有内容会自动发送，并保留实际发生的时间。', '点击横条查看等待发送的内容。', '全部发送完成前，不要退出登录或删除应用。']],
-      km: ['គ្មានអ៊ីនធឺណិត? នៅតែធ្វើការបាន', ['ពេលគ្មានសេវា អ្នកនៅតែអាច៖ កត់ការបញ្ជាទិញ ចុះឈ្មោះចូល / ចេញពីហាង ប្រមូលប្រាក់ កត់ត្រាចំណាយ និងចូល / បញ្ចប់ការងារ។', 'របារខ្មៅបង្ហាញ <b>គ្មានអ៊ីនធឺណិត · 2 បានរក្សាទុកក្នុងទូរស័ព្ទ</b>។', 'ពេលមានសេវាវិញ អ្វីៗទាំងអស់ត្រូវបានផ្ញើដោយខ្លួនឯង ជាមួយម៉ោងពិតប្រាកដដែលវាបានកើតឡើង។', 'ចុចលើរបារ ដើម្បីមើលអ្វីដែលកំពុងរង់ចាំ។', 'កុំចាកចេញ (Log out) ឬលុបកម្មវិធី រហូតដល់ផ្ញើរួចទាំងអស់។']] },
-    { id: 'telegram', who: 'a', icon: 'send', img: 'more',
-      en: ['Connect your Telegram', ['Open <b>More → Connect my Telegram</b>.', 'Tap <b>Open Telegram</b>, then tap <b>Start</b> in Telegram.', 'Come back to the app and tap <b>I tapped Start</b>.', 'Sales reps get their daily report. Warehouse, managers and the admin get low-stock alerts.']],
-      zh: ['连接你的 Telegram', ['打开 <b>更多 → Connect my Telegram</b>。', '点击 <b>Open Telegram</b>，然后在 Telegram 中点击 <b>Start</b>。', '回到应用，点击 <b>I tapped Start</b>。', '销售员会收到每日报告。仓库、经理和管理员会收到库存不足提醒。']],
-      km: ['ភ្ជាប់ Telegram របស់អ្នក', ['បើក <b>ផ្សេងៗ → Connect my Telegram</b>។', 'ចុច <b>Open Telegram</b> រួចចុច <b>Start</b> ក្នុង Telegram។', 'ត្រឡប់មកកម្មវិធីវិញ ហើយចុច <b>I tapped Start</b>។', 'អ្នកលក់ទទួលរបាយការណ៍ប្រចាំថ្ងៃ។ ឃ្លាំង អ្នកគ្រប់គ្រង និងអ្នកកាន់កាប់ ទទួលការជូនដំណឹងស្តុកជិតអស់។']] }
+      km: ['គ្មានអ៊ីនធឺណិត? នៅតែធ្វើការបាន', ['ពេលគ្មានសេវា អ្នកនៅតែអាច៖ កត់ការបញ្ជាទិញ ចុះឈ្មោះចូល / ចេញពីហាង ប្រមូលប្រាក់ កត់ត្រាចំណាយ និងចូល / បញ្ចប់ការងារ។', 'របារខ្មៅបង្ហាញ <b>គ្មានអ៊ីនធឺណិត · 2 បានរក្សាទុកក្នុងទូរស័ព្ទ</b>។', 'ពេលមានសេវាវិញ អ្វីៗទាំងអស់ត្រូវបានផ្ញើដោយខ្លួនឯង ជាមួយម៉ោងពិតប្រាកដដែលវាបានកើតឡើង។', 'ចុចលើរបារ ដើម្បីមើលអ្វីដែលកំពុងរង់ចាំ។', 'កុំចាកចេញ (Log out) ឬលុបកម្មវិធី រហូតដល់ផ្ញើរួចទាំងអស់។']] }
   ];
   const lang = () => K.lang ? K.lang() : 'en';
   const km = () => lang() === 'km';
@@ -13094,7 +13214,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${qa('#/partner/orders?s=unpaid', 'cash', 'Payments', 0, 'var(--grs)', 'var(--gr)')}${qa('#/partner/products', 'box', 'Products')}
         ${qa('#/partner/prices', 'cash', 'Prices', 0, 'var(--bls)', 'var(--bl)')}${qa('#/partner/pnl', 'chart', 'Profit & loss', 0, 'var(--ors)', 'var(--or)')}
       </div></div>
-      ${waiting ? `<a class="card" href="#/partner/requests" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;margin-top:12px">${icon('bell', 20)}<div class="grow"><b>K-TRONiCS asks for goods</b><div class="small">${waiting} request(s) waiting for your answer</div></div>${icon('right', 18)}</a>` : ''}
+      ${waiting ? `<a class="card" href="#/partner/requests" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;margin-top:12px">${icon('bell', 20)}<div class="grow"><b>Purchase order request from K-TRONiCS</b><div class="small">${waiting} waiting for your answer</div></div>${icon('right', 18)}</a>` : ''}
       <div id="pdash" style="margin-top:12px"></div></div>`;
     K.partnerDashBox(K.$('#pdash', main), (f, t) => Promise.all([api.partnerDashboard(f, t), api.partnerPnl ? api.partnerPnl(f, t).catch(() => null) : null]).then(([d, pl]) => Object.assign(d, { pnl: pl })), true, K.S.pDash = K.S.pDash || { p: 'today' });
   });
@@ -13116,19 +13236,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${li('#/partner/products', 'box', 'My products', 'Products you made yourself (only yours)')}
         ${li('#/partner/prices', 'cash', 'My prices', 'Cost and selling price')}
         ${li('#/partner/approve', 'check', 'Approvals', 'Stock in and payments between you and K-TRONiCS')}
-        ${li('#/partner/requests', 'send', 'Requests from K-TRONiCS', 'K-TRONiCS buys goods from you')}
+        ${li('#/partner/requests', 'send', 'Purchase orders from K-TRONiCS', 'K-TRONiCS buys goods from you')}
         ${li('#/partner/history', 'list', 'Stock history', 'Stock in, counts and sales')}
       </div>
-      <div class="card flush">
-        ${own ? `<a class="list-item" href="#/partner/team">${icon('user', 20)}<div class="grow"><div class="tt">My team</div><div class="st">Your logins and their Telegram alerts</div></div>${icon('right', 18)}</a>` : ''}
-        <button class="list-item" id="ptg" style="width:100%;text-align:left">${icon('send', 20)}<div class="grow"><div class="tt">Connect my Telegram</div><div class="st">Get your alerts in Telegram</div></div>${icon('right', 18)}</button></div>
       <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}</div>
       <div class="card flush">
         <button class="list-item" id="pprof" style="width:100%;text-align:left">${icon('lock', 20)}<div class="grow"><div class="tt">My profile</div><div class="st">Appearance and password</div></div>${icon('right', 18)}</button>
         <button class="list-item" id="pout" style="width:100%;text-align:left">${icon('logout', 20)}<div class="grow"><div class="tt">Log out</div></div></button>
       </div></div>`;
     K.$('#pprof', main).onclick = passwordSheet;
-    K.$('#ptg', main).onclick = () => K.staffTgSheet ? K.staffTgSheet() : toast('Not available');
     K.$('#pout', main).onclick = async () => { if (await K.confirmSheet('Log out?', 'You will need your username and password to log in again.', 'Log out', true)) K.logout(); };
   });
 
@@ -13138,17 +13254,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!current()) return;
     main.innerHTML = '<div class="pad"><div id="ppnl"></div></div>';
     K.partnerPnlBox(K.$('#ppnl', main), (f, t) => api.partnerPnl(f, t), true, K.S.pPnl = K.S.pPnl || { p: 'month' });
-  });
-
-  // my team (owner): the logins of my partner, owner / seller, Telegram alerts of each (24 Oct 2026)
-  ownerRoute(/^\/partner\/team$/, async (_, __, current) => {
-    const main = page({ title: 'My team', sub: 'Logins of your business', back: '#/partner/more' });
-    const team = await api.partnerTeam();
-    if (!current()) return;
-    main.innerHTML = `<div class="pad">${team.map(u => `<div class="card" style="gap:6px"><div class="row"><b class="grow">${esc(u.full_name)}${u.me ? ' (you)' : ''}</b><span class="pill ${u.partner_role === 'seller' ? 'gy' : 'bl'}">${u.partner_role === 'seller' ? 'Seller' : 'Owner'}</span>${u.active ? '' : '<span class="pill gy">Disabled</span>'}</div>
-      <div class="small muted">@${esc(u.username)}</div><div data-tm="${esc(u.id)}"></div></div>`).join('')}
-      <div class="small muted">K-TRONiCS makes new logins and chooses Owner or Seller. A seller only makes orders, collects payments, sees customers and stock.</div></div>`;
-    team.forEach(u => K.partnerAlertsBox(K.$(`[data-tm="${u.id}"]`, main), u));
   });
 
   // statement with K-TRONiCS (24 Oct 2026): same numbers as the admin sees
@@ -13426,14 +13531,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = page({ title: 'New order', sub: 'Stock goes out when you save', back: '#/partner' });
     let [custs, prods] = await Promise.all([api.partnerCustomers(), api.partnerProducts()]);
     if (!current()) return;
-    let cust = query.c ? +query.c : null, pay = 'cash', due = addDays(today(), 7), term = '', notes = '';
+    let ktr = false, cust = query.c ? +query.c : null, pay = 'cash', due = addDays(today(), 7), term = '', notes = '';
     const lines = new Map();   // product_id -> { qty, price }
     const draw = () => {
       const avail = prods.filter(p => p.qty > 0 && (!term || (p.name + ' ' + p.sku).toLowerCase().includes(term)));
       const chosen = [...lines].map(([pid, l]) => Object.assign({ p: prods.find(x => x.product_id === pid) }, l));
       const total = chosen.reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0);
       main.innerHTML = `<div class="pad">
-        <div class="card"><b>Customer</b><div class="row" style="gap:8px"><select class="inp grow" id="nc"><option value="">Choose a customer</option>${custs.filter(c => c.active && !c.is_ktronics).map(c => `<option value="${c.id}" ${c.id === cust ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><button class="btn sm out" id="ncadd">${icon('plus', 16)}New</button></div></div>
+        <div class="card"><b>Customer</b><div class="row" style="gap:8px"><select class="inp grow" id="nc"><option value="">Choose a customer</option>${K.pOwner() ? `<option value="ktr" ${ktr ? 'selected' : ''}>🛒 K-TRONiCS (sell to K-TRONiCS)</option>` : ''}${custs.filter(c => c.active && !c.is_ktronics).map(c => `<option value="${c.id}" ${c.id === cust ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><button class="btn sm out" id="ncadd">${icon('plus', 16)}New</button></div>
+          ${ktr ? '<div class="small" style="background:var(--bls);padding:8px 10px;border-radius:10px;line-height:1.5">Your stock goes out now. It waits for K-TRONiCS to tap <b>Received</b> (or Cancel: the pieces come back). K-TRONiCS pays you the price you type here; it shows in your statement.</div>' : ''}</div>
         ${chosen.length ? `<div class="card flush">${chosen.map(l => `<div class="list-item"><div class="grow"><div class="tt">${esc(l.p.name)}</div><div class="st">${l.p.qty} in stock</div></div>
           <input class="inp" type="number" min="1" step="1" inputmode="numeric" data-lq="${l.p.product_id}" value="${l.qty}" style="width:64px" aria-label="Quantity">
           <input class="inp" type="number" min="0" step="0.01" inputmode="decimal" data-lp="${l.p.product_id}" value="${l.price}" style="width:84px" aria-label="Price">
@@ -13442,17 +13548,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="sec">Add products</div>
         <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product or SKU" value="${esc(term)}"></div>
         <div class="card flush" style="max-height:320px;overflow:auto">${avail.slice(0, 60).map(p => `<button class="list-item" data-add="${p.product_id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${p.qty} in stock · ${p.price != null ? money(p.price) : 'no price yet'}</div></div>${lines.has(p.product_id) ? '<span class="pill gr">Added</span>' : icon('plus', 18)}</button>`).join('') || `<div class="empty">${prods.some(p => p.qty > 0) ? 'No products found' : 'No stock in your warehouse yet'}</div>`}</div>
-        <div class="card"><b>Payment</b><div class="seg">${[['cash', 'Pay now (cash)'], ['credit', 'Credit (pay later)']].map(([k, l]) => `<button data-pay="${k}" class="${pay === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+        ${ktr ? `<div class="card"><label class="f">Notes (optional)<input class="inp" id="nnote" value="${esc(notes)}"></label></div>` : `<div class="card"><b>Payment</b><div class="seg">${[['cash', 'Pay now (cash)'], ['credit', 'Credit (pay later)']].map(([k, l]) => `<button data-pay="${k}" class="${pay === k ? 'on' : ''}">${l}</button>`).join('')}</div>
           ${pay === 'credit' ? `<label class="f">Due date<input class="inp" type="date" id="ndue" value="${esc(due)}"></label>` : ''}
-          <label class="f">Notes (optional)<input class="inp" id="nnote" value="${esc(notes)}"></label></div>
-        <button class="btn block" id="nsave">${icon('check', 18)}Save order${total ? ' · ' + money(total) : ''}</button></div>`;
-      $('#nc', main).onchange = e => { cust = +e.target.value || null; };
+          <label class="f">Notes (optional)<input class="inp" id="nnote" value="${esc(notes)}"></label></div>`}
+        <button class="btn block" id="nsave">${icon(ktr ? 'send' : 'check', 18)}${ktr ? 'Send to K-TRONiCS' : 'Save order'}${total ? ' · ' + money(total) : ''}</button></div>`;
+      $('#nc', main).onchange = e => { ktr = e.target.value === 'ktr'; cust = ktr ? null : +e.target.value || null; notes = $('#nnote', main).value; draw(); };
       $('#ncadd', main).onclick = () => customerSheet(null, async id => { custs = await api.partnerCustomers(); cust = id; draw(); });
       const q = $('#q', main); q.oninput = e => { term = e.target.value.trim().toLowerCase(); const pos = e.target.selectionStart; draw(); const i = $('#q', main); i.focus(); i.setSelectionRange(pos, pos); };
       $$('[data-add]', main).forEach(b => b.onclick = () => { const p = prods.find(x => x.product_id === +b.dataset.add); if (!lines.has(p.product_id)) lines.set(p.product_id, { qty: 1, price: p.price != null ? p.price : '' }); draw(); });
       // typing a quantity or price only updates the total (no redraw, so the next tap is never lost)
       const retotal = () => { const t = [...lines.values()].reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0); const el = $('#ntot', main); if (el) el.textContent = money(t);
-        const b = $('#nsave', main); if (b) b.innerHTML = icon('check', 18) + 'Save order' + (t ? ' · ' + money(t) : ''); };
+        const b = $('#nsave', main); if (b) b.innerHTML = icon(ktr ? 'send' : 'check', 18) + (ktr ? 'Send to K-TRONiCS' : 'Save order') + (t ? ' · ' + money(t) : ''); };
       $$('[data-lq]', main).forEach(i => i.oninput = () => { const l = lines.get(+i.dataset.lq); l.qty = Math.max(1, Math.floor(+i.value || 1)); retotal(); });
       $$('[data-lp]', main).forEach(i => i.oninput = () => { const l = lines.get(+i.dataset.lp); l.price = i.value === '' ? '' : Math.max(0, +i.value); retotal(); });
       $$('[data-lx]', main).forEach(b => b.onclick = () => { lines.delete(+b.dataset.lx); draw(); });
@@ -13460,8 +13566,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#ndue', main)) $('#ndue', main).onchange = e => { due = e.target.value; };
       $('#nnote', main).oninput = e => { notes = e.target.value; };
       $('#nsave', main).onclick = async e => {
-        if (!cust) return toast('Choose a customer'); if (!lines.size) return toast('Add at least one product');
+        if (!cust && !ktr) return toast('Choose a customer'); if (!lines.size) return toast('Add at least one product');
         for (const [pid, l] of lines) { const p = prods.find(x => x.product_id === pid); if (l.qty > p.qty) return toast('Not enough stock of ' + p.name + ': only ' + p.qty + ' left'); if (l.price === '') return toast('Type a price for ' + p.name); }
+        if (ktr) {   // sell to K-TRONiCS (24 Oct 2026): waits for K-TRONiCS to tap Received
+          const r = await busy(e.currentTarget, () => api.partnerSellToKtronics([...lines].map(([product_id, l]) => ({ product_id, qty: l.qty, price: l.price })), notes));
+          toast('Sent to K-TRONiCS · waits for Received'); return go('#/partner/order/' + r.order_id);
+        }
         const id = await busy(e.currentTarget, () => api.partnerOrderCreate({ customer_id: cust, items: [...lines].map(([product_id, l]) => ({ product_id, qty: l.qty, price: l.price })), payment: pay, due_date: pay === 'credit' ? due : null, notes }));
         toast('Order saved'); go('#/partner/order/' + id);
       };
@@ -13531,7 +13641,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${live ? `<div class="list-item"><span class="grow">Still owed</span><b style="color:${+o.owed > 0 ? 'var(--or)' : ''}">${money(o.owed)}</b></div>` : ''}
         ${+o.pay_back > 0 ? `<div class="list-item"><span class="grow">You pay back to K-TRONiCS</span><b style="color:var(--rd)">${money(o.pay_back)}</b></div>` : ''}</div>
       <button class="btn block" id="oinv">${icon('receipt', 18)}Invoice</button>
-      ${ktr ? `<div class="card small" style="background:var(--bls)">Sold to K-TRONiCS (stock request). K-TRONiCS pays this in its Purchasing; each payment shows here by itself.</div>${o.status === 'open' ? '<div class="small muted">It becomes Delivered when K-TRONiCS receives the goods.</div>' : ''}` : ''}
+      ${ktr ? `<div class="card small" style="background:var(--bls)">Sold to K-TRONiCS. Each payment from K-TRONiCS shows here (you confirm it in Approvals). It is also in your Statement with K-TRONiCS.</div>${o.status === 'open' ? '<div class="small muted">It becomes Delivered when K-TRONiCS receives the goods.</div>' : ''}` : ''}
       ${live && !ktr ? `<div class="btns">${+o.owed > 0 ? `<button class="btn green" id="opay">${icon('cash', 18)}Collect payment</button>` : ''}${o.status === 'open' ? `<button class="btn out" id="odel">${icon('truck', 18)}Mark delivered</button>` : ''}</div>` : ''}
       ${o.payments.length ? `<div class="sec">Payments</div><div class="card flush">${o.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt" style="${y.voided_at ? 'text-decoration:line-through;opacity:.6' : ''}">${y.currency === 'KHR' ? '៛' + Math.round(y.amount).toLocaleString() + ' (' + money(y.amount_usd) + ')' : (+y.amount < 0 ? '−' + money(-y.amount) : money(y.amount))} · ${esc(METHOD[y.method] || y.method)}</div>
           <div class="st">${esc(fmtWhen(y.received_at))}${y.note ? ' · ' + esc(y.note) : ''}${y.voided_at ? ' · cancelled: ' + esc(y.void_reason || '') : ''}</div></div>${!y.voided_at && live && !y.by_ktronics && K.pOwner() ? `<button class="btn sm out" data-pv="${y.id}">Cancel</button>` : ''}</div>`).join('')}</div>` : ''}
@@ -13619,19 +13729,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const rpill = r => { const x = RST[r.status] || [r.status, 'gy']; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; };
 
   K.pOwnerRoute(/^\/partner\/requests$/, async (_, __, current) => {
-    const main = page({ title: 'Requests from K-TRONiCS', sub: 'K-TRONiCS buys goods from you', back: '#/partner' });
+    const main = page({ title: 'Purchase orders from K-TRONiCS', sub: 'K-TRONiCS buys goods from you', back: '#/partner' });
     const rows = await api.partnerRequestsMine();
     if (!current()) return;
     main.innerHTML = `<div class="pad"><div class="card flush">${rows.map(r => `<a class="list-item" href="#/partner/request/${r.id}"><div class="grow"><div class="tt">${esc(r.request_no)}</div>
-        <div class="st">${esc(fmtWhen(r.created_at))} · ${r.items.reduce((a, i) => a + i.qty, 0)} pcs asked${r.purchase_no ? ' · ' + money(r.total) + (+r.owed > 0 ? ' · K-TRONiCS owes ' + money(r.owed) : ' · paid') : ''}</div></div>${rpill(r)}</a>`).join('') || '<div class="empty">No requests yet</div>'}</div>
-      <div class="small muted">When K-TRONiCS asks for goods, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on the request.</div></div>`;
+        <div class="st">${esc(fmtWhen(r.created_at))} · ${r.items.reduce((a, i) => a + i.qty, 0)} pcs asked${r.purchase_no ? ' · ' + money(r.total) + (+r.owed > 0 ? ' · K-TRONiCS owes ' + money(r.owed) : ' · paid') : ''}</div></div>${rpill(r)}</a>`).join('') || '<div class="empty">No purchase order requests yet</div>'}</div>
+      <div class="small muted">When K-TRONiCS sends a purchase order request, you choose how many to give. The goods leave your stock and K-TRONiCS pays you the price on it. To sell to K-TRONiCS yourself: New order → K-TRONiCS.</div></div>`;
   });
 
   K.pOwnerRoute(/^\/partner\/request\/(\d+)$/, async ([id], __, current) => {
-    const main = page({ title: 'Request', back: '#/partner/requests' });
+    const main = page({ title: 'Purchase order request', back: '#/partner/requests' });
     const r = (await api.partnerRequestsMine()).find(x => x.id === +id);
     if (!current()) return;
-    if (!r) { main.innerHTML = '<div class="pad"><div class="empty">Request not found</div></div>'; return; }
+    if (!r) { main.innerHTML = '<div class="pad"><div class="empty">Purchase order request not found</div></div>'; return; }
     const open = r.status === 'waiting', give = new Map(r.items.map(i => [i.product_id, Math.min(i.qty, i.have || 0)]));
     const tot = () => r.items.reduce((a, i) => a + (give.get(i.product_id) || 0) * i.price, 0);
     main.innerHTML = `<div class="pad">
@@ -13676,13 +13786,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // new request to one partner: p = { id, name, items: [{ product_id, name, sku, qty }] } (from partnerStockView)
   K.partnerRequestSheet = function (p, onDone) {
     const lines = new Map();   // product_id -> { qty, price }
-    const s = K.sheet('Request stock · ' + p.name, `<div class="small muted" style="line-height:1.5">${esc(p.name)} gives all, part or none in the partner app. What they give appears in <b>Purchasing</b> as "Waiting to arrive" (${esc(p.name)} = supplier). Tap <b>Receive</b> there to put it into your Main warehouse, then pay it in Purchasing.</div>
+    const s = K.sheet('Purchase order request · ' + p.name, `<div class="small muted" style="line-height:1.5">${esc(p.name)} gives all, part or none in the partner app. What they give waits in <b>Partners → Waiting to receive</b>. Tap <b>Received</b> there, then <b>Move to my stock</b> when you want it in your Main warehouse.</div>
       <div class="card flush" style="max-height:340px;overflow:auto">${p.items.map(r => `<div class="list-item" style="flex-wrap:wrap"><div class="grow" style="min-width:140px"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)} · ${r.qty} at partner</div></div>
         <input class="inp" type="number" min="0" max="${r.qty}" step="1" inputmode="numeric" data-q="${r.product_id}" placeholder="Pcs" aria-label="Pieces" style="width:76px">
         <input class="inp" type="number" min="0" step="0.01" inputmode="decimal" data-pr="${r.product_id}" placeholder="$ each" aria-label="Price per piece" style="width:90px"></div>`).join('') || '<div class="empty">This partner has no stock</div>'}</div>
       <div id="rsum" class="small"></div>
       <label class="f">Note (optional)<input class="inp" id="rnote" placeholder="e.g. for Phnom Penh shops"></label>
-      <button class="btn block" id="rok" ${p.items.length ? '' : 'disabled'}>${icon('send', 18)}Send request</button>`);
+      <button class="btn block" id="rok" ${p.items.length ? '' : 'disabled'}>${icon('send', 18)}Send purchase order request</button>`);
     const get = id => lines.get(id) || { qty: 0, price: '' };
     const sum = () => { const L = [...lines.values()].filter(l => l.qty > 0);
       $('#rsum', s.el).textContent = L.length ? `${L.length} product(s), ${L.reduce((a, l) => a + l.qty, 0)} pcs · ${K.money(L.reduce((a, l) => a + l.qty * (+l.price || 0), 0))}` : ''; };
@@ -13694,7 +13804,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const bad = items.find(i => i.price == null || !(i.price >= 0)); if (bad) return toast('Write the price per piece you pay for ' + p.items.find(r => r.product_id === bad.product_id).name);
       const over = items.find(i => i.qty > p.items.find(r => r.product_id === i.product_id).qty); if (over) return toast(p.name + ' has only ' + p.items.find(r => r.product_id === over.product_id).qty + ' of ' + p.items.find(r => r.product_id === over.product_id).name);
       await busy(e.currentTarget, () => api.partnerRequestCreate(p.id, items, $('#rnote', s.el).value.trim()));
-      s.close(); toast('Request sent to ' + p.name); if (onDone) onDone();
+      s.close(); toast('Purchase order request sent to ' + p.name); if (onDone) onDone();
     };
   };
 
@@ -13705,21 +13815,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ${r.reply ? `<div class="small">${r.status === 'cancelled' ? 'Why cancelled' : 'Partner says'}: ${esc(r.reply)}</div>` : ''}
     ${r.purchase_no ? `<div class="small"><b>${esc(r.purchase_no)}</b> in Purchasing${r.purchase_status === 'ordered' ? ' · <b style="color:var(--or)">waiting for you to Receive</b>' : r.purchase_status === 'cancelled' ? ' · cancelled' : ''} · ${K.money(r.total)} · paid ${K.money(r.paid)}${+r.owed > 0 ? ` · <b style="color:var(--or)">you owe ${K.money(r.owed)}</b>` : ''}</div>` : ''}
     ${r.flow === 'goods' ? `<div class="small">${r.received_at ? '<b>Received</b> · in Goods from partners' : '<b style="color:var(--or)">Waiting for you to tap Received</b> (Partners tab)'} · ${K.money(r.total)} · paid ${K.money(r.paid)}${+r.owed > 0 ? ` · <b style="color:var(--or)">you owe ${K.money(r.owed)}</b>` : ''}</div>` : ''}
-    ${r.status === 'waiting' ? `<button class="btn sm out red" data-rx="${r.id}" style="align-self:flex-start">${icon('x', 16)}Cancel request</button>` : ''}</div>`;
+    ${r.status === 'waiting' ? `<button class="btn sm out red" data-rx="${r.id}" style="align-self:flex-start">${icon('x', 16)}Cancel purchase order request</button>` : ''}</div>`;
 
   // all requests (optionally one partner)
   K.partnerRequestsSheet = async function (pid) {
-    const s = K.sheet('Stock requests to partners', K.loading);
+    const s = K.sheet('Purchase order requests to partners', K.loading);
     let st = 'waiting';
     const draw = async () => {
       const rows = await api.partnerRequests(st || null, pid || null);
       if (!s.el.isConnected) return;
       s.el.querySelector('.sb').innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['waiting', 'Waiting'], ['', 'All']].map(([k, l]) => `<button class="chip ${st === k ? 'on' : ''}" data-rs="${k}">${l}</button>`).join('')}</div>
-        ${rows.map(K.partnerRequestCard).join('') || `<div class="empty">${st ? 'No waiting requests' : 'No requests yet'}</div>`}`;
+        ${rows.map(K.partnerRequestCard).join('') || `<div class="empty">${st ? 'No waiting purchase order requests' : 'No purchase order requests yet'}</div>`}`;
       $$('[data-rs]', s.el).forEach(b => b.onclick = () => { st = b.dataset.rs; draw(); });
       $$('[data-rx]', s.el).forEach(b => b.onclick = async () => {
-        if (!(await K.confirmSheet('Cancel this request?', 'The partner will see it as cancelled.', 'Cancel request', true))) return;
-        try { await api.partnerRequestCancel(+b.dataset.rx, null); toast('Request cancelled'); } catch (e) { toast(e.message); } draw(); });
+        if (!(await K.confirmSheet('Cancel this purchase order request?', 'The partner will see it as cancelled.', 'Cancel purchase order request', true))) return;
+        try { await api.partnerRequestCancel(+b.dataset.rx, null); toast('Purchase order request cancelled'); } catch (e) { toast(e.message); } draw(); });
     };
     await draw();
   };
@@ -13811,23 +13921,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (K.$('#xdel', s.el)) K.$('#xdel', s.el).onclick = async e => { if (!(await K.confirmSheet('Delete this expense?', '', 'Delete', true))) return; await busy(e.currentTarget, () => api.partnerExpenseDelete(x.id)); s.close(); toast('Deleted'); onDone(); };
     };
     await draw();
-  };
-
-  // which Telegram alerts one partner login gets (24 Oct 2026): chosen by the admin or the partner's owner
-  const ALERTS = [['approve', 'Things to approve', 'Stock in and payments from K-TRONiCS, answers to your stock changes'], ['requests', 'Stock requests', 'K-TRONiCS asks you for goods'],
-    ['low', 'Low stock', 'Every evening: products at or below "warn at"'], ['daily', 'Daily sales summary', 'Every evening: sales, money collected, customers owe']];
-  K.partnerAlertsOf = u => u.alerts || (u.partner_alerts || (u.partner_role === 'seller' ? ['low'] : ['approve', 'requests', 'low', 'daily'])).filter(k => u.partner_role !== 'seller' || k === 'low');
-  K.partnerAlertsBox = function (el, u) {
-    if (!el) return;
-    let on = K.partnerAlertsOf(u);
-    const draw = () => {
-      el.innerHTML = `<div class="sec" style="margin:6px 0 0">Telegram alerts</div><div class="small muted">${u.telegram || u.tg_chat_id ? '✅ Telegram connected' : 'Telegram not connected yet (they connect it in the partner app → More → Connect my Telegram).'}</div>
-        <div class="card flush">${ALERTS.map(([k, l, d]) => { const off = u.partner_role === 'seller' && k !== 'low';
-          return `<label class="list-item" style="${off ? 'opacity:.45' : 'cursor:pointer'}"><input type="checkbox" data-al="${k}" ${on.includes(k) ? 'checked' : ''} ${off ? 'disabled' : ''}><div class="grow"><div class="tt">${l}</div><div class="st">${off ? 'Owners only' : d}</div></div></label>`; }).join('')}</div>`;
-      K.$$('[data-al]', el).forEach(c => c.onchange = async () => { const next = K.$$('[data-al]', el).filter(x => x.checked && !x.disabled).map(x => x.dataset.al);
-        try { await api.partnerAlertsSave(u.id, next); on = next; u.alerts = next; u.partner_alerts = next; toast('Saved'); } catch (e) { toast(e.message); draw(); } });
-    };
-    draw();
   };
 
   // K-TRONiCS <-> partner statement (24 Oct 2026): goods the partner gave, given back, payments, who owes whom.
