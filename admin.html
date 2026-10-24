@@ -1297,6 +1297,7 @@ window.makeSupabaseApi = function (cfg) {
     savePartner: (x) => q(sb.rpc('partner_save', { p_id: x.id || null, p_name: x.name, p_phone: x.phone || null, p_address: x.address || null, p_logo: x.logo_url || null, p_active: x.active !== false })),
     setPartnerOfUser: (id, partnerId) => q(sb.rpc('admin_set_partner', { p_id: id, p_partner: partnerId })),
     partnerMe: () => q(sb.rpc('partner_me')),
+    adminSetPartnerRole: (id, role) => q(sb.rpc('admin_set_partner_role', { p_id: id, p_role: role })),
     partnerSetCanAdd: (id, on) => q(sb.rpc('partner_set_can_add', { p_id: id, p_on: !!on })),
     partnerMyStockIn: (items, note) => q(sb.rpc('partner_my_stock_in', { p_items: items, p_note: note || null })),
     partnerStockIn: (pid, items, note) => q(sb.rpc('partner_stock_in', { p_partner: pid, p_items: items, p_note: note || null })),
@@ -1350,6 +1351,14 @@ window.makeSupabaseApi = function (cfg) {
     partnerExpenseDelete: id => q(sb.rpc('partner_expense_delete', { p_id: id })),
     partnerPnl: (from, to) => q(sb.rpc('partner_pnl', { p_from: from || null, p_to: to || null })),
     partnerPnlAdmin: (pid, from, to) => q(sb.rpc('partner_pnl_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
+    partnerAdjustMake: (kind, items, note) => q(sb.rpc('partner_adjust_make', { p_kind: kind, p_items: items || [], p_note: note || null })),
+    partnerAdjustCancel: (id, reason) => q(sb.rpc('partner_adjust_cancel', { p_id: id, p_reason: reason || null })),
+    partnerAdjustDecide: (id, ok, reason) => q(sb.rpc('partner_adjust_decide', { p_id: id, p_ok: !!ok, p_reason: reason || null })),
+    partnerAdjustsList: (pid, status) => q(sb.rpc('partner_adjusts_list', { p_partner: pid || null, p_status: status || null })),
+    partnerAlertsSave: (id, kinds) => q(sb.rpc('partner_alerts_save', { p_user: id, p_kinds: kinds || [] })),
+    partnerTeam: () => q(sb.rpc('partner_team')),
+    partnerStatement: (from, to) => q(sb.rpc('partner_statement', { p_from: from || null, p_to: to || null })),
+    partnerStatementAdmin: (pid, from, to) => q(sb.rpc('partner_statement_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
     async uploadPartnerLogo(file) { return api.uploadPhoto(file, 'partners', true); },
     setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
@@ -2282,7 +2291,7 @@ window.makeDemoApi = function () {
     const pa = partnersOf().find(x => x.id === o.partner_id) || {};
     if (sign < 0) ret.items.forEach(i => { if (pStock(o.partner_id, i.product_id) < i.qty) fail(pa.name + ' has only ' + pStock(o.partner_id, i.product_id) + ' of ' + (D.products.find(p => p.id === i.product_id) || {}).name + ' now, so it cannot send them again'); });
     ret.items.forEach(i => { pStockChange(o.partner_id, i.product_id, sign * i.qty, sign > 0 ? 'returned' : 'to_ktronics', sign > 0 ? ret.note : 'Again (' + ret.return_no + ')', ret.return_no);
-      if (sign > 0 && ret.settle === 'money') (D.pReturns = D.pReturns || []).push({ order_id: o.id, return_id: ret.id, return_no: ret.return_no, product_id: i.product_id, qty: i.qty, price: Math.round(i.unit_value * 100) / 100 }); });
+      if (sign > 0 && ret.settle === 'money') (D.pReturns = D.pReturns || []).push({ created_at: now(), order_id: o.id, return_id: ret.id, return_no: ret.return_no, product_id: i.product_id, qty: i.qty, price: Math.round(i.unit_value * 100) / 100 }); });
     if (sign < 0) D.pReturns = (D.pReturns || []).filter(x => x.return_id !== ret.id);
     o.returned_amount = +(D.pReturns || []).filter(x => x.order_id === o.id).reduce((a, x) => a + x.qty * x.price, 0).toFixed(2); };
   // the purchase from a partner request was received (order delivered) or cancelled (pieces back to the partner, order cancelled)
@@ -2475,7 +2484,7 @@ window.makeDemoApi = function () {
     async partnerOwnProductsAdmin(pid) { if (!hasRole('admin')) fail('Only the admin can see partners');
       return wait(D.products.filter(p => p.partner_id === +pid).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, active: p.partner_active !== false, qty: pStock(+pid, p.id), price: pPrice(+pid, p.id) })).sort((a, b) => a.name.localeCompare(b.name))); },
     async partnerMe() { const p = me && me.active && me.role === 'partner' && partnersOf().find(x => x.id === me.partner_id && x.active); if (!p) fail('Not a partner account');
-      return wait({ id: p.id, name: p.name, phone: p.phone, address: p.address, logo_url: p.logo_url, can_add_stock: !!p.can_add_stock }); },
+      return wait({ id: p.id, name: p.name, phone: p.phone, address: p.address, logo_url: p.logo_url, can_add_stock: !!p.can_add_stock, partner_role: me.partner_role || 'owner' }); },
     async uploadPartnerLogo(file) { return api.uploadPhoto(file, 'partners'); },
     // partner stock and prices (step 2) — same rules as the database
     async partnerStockIn(pid, items, note) { if (!hasRole('admin')) fail('Only the admin can add stock to a partner');   // waits for the partner's approval (24 Oct 2026)
@@ -2672,7 +2681,7 @@ window.makeDemoApi = function () {
         const back = (D.pReturns || []).filter(t => t.order_id === o.id && t.product_id === li.product_id).reduce((a, t) => a + t.qty, 0);
         if (q > li.qty_given - back) fail(api._pname(li.product_id) + ': you can give back at most ' + (li.qty_given - back));
         api._pgChange(r.partner_id, li.product_id, -q, 'returned', r.request_no, note, null); pStockChange(r.partner_id, li.product_id, q, 'returned', (note || '').trim() || 'Given back by K-TRONiCS', r.request_no);
-        (D.pReturns = D.pReturns || []).push({ order_id: o.id, return_id: null, return_no: 'Given back', product_id: li.product_id, qty: q, price: li.price }); n++; });
+        (D.pReturns = D.pReturns || []).push({ created_at: now(), order_id: o.id, return_id: null, return_no: 'Given back', product_id: li.product_id, qty: q, price: li.price }); n++; });
       if (!n) fail('Type how many pieces to give back');
       o.returned_amount = +(D.pReturns || []).filter(x => x.order_id === o.id).reduce((a, x) => a + x.qty * x.price, 0).toFixed(2); save(); return wait(null); },
     async partnerKtrPay(oid, amount, method, note) { if (!(role() === 'admin' || allow('purchases.manage'))) fail('Only admin or purchasing managers can pay partners');   // waits for the partner (24 Oct 2026)
@@ -4497,6 +4506,61 @@ window.makeDemoApi = function () {
       return png ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.6);
     }
   };
+  // K-TRONiCS <-> partner statement (24 Oct 2026) — same as partner_statement_of
+  api._pStatementOf = async (pid, from, to) => { const t0 = localDay0(now()), f = from || t0.slice(0, 8) + '01', t = to || t0; if (t < f) fail('The end date is before the start date');
+    const ktr = pCusts().filter(c => c.partner_id === pid && c.is_ktronics).map(c => c.id), os = pOrds().filter(o => o.partner_id === pid && o.status !== 'cancelled' && ktr.includes(o.customer_id));
+    const ev = [];
+    os.forEach(o => { const rq = pReqs().find(r => r.id === o.request_id); ev.push({ at: o.created_at, kind: 'goods', ref: o.order_no + (rq ? ' · ' + rq.request_no : ''), note: null, amount: +o.total });
+      const g = {}; (D.pReturns || []).filter(x => x.order_id === o.id).forEach(x => { const k = (x.return_id || '') + '|' + (x.created_at || o.created_at); (g[k] = g[k] || []).push(x); });
+      Object.values(g).forEach(xs => ev.push({ at: xs[0].created_at || o.created_at, kind: 'returned', ref: o.order_no, note: xs.map(x => api._pname(x.product_id) + ' × ' + x.qty).join(', '), amount: -xs.reduce((a, x) => a + x.qty * x.price, 0) }));
+      pPays().filter(y => y.order_id === o.id && !y.voided_at).forEach(y => ev.push({ at: y.received_at, kind: 'paid', ref: o.order_no, note: [y.method, y.note].filter(Boolean).join(' · ') || null, amount: -y.amount_usd })); });
+    ev.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind < b.kind ? -1 : 1));
+    const r2 = v => Math.round(v * 100) / 100, inP = e => localDay0(e.at) >= f && localDay0(e.at) <= t, sum = a => a.reduce((x, e) => x + e.amount, 0);
+    const op = sum(ev.filter(e => localDay0(e.at) < f)); let run = op; const p = partnersOf().find(x => x.id === pid) || {};
+    const lines = ev.filter(inP).map(e => { run += e.amount; return Object.assign({}, e, { amount: r2(e.amount), balance: r2(run) }); });
+    return wait({ partner: { id: p.id, name: p.name, phone: p.phone, address: p.address, logo_url: p.logo_url }, from: f, to: t, opening: r2(op), lines,
+      goods: r2(sum(ev.filter(e => inP(e) && e.kind === 'goods'))), returned: r2(-sum(ev.filter(e => inP(e) && e.kind === 'returned'))), paid: r2(-sum(ev.filter(e => inP(e) && e.kind === 'paid'))),
+      closing: r2(op + sum(ev.filter(inP))), now: r2(sum(ev)),
+      waiting: (D.pOffers || []).filter(w => w.partner_id === pid && w.status === 'waiting').map(w => ({ id: w.id, amount: w.amount, method: w.method, at: w.made_at, order_no: (pOrds().find(o => o.id === w.order_id) || {}).order_no })) }); };
+  api.partnerStatement = async (from, to) => { const pid = myPartner(); if (!pid) fail('Not a partner account'); if (me.partner_role === 'seller') fail('Only the partner owner can do this'); return api._pStatementOf(pid, from, to); };
+  api.partnerStatementAdmin = async (pid, from, to) => { if (!hasRole('admin')) fail('Only the admin can see partners'); if (!partnersOf().some(x => x.id === +pid)) fail('Partner not found'); return api._pStatementOf(+pid, from, to); };
+  // partner damaged / lost / count (24 Oct 2026) — waits for the admin, like the database
+  const pOwnerD = () => { const pid = myPartner(); if (!pid) fail('Not a partner account'); if (me.partner_role === 'seller') fail('Only the partner owner can do this'); return pid; };
+  api.partnerAdjustMake = async (kind, items, note) => { const pid = pOwnerD(); if (!['problem', 'count'].includes(kind)) fail('Choose damaged / lost or count');
+    if (!Array.isArray(items) || !items.length) fail('Add at least one product'); if (kind === 'problem' && !String(note || '').trim()) fail('Write what happened');
+    const lines = []; items.forEach(it => { const prod = +it.product_id, have = pStock(pid, prod);
+      if (lines.some(l => l.product_id === prod)) fail('Each product only once, please');
+      if (kind === 'count') { const q = Math.floor(+it.counted); if (!(q >= 0)) fail('Counted pieces must be 0 or more'); if (q !== have) lines.push({ product_id: prod, change: q - have, why: 'count', counted: q, system_qty: have }); }
+      else { const q = Math.floor(+it.qty); if (!(q > 0)) fail('Pieces must be between 1 and 100,000'); if (!['damaged', 'lost', 'found'].includes(it.why)) fail('Choose damaged, lost or found');
+        const ch = it.why === 'found' ? q : -q; if (have + ch < 0) fail('You only have ' + have + ' of ' + api._pname(prod)); lines.push({ product_id: prod, change: ch, why: it.why, system_qty: have }); } });
+    if (!lines.length) fail('The count is the same as your stock: nothing to change');
+    D.pAdj = D.pAdj || []; const id = Math.max(0, ...D.pAdj.map(x => x.id)) + 1;
+    D.pAdj.push({ id, adj_no: 'PSA-' + String(id).padStart(5, '0'), partner_id: pid, kind, status: 'waiting', note: String(note || '').trim() || null, reason: null, made_by: me.id, made_at: now(), items: lines }); save(); return wait(id); };
+  api.partnerAdjustCancel = async (id, reason) => { const pid = pOwnerD(); const x = (D.pAdj || []).find(y => y.id === +id && y.partner_id === pid); if (!x) fail('Not found'); if (x.status !== 'waiting') fail('This is already ' + x.status);
+    Object.assign(x, { status: 'cancelled', reason: String(reason || '').trim() || null, decided_at: now() }); save(); return wait(null); };
+  api.partnerAdjustDecide = async (id, ok, reason) => { if (!hasRole('admin')) fail('Only the admin can approve this'); const x = (D.pAdj || []).find(y => y.id === +id); if (!x) fail('Not found');
+    if (x.status !== 'waiting') fail('This is already ' + x.status); if (!ok && !String(reason || '').trim()) fail('Write why you say no');
+    if (ok) x.items.forEach(i => { if (pStock(x.partner_id, i.product_id) + i.change < 0) fail('Not enough stock of ' + api._pname(i.product_id)); });
+    if (ok) x.items.forEach(i => pStockChange(x.partner_id, i.product_id, i.change, 'adjust', ({ damaged: 'Damaged', lost: 'Lost', found: 'Found' }[i.why] || 'Count ' + i.counted) + (x.note ? ' · ' + x.note : ''), x.adj_no));
+    Object.assign(x, { status: ok ? 'approved' : 'rejected', reason: ok ? null : String(reason).trim(), decided_by: me.id, decided_at: now() }); save(); return wait(null); };
+  api.partnerAdjustsList = async (pid, status) => { let see; const adm = hasRole('admin'); if (adm) see = pid ? +pid : null; else see = pOwnerD();
+    return wait((D.pAdj || []).filter(x => (!see || x.partner_id === see) && (!status || x.status === status)).slice().sort((a, b) => ((b.status === 'waiting') - (a.status === 'waiting')) || b.id - a.id)
+      .map(x => Object.assign(clone(x), { partner: (partnersOf().find(p => p.id === x.partner_id) || {}).name, made_by: staffNameD(x.made_by), decided_by: adm ? staffNameD(x.decided_by) : 'K-TRONiCS',
+        can_decide: x.status === 'waiting' && adm, can_cancel: x.status === 'waiting' && !adm, items: x.items.map(i => Object.assign({ name: api._pname(i.product_id), sku: (D.products.find(p => p.id === i.product_id) || {}).sku }, i)) }))); };
+  // partner Telegram alert choices (24 Oct 2026)
+  api.partnerAlertsSave = async (id, kinds) => { const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login');
+    if (!(hasRole('admin') || (me && me.role === 'partner' && me.partner_role !== 'seller' && me.partner_id === u.partner_id))) fail('Only the admin or the partner owner can change this');
+    if ((kinds || []).some(k => !['approve', 'requests', 'low', 'daily'].includes(k))) fail('Unknown alert'); u.partner_alerts = [...new Set(kinds || [])].sort(); save(); return wait(null); };
+  api.partnerTeam = async () => { const pid = pOwnerD();
+    return wait(D.users.filter(u => u.role === 'partner' && u.partner_id === pid).map(u => ({ id: u.id, full_name: u.full_name, username: u.username, partner_role: u.partner_role || 'owner', active: u.active,
+      telegram: !!(D.stg || {})[u.id], me: u.id === me.id, alerts: (u.partner_alerts || ((u.partner_role || 'owner') === 'owner' ? ['approve', 'requests', 'low', 'daily'] : ['low'])).filter(k => (u.partner_role || 'owner') === 'owner' || k === 'low') }))); };
+  // owner / seller partner logins (24 Oct 2026): a seller only sells, sees customers and stock — same as the database
+  api.adminSetPartnerRole = async (id, role) => { if (!hasRole('admin')) fail('Only the admin can change partner logins'); if (!['owner', 'seller'].includes(role)) fail('Choose Owner or Seller');
+    const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login'); u.partner_role = role; save(); return wait(null); };
+  ['partnerApprovals', 'partnerKtrPayDecide', 'partnerMyStockIn', 'partnerStockInDecide', 'partnerStockInCancel', 'partnerStockInsList', 'partnerProductSave', 'partnerSetPrices',
+   'partnerSetCosts', 'partnerMyCosts', 'partnerSetWarn', 'partnerExpenseSave', 'partnerExpenseDelete', 'partnerPnl', 'partnerDashboard', 'partnerSalesReport', 'partnerRequestAnswer',
+   'partnerRequestReject', 'partnerRequestsMine', 'partnerOrderCancel', 'partnerPaymentVoid'].forEach(k => { const f = api[k]; if (!f) return;
+    api[k] = function () { if (me && me.role === 'partner' && me.partner_role === 'seller') return Promise.reject(new Error('Only the partner owner can do this')); return f.apply(this, arguments); }; });
   save();
   return api;
 };
@@ -5614,6 +5678,78 @@ Object.assign(window.KT_KM, {
 });
 window.KT_KM_PATTERNS.push(
   [/^Choose one of your own products for (.+)$/, 'ជ្រើសទំនិញរបស់អ្នកសម្រាប់ $1']
+);
+Object.assign(window.KT_KM, {
+  'Seller': 'អ្នកលក់',
+  'Owner or seller': 'ម្ចាស់ ឬ អ្នកលក់',
+  'Seller — only sells, customers and stock': 'អ្នកលក់ — លក់ អតិថិជន និងស្តុកប៉ុណ្ណោះ',
+  'Approved · partner stock changed': 'បានអនុម័ត · ស្តុកដៃគូបានប្តូរ',
+  'Active': 'សកម្ម',
+  'No users yet.': 'មិនទាន់មានអ្នកប្រើ។',
+  'Statement': 'របាយការណ៍គណនី',
+  'You are a seller: make orders, collect payments, see customers and stock.': 'អ្នកជាអ្នកលក់៖ បង្កើតការបញ្ជាទិញ ប្រមូលប្រាក់ មើលអតិថិជន និងស្តុក។',
+  'Statement with K-TRONiCS': 'របាយការណ៍គណនីជាមួយ K-TRONiCS',
+  'Goods, given back, payments · who owes whom': 'ទំនិញ ការប្រគល់វិញ ការបង់ប្រាក់ · អ្នកណាជំពាក់អ្នកណា',
+  'My team': 'ក្រុមរបស់ខ្ញុំ',
+  'Your logins and their Telegram alerts': 'គណនីចូលរបស់អ្នក និងការជូនដំណឹង Telegram',
+  'Connect my Telegram': 'ភ្ជាប់ Telegram របស់ខ្ញុំ',
+  'Get your alerts in Telegram': 'ទទួលការជូនដំណឹងក្នុង Telegram',
+  'Logins of your business': 'គណនីចូលនៃអាជីវកម្មរបស់អ្នក',
+  'K-TRONiCS makes new logins and chooses Owner or Seller. A seller only makes orders, collects payments, sees customers and stock.': 'K-TRONiCS បង្កើតគណនីចូលថ្មី ហើយជ្រើស ម្ចាស់ ឬ អ្នកលក់។ អ្នកលក់អាចត្រឹមតែបង្កើតការបញ្ជាទិញ ប្រមូលប្រាក់ មើលអតិថិជន និងស្តុក។',
+  'You and K-TRONiCS': 'អ្នក និង K-TRONiCS',
+  'Damaged / lost / count': 'ខូច / បាត់ / រាប់',
+  'Count stock': 'រាប់ស្តុក',
+  'Damaged / lost': 'ខូច / បាត់',
+  'damaged / lost': 'ខូច / បាត់',
+  'stock count': 'ការរាប់ស្តុក',
+  'Type what you really have. Only products you type are counted; only differences are sent.': 'វាយចំនួនដែលអ្នកមានពិតប្រាកដ។ រាប់តែទំនិញដែលអ្នកវាយ ហើយផ្ញើតែភាពខុសគ្នា។',
+  'Pieces that are broken, lost, or found again.': 'គ្រឿងដែលខូច បាត់ ឬរកឃើញវិញ។',
+  'Type the counted pieces of at least one product': 'វាយចំនួនរាប់បាននៃទំនិញយ៉ាងហោចណាស់មួយ',
+  'Waiting for K-TRONiCS': 'រង់ចាំ K-TRONiCS',
+  'Cancel this?': 'បោះបង់នេះ?',
+  'K-TRONiCS will not see it any more.': 'K-TRONiCS នឹងមិនឃើញវាទៀតទេ។',
+  'Cancel it': 'បោះបង់',
+  'Things to approve': 'អ្វីដែលត្រូវអនុម័ត',
+  'Stock in and payments from K-TRONiCS, answers to your stock changes': 'ស្តុកចូល និងការបង់ប្រាក់ពី K-TRONiCS ចម្លើយលើការប្តូរស្តុករបស់អ្នក',
+  'K-TRONiCS asks you for goods': 'K-TRONiCS ស្នើសុំទំនិញពីអ្នក',
+  'Every evening: products at or below "warn at"': 'រៀងរាល់ល្ងាច៖ ទំនិញដែលស្មើ ឬតិចជាង "ព្រមាននៅ"',
+  'Daily sales summary': 'សង្ខេបការលក់ប្រចាំថ្ងៃ',
+  'Every evening: sales, money collected, customers owe': 'រៀងរាល់ល្ងាច៖ ការលក់ ប្រាក់ប្រមូលបាន អតិថិជនជំពាក់',
+  'Telegram not connected yet (they connect it in the partner app → More → Connect my Telegram).': 'មិនទាន់ភ្ជាប់ Telegram (ភ្ជាប់ក្នុងកម្មវិធីដៃគូ → ផ្សេងៗ → ភ្ជាប់ Telegram របស់ខ្ញុំ)។',
+  'Owners only': 'សម្រាប់ម្ចាស់ប៉ុណ្ណោះ',
+  'Nobody owes': 'គ្មាននរណាជំពាក់',
+  'Goods to K-TRONiCS': 'ទំនិញទៅ K-TRONiCS',
+  'Goods': 'ទំនិញ',
+  'Closing balance': 'សមតុល្យចុងគ្រា',
+  'Now': 'ឥឡូវ',
+  'The Telegram bot is not set up yet. Your alerts still come in the app (the bell).': 'Telegram bot មិនទាន់រៀបចំនៅឡើយ។ ការជូនដំណឹងនៅតែមកក្នុងកម្មវិធី (កណ្តឹង)។',
+  'The company Telegram bot is not set up yet. Your daily report still comes in the app: Chat → "📊 My daily report".': 'Telegram bot របស់ក្រុមហ៊ុនមិនទាន់រៀបចំនៅឡើយ។ របាយការណ៍ប្រចាំថ្ងៃនៅតែមកក្នុងកម្មវិធី៖ ជជែក → "📊 របាយការណ៍ប្រចាំថ្ងៃរបស់ខ្ញុំ"។',
+  'Save PDF': 'រក្សាទុក PDF',
+  'Save image': 'រក្សាទុករូបភាព',
+  'Print': 'បោះពុម្ព',
+  'Telegram alerts': 'ការជូនដំណឹង Telegram',
+  'Stock requests': 'សំណើស្តុក',
+  'Send to K-TRONiCS': 'ផ្ញើទៅ K-TRONiCS',
+  'Nothing in these dates': 'គ្មានអ្វីក្នុងកាលបរិច្ឆេទទាំងនេះ',
+  '✅ Telegram connected': '✅ បានភ្ជាប់ Telegram',
+  'Not found': 'រកមិនឃើញ',
+  'My Telegram': 'Telegram របស់ខ្ញុំ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^K-TRONiCS owes (.+)$/, 'K-TRONiCS ជំពាក់ $1'],
+  [/^(.+) owes K-TRONiCS$/, '$1 ជំពាក់ K-TRONiCS'],
+  [/^Plus = K-TRONiCS owes (.+)\. Minus = (.+) owes K-TRONiCS\.$/, 'បូក = K-TRONiCS ជំពាក់ $1។ ដក = $2 ជំពាក់ K-TRONiCS។'],
+  [/^(\$[\d,.]+) paid, waiting for the partner to confirm \(not counted yet\)$/, 'បានបង់ $1 រង់ចាំដៃគូបញ្ជាក់ (មិនទាន់រាប់)'],
+  [/^Owner — sees everything of (.+)$/, 'ម្ចាស់ — មើលឃើញអ្វីៗទាំងអស់របស់ $1'],
+  [/^Goods (\$[\d,.]+) · given back (\$[\d,.]+) · paid (\$[\d,.]+)$/, 'ទំនិញ $1 · ប្រគល់វិញ $2 · បានបង់ $3'],
+  [/^Goods to K-TRONiCS · (.+)$/, 'ទំនិញទៅ K-TRONiCS · $1'],
+  [/^Given back · (.+)$/, 'ប្រគល់វិញ · $1'],
+  [/^Payment · (.+)$/, 'ការបង់ប្រាក់ · $1'],
+  [/^(.+) · (\d+) in the app$/, '$1 · $2 ក្នុងកម្មវិធី'],
+  [/^(.+) \(you\)$/, '$1 (អ្នក)'],
+  [/^Goods (.+) gave you, goods given back and your payments\. (.+)'s owner sees the same page\.$/, 'ទំនិញដែល $1 ផ្តល់ឱ្យអ្នក ទំនិញប្រគល់វិញ និងការបង់ប្រាក់របស់អ្នក។ ម្ចាស់ $2 ឃើញទំព័រដូចគ្នា។'],
+  [/^(PSA-\d+) · Stock count$/, '$1 · ការរាប់ស្តុក'],
+  [/^(PSA-\d+) · Damaged \/ lost$/, '$1 · ខូច / បាត់']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -6983,6 +7119,78 @@ Object.assign(window.KT_ZH, {
 });
 window.KT_ZH_PATTERNS.push(
   [/^Choose one of your own products for (.+)$/, '请为 $1 选择您自己的产品']
+);
+Object.assign(window.KT_ZH, {
+  'Seller': '销售员',
+  'Owner or seller': '老板或销售员',
+  'Seller — only sells, customers and stock': '销售员 — 只能销售、客户和库存',
+  'Approved · partner stock changed': '已批准 · 合作伙伴库存已更改',
+  'Active': '启用',
+  'No users yet.': '还没有用户。',
+  'Statement': '对账单',
+  'You are a seller: make orders, collect payments, see customers and stock.': '您是销售员：下订单、收款、查看客户和库存。',
+  'Statement with K-TRONiCS': '与 K-TRONiCS 的对账单',
+  'Goods, given back, payments · who owes whom': '货物、退回、付款 · 谁欠谁',
+  'My team': '我的团队',
+  'Your logins and their Telegram alerts': '您的登录账号及其 Telegram 提醒',
+  'Connect my Telegram': '连接我的 Telegram',
+  'Get your alerts in Telegram': '在 Telegram 中接收提醒',
+  'Logins of your business': '您公司的登录账号',
+  'K-TRONiCS makes new logins and chooses Owner or Seller. A seller only makes orders, collects payments, sees customers and stock.': 'K-TRONiCS 创建新的登录账号并选择老板或销售员。销售员只能下订单、收款、查看客户和库存。',
+  'You and K-TRONiCS': '您和 K-TRONiCS',
+  'Damaged / lost / count': '损坏 / 丢失 / 盘点',
+  'Count stock': '盘点库存',
+  'Damaged / lost': '损坏 / 丢失',
+  'damaged / lost': '损坏 / 丢失',
+  'stock count': '盘点',
+  'Type what you really have. Only products you type are counted; only differences are sent.': '输入您实际拥有的数量。只盘点您输入的产品，只发送差异。',
+  'Pieces that are broken, lost, or found again.': '损坏、丢失或重新找到的件数。',
+  'Type the counted pieces of at least one product': '请至少输入一个产品的盘点数量',
+  'Waiting for K-TRONiCS': '等待 K-TRONiCS',
+  'Cancel this?': '取消这个？',
+  'K-TRONiCS will not see it any more.': 'K-TRONiCS 将不再看到它。',
+  'Cancel it': '取消',
+  'Things to approve': '待批准事项',
+  'Stock in and payments from K-TRONiCS, answers to your stock changes': '来自 K-TRONiCS 的入库和付款，以及对您库存更改的回复',
+  'K-TRONiCS asks you for goods': 'K-TRONiCS 向您要货',
+  'Every evening: products at or below "warn at"': '每天晚上：等于或低于"提醒数量"的产品',
+  'Daily sales summary': '每日销售汇总',
+  'Every evening: sales, money collected, customers owe': '每天晚上：销售、收款、客户欠款',
+  'Telegram not connected yet (they connect it in the partner app → More → Connect my Telegram).': '还没有连接 Telegram（在合作伙伴应用 → 更多 → 连接我的 Telegram 中连接）。',
+  'Owners only': '仅限老板',
+  'Nobody owes': '没有欠款',
+  'Goods to K-TRONiCS': '给 K-TRONiCS 的货物',
+  'Goods': '货物',
+  'Closing balance': '期末余额',
+  'Now': '现在',
+  'The Telegram bot is not set up yet. Your alerts still come in the app (the bell).': 'Telegram 机器人还没有设置。您的提醒仍会在应用中显示（铃铛）。',
+  'The company Telegram bot is not set up yet. Your daily report still comes in the app: Chat → "📊 My daily report".': '公司的 Telegram 机器人还没有设置。您的每日报告仍在应用中：聊天 → "📊 我的每日报告"。',
+  'Save PDF': '保存 PDF',
+  'Save image': '保存图片',
+  'Print': '打印',
+  'Telegram alerts': 'Telegram 提醒',
+  'Stock requests': '库存请求',
+  'Send to K-TRONiCS': '发送给 K-TRONiCS',
+  'Nothing in these dates': '这些日期内没有记录',
+  '✅ Telegram connected': '✅ 已连接 Telegram',
+  'Not found': '未找到',
+  'My Telegram': '我的 Telegram',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^K-TRONiCS owes (.+)$/, 'K-TRONiCS 欠 $1'],
+  [/^(.+) owes K-TRONiCS$/, '$1 欠 K-TRONiCS'],
+  [/^Plus = K-TRONiCS owes (.+)\. Minus = (.+) owes K-TRONiCS\.$/, '正数 = K-TRONiCS 欠 $1。负数 = $2 欠 K-TRONiCS。'],
+  [/^(\$[\d,.]+) paid, waiting for the partner to confirm \(not counted yet\)$/, '已付 $1，等待合作伙伴确认（尚未计入）'],
+  [/^Owner — sees everything of (.+)$/, '老板 — 可以看到 $1 的一切'],
+  [/^Goods (\$[\d,.]+) · given back (\$[\d,.]+) · paid (\$[\d,.]+)$/, '货物 $1 · 退回 $2 · 已付 $3'],
+  [/^Goods to K-TRONiCS · (.+)$/, '给 K-TRONiCS 的货物 · $1'],
+  [/^Given back · (.+)$/, '退回 · $1'],
+  [/^Payment · (.+)$/, '付款 · $1'],
+  [/^(.+) · (\d+) in the app$/, '$1 · 应用中 $2'],
+  [/^(.+) \(you\)$/, '$1（您）'],
+  [/^Goods (.+) gave you, goods given back and your payments\. (.+)'s owner sees the same page\.$/, '$1 给您的货物、退回的货物和您的付款。$2 的老板看到同样的页面。'],
+  [/^(PSA-\d+) · Stock count$/, '$1 · 盘点'],
+  [/^(PSA-\d+) · Damaged \/ lost$/, '$1 · 损坏 / 丢失']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -9310,6 +9518,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         counts.ptWaiting += ((await api.partnerGoodsList(null).catch(() => null)) || { waiting: [] }).waiting.length;
       if (api.partnerStockInsList && S.me.role === 'admin')   // partner stock-ins waiting for the admin
         counts.ptWaiting += ((await api.partnerStockInsList(null, 'waiting').catch(() => [])) || []).filter(x => x.side === 'partner').length;
+      if (api.partnerAdjustsList && S.me.role === 'admin')   // partner damaged / lost / count waiting for the admin
+        counts.ptWaiting += ((await api.partnerAdjustsList(null, 'waiting').catch(() => [])) || []).length;
     } catch (e) {}
   }
   const loadOrders = f => ensureBig('orders', () => api.listOrders(3000), f);
@@ -13369,6 +13579,87 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     await draw();
   };
+
+  // which Telegram alerts one partner login gets (24 Oct 2026): chosen by the admin or the partner's owner
+  const ALERTS = [['approve', 'Things to approve', 'Stock in and payments from K-TRONiCS, answers to your stock changes'], ['requests', 'Stock requests', 'K-TRONiCS asks you for goods'],
+    ['low', 'Low stock', 'Every evening: products at or below "warn at"'], ['daily', 'Daily sales summary', 'Every evening: sales, money collected, customers owe']];
+  K.partnerAlertsOf = u => u.alerts || (u.partner_alerts || (u.partner_role === 'seller' ? ['low'] : ['approve', 'requests', 'low', 'daily'])).filter(k => u.partner_role !== 'seller' || k === 'low');
+  K.partnerAlertsBox = function (el, u) {
+    if (!el) return;
+    let on = K.partnerAlertsOf(u);
+    const draw = () => {
+      el.innerHTML = `<div class="sec" style="margin:6px 0 0">Telegram alerts</div><div class="small muted">${u.telegram || u.tg_chat_id ? '✅ Telegram connected' : 'Telegram not connected yet (they connect it in the partner app → More → Connect my Telegram).'}</div>
+        <div class="card flush">${ALERTS.map(([k, l, d]) => { const off = u.partner_role === 'seller' && k !== 'low';
+          return `<label class="list-item" style="${off ? 'opacity:.45' : 'cursor:pointer'}"><input type="checkbox" data-al="${k}" ${on.includes(k) ? 'checked' : ''} ${off ? 'disabled' : ''}><div class="grow"><div class="tt">${l}</div><div class="st">${off ? 'Owners only' : d}</div></div></label>`; }).join('')}</div>`;
+      K.$$('[data-al]', el).forEach(c => c.onchange = async () => { const next = K.$$('[data-al]', el).filter(x => x.checked && !x.disabled).map(x => x.dataset.al);
+        try { await api.partnerAlertsSave(u.id, next); on = next; u.alerts = next; u.partner_alerts = next; toast('Saved'); } catch (e) { toast(e.message); draw(); } });
+    };
+    draw();
+  };
+
+  // K-TRONiCS <-> partner statement (24 Oct 2026): goods the partner gave, given back, payments, who owes whom.
+  // Same numbers for the admin (Partners → partner → Statement) and the partner owner (More → Statement).
+  const stPeriod = st => { const P = K.period, t = P.today();
+    if (st.p === 'last') { const x = new Date(t.slice(0, 8) + '01T12:00:00'); x.setDate(0); return [P.dstr(x).slice(0, 8) + '01', P.dstr(x)]; }
+    if (st.p === 'year') return [t.slice(0, 5) + '01-01', t];
+    return K.partnerDashPeriod(st); };
+  const owesText = (v, name) => Math.abs(+v) < 0.005 ? 'Nobody owes' : +v > 0 ? 'K-TRONiCS owes ' + name : name + ' owes K-TRONiCS';
+  const KINDS = { goods: 'Goods to K-TRONiCS', returned: 'Given back', paid: 'Payment' };
+  const dayOf = t => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+  async function drawStatement(r) {
+    const W = 1240, pad = 70, rowH = 54, H = Math.max(1748, 760 + r.lines.length * rowH + 420), m = K.money;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+    const F = (w, sz) => `${w} ${sz}px "Plus Jakarta Sans", "Noto Sans Khmer", sans-serif`;
+    const txt = (t, x, y, f, color = '#111', align = 'left') => { g.font = f; g.fillStyle = color; g.textAlign = align; g.fillText(String(t == null ? '' : t), x, y); };
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); let y = pad + 40;
+    txt('STATEMENT', pad, y, F(800, 52)); txt(r.partner.name, W - pad, y, F(800, 40), '#111', 'right');
+    y += 50; txt('K-TRONiCS ↔ ' + r.partner.name, pad, y, F(400, 28), '#555'); txt([r.partner.phone, r.partner.address].filter(Boolean).join(' · '), W - pad, y, F(400, 26), '#555', 'right');
+    y += 44; txt(dayOf(r.from + 'T12:00:00') + ' – ' + dayOf(r.to + 'T12:00:00'), pad, y, F(700, 28));
+    y += 30; g.fillStyle = '#111'; g.fillRect(pad, y, W - 2 * pad, 4); y += 70;
+    txt('Opening balance', pad, y, F(700, 30)); txt(m(r.opening), W - pad - 16, y, F(700, 30), '#111', 'right');
+    y += 60; g.fillStyle = '#f2f2f2'; g.fillRect(pad, y - 40, W - 2 * pad, 58);
+    txt('Date', pad + 16, y, F(700, 26)); txt('What', 300, y, F(700, 26)); txt('Amount', 930, y, F(700, 26), '#111', 'right'); txt('Balance', W - pad - 16, y, F(700, 26), '#111', 'right');
+    r.lines.forEach(l => { y += rowH; const what = (KINDS[l.kind] || l.kind) + ' · ' + l.ref;
+      txt(dayOf(l.at), pad + 16, y, F(400, 26)); txt(what.length > 40 ? what.slice(0, 39) + '…' : what, 300, y, F(400, 26));
+      txt((+l.amount > 0 ? '+' : '') + m(l.amount), 930, y, F(400, 26), +l.amount < 0 ? '#1a7f37' : '#111', 'right'); txt(m(l.balance), W - pad - 16, y, F(700, 26), '#111', 'right');
+      g.fillStyle = '#e6e6e6'; g.fillRect(pad, y + 18, W - 2 * pad, 2); });
+    y += 80; const line = (label, v, bold) => { txt(label, 930, y, F(bold ? 800 : 400, bold ? 32 : 28), '#111', 'right'); txt(v, W - pad - 16, y, F(bold ? 800 : 700, bold ? 32 : 28), '#111', 'right'); y += 50; };
+    line('Goods', m(r.goods)); line('Given back', '−' + m(r.returned)); line('Paid', '−' + m(r.paid)); line('Closing balance', m(r.closing), true);
+    y += 10; txt(owesText(r.closing, r.partner.name) + (Math.abs(+r.closing) >= 0.005 ? ': ' + m(Math.abs(+r.closing)) : ''), W - pad - 16, y, F(800, 32), '#b45309', 'right');
+    if (r.waiting.length) { y += 60; txt('Payments waiting for the partner to confirm: ' + m(r.waiting.reduce((a, w) => a + +w.amount, 0)), pad, y, F(400, 26), '#555'); }
+    return cv;
+  }
+  K.partnerStatementBox = async function (el, load, st) {
+    st = st || { p: 'month' };
+    const m = K.money;
+    const draw = async () => {
+      const [f, t] = stPeriod(st);
+      el.innerHTML = K.loading;
+      const r = await load(f, t).catch(e => { toast(e.message); return null; });
+      if (!r || !el.isConnected) return;
+      const nm = esc(r.partner.name);
+      el.innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['month', 'This month'], ['last', 'Last month'], ['year', 'This year'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${st.p === k ? 'on' : ''}" data-sp="${k}">${l}</button>`).join('')}</div>
+        ${st.p === 'custom' ? `<div class="btns"><label class="f">From<input class="inp" type="date" id="spf" value="${esc(f)}"></label><label class="f">To<input class="inp" type="date" id="spt" value="${esc(t)}"></label></div>` : ''}
+        <div class="card" style="margin-top:10px;background:${Math.abs(+r.now) < 0.005 ? 'var(--grs)' : 'var(--ors)'}"><div class="small">Now</div><b style="font-size:20px">${owesText(r.now, nm)}${Math.abs(+r.now) >= 0.005 ? ' · ' + m(Math.abs(+r.now)) : ''}</b>
+          ${r.waiting.length ? `<div class="small">${m(r.waiting.reduce((a, w) => a + +w.amount, 0))} paid, waiting for the partner to confirm (not counted yet)</div>` : ''}</div>
+        <div class="card flush">
+          <div class="list-item"><span class="grow">Opening balance</span><b>${m(r.opening)}</b></div>
+          ${r.lines.map(l => `<div class="list-item"><div class="grow"><div class="tt">${esc(KINDS[l.kind] || l.kind)} · ${esc(l.ref)}</div><div class="st">${esc(dayOf(l.at))}${l.note ? ' · ' + esc(l.note) : ''}</div></div>
+            <div style="text-align:right"><b style="color:${+l.amount < 0 ? 'var(--gr)' : ''}">${+l.amount > 0 ? '+' : ''}${m(l.amount)}</b><div class="small muted">= ${m(l.balance)}</div></div></div>`).join('') || '<div class="empty">Nothing in these dates</div>'}
+          <div class="list-item"><span class="grow">Goods ${m(r.goods)} · given back ${m(r.returned)} · paid ${m(r.paid)}</span></div>
+          <div class="list-item"><b class="grow">Closing balance</b><b style="font-size:17px">${m(r.closing)}</b></div></div>
+        <div class="small muted">Plus = K-TRONiCS owes ${nm}. Minus = ${nm} owes K-TRONiCS.</div>
+        <div class="btns"><button class="btn out" id="sppdf">${icon('receipt', 18)}Save PDF</button><button class="btn out" id="sppng">${icon('image', 18)}Save image</button><button class="btn out" id="sppr">${icon('receipt', 18)}Print</button></div>`;
+      K.$$('[data-sp]', el).forEach(b => b.onclick = () => { st.p = b.dataset.sp; if (st.p === 'custom' && !st.from) { st.from = f; st.to = t; } draw(); });
+      if (K.$('#spf', el)) { K.$('#spf', el).onchange = e => { st.from = e.target.value || st.from; draw(); }; K.$('#spt', el).onchange = e => { st.to = e.target.value || st.to; draw(); }; }
+      const name = 'Statement ' + r.partner.name.replace(/[\\/:*?"<>|]+/g, '').trim() + ' ' + r.from + ' ' + r.to;
+      const save = (blob, file) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file; document.body.appendChild(a); a.click(); a.remove(); };
+      K.$('#sppdf', el).onclick = async () => { const cv = await drawStatement(r); save(K.invoicePdf(cv), name + '.pdf'); };
+      K.$('#sppng', el).onclick = async () => { const cv = await drawStatement(r); save(await new Promise(z => cv.toBlob(z, 'image/png')), name + '.png'); };
+      K.$('#sppr', el).onclick = async () => { const cv = await drawStatement(r), png = await new Promise(z => cv.toBlob(z, 'image/png')); K.printInvoiceA5 ? K.printInvoiceA5(png) : window.print(); };
+    };
+    await draw();
+  };
 })();
 
 // Partners (admin only): partner businesses that sell from their own Partner warehouse with the phone app.
@@ -13412,10 +13703,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // a login for someone who works for the partner (they use the normal phone app and see only their partner)
+  // one partner login: owner (everything of the partner) or seller (only sells, customers, stock) — 24 Oct 2026
+  function partnerLoginSheet(u, onSaved) {
+    const s = K.sheet(u.full_name, `<div class="seg">${[['owner', 'Owner'], ['seller', 'Seller']].map(([k, l]) => `<button data-r="${k}" class="${(u.partner_role || 'owner') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="small muted" style="line-height:1.5"><b>Owner</b>: everything of the partner (stock in, approvals, prices, cost, profit &amp; loss, reports).<br><b>Seller</b>: only makes orders, collects payments, sees customers and stock.</div>
+      <div id="plx"></div>`);
+    $$('[data-r]', s.el).forEach(b => b.onclick = async () => { if (b.classList.contains('on')) return; await busy(b, () => api.adminSetPartnerRole(u.id, b.dataset.r)); u.partner_role = b.dataset.r;
+      $$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.forget('staff'); toast('Saved');
+      if (K.partnerAlertsBox) K.partnerAlertsBox($('#plx', s.el), u); if (onSaved) onSaved(); });
+    if (K.partnerAlertsBox) K.partnerAlertsBox($('#plx', s.el), u);
+  }
   function partnerUserSheet(p, onSaved) {
     const s = K.sheet('New partner user · ' + p.name, `<div class="small muted" style="line-height:1.5">This person logs in to the normal K-TRONiCS phone app and sees <b>only ${esc(p.name)}</b>. They never see K-TRONiCS stock, shops, orders, prices, staff or chat.</div>
       <div class="btns"><label class="f">Full name<input class="inp" id="un" placeholder="e.g. Sokha"></label><label class="f">Phone<input class="inp" id="uph" type="tel" placeholder="012 345 678"></label></div>
       <div class="btns"><label class="f">Username (for login)<input class="inp" id="uu" autocapitalize="none" autocorrect="off" placeholder="e.g. sokha.partner"></label><label class="f">First password<input class="inp" id="upw"></label></div>
+      <label class="f">Owner or seller<select class="inp" id="urole"><option value="owner">Owner — sees everything of ${esc(p.name)}</option><option value="seller">Seller — only sells, customers and stock</option></select></label>
       <button class="btn block" id="uok">${icon('plus', 18)}Create partner user</button>`);
     const v = id => $('#' + id, s.el).value.trim();
     $('#upw', s.el).value = String(10000000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90000000));
@@ -13425,7 +13727,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const x = { full_name: v('un'), phone: v('uph'), username: v('uu').toLowerCase(), password: v('upw'), role: 'partner', partner_id: p.id };
       if (!x.full_name) return toast('Enter the full name'); if (!/^[a-z0-9._]{3,24}$/.test(x.username)) return toast('Username: 3–24 letters or numbers, no spaces');
       if (x.password.length < 8) return toast('The password needs at least 8 characters');
-      await busy(e.currentTarget, () => api.createStaff(x)); s.close(); K.forget('staff');
+      const role = $('#urole', s.el).value;
+      await busy(e.currentTarget, async () => { const uid = await api.createStaff(x); if (role === 'seller' && uid) await api.adminSetPartnerRole(uid, 'seller'); }); s.close(); K.forget('staff');
       const ok = K.sheet('Partner user ready', `<div class="card" style="background:var(--grs)"><b>${esc(x.full_name)}</b><div>Partner: <b>${esc(p.name)}</b></div><div>Username: <b>${esc(x.username)}</b></div><div>Password: <b>${esc(x.password)}</b></div></div>
         <div class="small muted">Send these to them together with the app link. They can change the password in the partner app → My profile.</div><button class="btn block" id="cp">Copy login details</button>`);
       $('#cp', ok.el).onclick = async () => { const t = `Partner app (${p.name})\n${location.href.replace(/admin\.html.*$/, '')}\nUsername: ${x.username}\nPassword: ${x.password}`; try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (err) { toast(t); } };
@@ -13556,28 +13859,37 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // stock-in between K-TRONiCS and partners: each side approves the other's (24 Oct 2026). Admin only.
   async function approvalsBox(el, pid, onChange) {
     if (!el || K.S.me.role !== 'admin' || !api.partnerStockInsList) { if (el) el.innerHTML = ''; return; }
-    const all = await api.partnerStockInsList(pid || null, null).catch(() => []);
+    const [all, adj] = await Promise.all([api.partnerStockInsList(pid || null, null).catch(() => []), api.partnerAdjustsList ? api.partnerAdjustsList(pid || null, null).catch(() => []) : []]);
     if (!el.isConnected) return;
+    const adjW = adj.filter(x => x.status === 'waiting');
+    const WHY = { damaged: 'damaged', lost: 'lost', found: 'found', count: 'count' };
+    const adjLine = i => esc(i.name) + ' ' + (i.change > 0 ? '+' : '') + i.change + (i.why === 'count' ? ` (counted ${i.counted}, had ${i.system_qty})` : ' ' + WHY[i.why]);
     const mine = all.filter(x => x.status === 'waiting' && x.side === 'partner'), theirs = all.filter(x => x.status === 'waiting' && x.side === 'ktronics');
     let hist = false;
     const items = x => x.items.map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
     const pill = x => x.status === 'approved' ? '<span class="pill gr">Approved</span>' : x.status === 'rejected' ? '<span class="pill rd">Not approved</span>' : x.status === 'cancelled' ? '<span class="pill gy">Cancelled</span>' : '<span class="pill or">Waiting</span>';
     const refresh = async () => { await approvalsBox(el, pid, onChange); if (onChange) onChange(); };
     const draw = () => {
-      el.innerHTML = `<div class="card" style="gap:10px;${mine.length ? 'border-color:var(--or)' : ''}"><b>✅ Stock in · approvals</b>
+      el.innerHTML = `<div class="card" style="gap:10px;${mine.length || adjW.length ? 'border-color:var(--or)' : ''}"><b>✅ Stock in · approvals</b>
         <div class="small muted">Stock a partner adds waits for you. Stock you add waits for the partner.</div>
         ${mine.map(x => `<div class="card" style="gap:6px;padding:12px;background:var(--bg)"><div class="row"><b class="grow">${esc(x.in_no)} · ${esc(x.partner)} added ${x.pcs} pcs</b>${pill(x)}</div>
           <div class="small">${items(x)}</div><div class="small muted">${esc(K.when(x.made_at))} · ${esc(x.made_by || '')}${x.note ? ' · ' + esc(x.note) : ''}</div>
           <div class="btns" style="margin:0"><button class="btn sm out" data-ano="${x.id}" style="color:var(--rd)">Say no</button><button class="btn sm green" data-aok="${x.id}">${icon('check', 16)}Approve</button></div></div>`).join('') || '<div class="small muted">Nothing waits for you.</div>'}
+        ${adjW.map(x => `<div class="card" style="gap:6px;padding:12px;background:var(--bg)"><div class="row"><b class="grow">${esc(x.adj_no)} · ${esc(x.partner)} · ${x.kind === 'count' ? 'stock count' : 'damaged / lost'}</b>${pill(x)}</div>
+          <div class="small">${x.items.map(adjLine).join(' · ')}</div><div class="small muted">${esc(K.when(x.made_at))} · ${esc(x.made_by || '')}${x.note ? ' · ' + esc(x.note) : ''}</div>
+          <div class="btns" style="margin:0"><button class="btn sm out" data-jno="${x.id}" style="color:var(--rd)">Say no</button><button class="btn sm green" data-jok="${x.id}">${icon('check', 16)}Approve</button></div></div>`).join('')}
         ${theirs.length ? `<div class="small"><b>Waiting for the partner:</b> ${theirs.map(x => esc(x.in_no) + ' · ' + esc(x.partner) + ' · ' + x.pcs + ' pcs').join(' · ')}</div>` : ''}
         <button class="btn sm out" id="ahist" style="align-self:flex-start">${hist ? '▾' : '▸'} History</button>
         ${hist ? `<div class="card flush">${all.slice(0, 50).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.in_no)} · ${esc(x.partner)} · ${x.side === 'partner' ? 'partner added' : 'K-TRONiCS added'} ${x.pcs} pcs</div>
-          <div class="st">${esc(K.when(x.made_at))}${x.reason ? ' · ' + esc(x.reason) : ''}</div></div>${pill(x)}${x.can_cancel ? `<button class="btn sm out" data-acx="${x.id}" style="margin-left:6px">Cancel</button>` : ''}</div>`).join('') || '<div class="empty">No stock in yet</div>'}</div>` : ''}</div>`;
+          <div class="st">${esc(K.when(x.made_at))}${x.reason ? ' · ' + esc(x.reason) : ''}</div></div>${pill(x)}${x.can_cancel ? `<button class="btn sm out" data-acx="${x.id}" style="margin-left:6px">Cancel</button>` : ''}</div>`).join('') || '<div class="empty">No stock in yet</div>'}
+          ${adj.filter(x => x.status !== 'waiting').slice(0, 30).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.adj_no)} · ${esc(x.partner)} · ${x.kind === 'count' ? 'stock count' : 'damaged / lost'}</div><div class="st">${x.items.map(adjLine).join(' · ')} · ${esc(K.when(x.made_at))}${x.reason ? ' · ' + esc(x.reason) : ''}</div></div>${pill(x)}</div>`).join('')}</div>` : ''}</div>`;
       const why = (title, fn) => { const s = K.sheet(title, `<label class="f">Why?<input class="inp" id="awy"></label><button class="btn red block" id="awok">Send</button>`);
         $('#awok', s.el).onclick = async e => { await busy(e.currentTarget, () => fn($('#awy', s.el).value.trim())); s.close(); refresh(); }; };
       $$('[data-aok]', el).forEach(b => b.onclick = async () => { await busy(b, () => api.partnerStockInDecide(+b.dataset.aok, true, null)); toast('Approved · stock added to the partner'); refresh(); });
       $$('[data-ano]', el).forEach(b => b.onclick = () => why('Say no', r => api.partnerStockInDecide(+b.dataset.ano, false, r)));
       $$('[data-acx]', el).forEach(b => b.onclick = () => why('Cancel this stock in', r => api.partnerStockInCancel(+b.dataset.acx, r)));
+      $$('[data-jok]', el).forEach(b => b.onclick = async () => { await busy(b, () => api.partnerAdjustDecide(+b.dataset.jok, true, null)); toast('Approved · partner stock changed'); refresh(); });
+      $$('[data-jno]', el).forEach(b => b.onclick = () => why('Say no', r => api.partnerAdjustDecide(+b.dataset.jno, false, r)));
       $('#ahist', el).onclick = () => { hist = !hist; draw(); };
     };
     draw();
@@ -13678,7 +13990,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn sm out" href="#/partners/${p.id}">${icon('chart', 16)}Sales</a>${p.active && p.pieces > 0 ? `<button class="btn sm out" data-rq="${p.id}">${icon('send', 16)}Request stock</button>` : ''}<button class="btn sm out" data-ps="${p.id}">${icon('box', 16)}Stock</button><button class="btn sm out" data-pe="${p.id}">${icon('pen', 16)}Edit</button></div>
             <div class="small muted">${p.products_in_stock || 0} products in stock · ${p.pieces || 0} pieces${p.can_add_stock ? ' · can add its own stock' : ''}</div>
             <div class="small" style="font-weight:700;margin-top:4px">Partner users</div>
-            ${us.map(u => `<button class="list-item" data-pu="${esc(u.id)}" style="width:100%;text-align:left">${avatar(u.full_name, 'sm', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)}</div></div>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill gy">Disabled</span>'}</button>`).join('') || '<div class="small muted">No users yet.</div>'}
+            ${us.map(u => `<button class="list-item" data-pu="${esc(u.id)}" style="width:100%;text-align:left">${avatar(u.full_name, 'sm', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)}</div></div><span class="pill ${u.partner_role === 'seller' ? 'gy' : 'bl'}" data-prl="${esc(u.id)}" style="cursor:pointer">${u.partner_role === 'seller' ? 'Seller' : 'Owner'}</span>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill gy">Disabled</span>'}</button>`).join('') || '<div class="small muted">No users yet.</div>'}
             ${p.active ? `<button class="btn sm out" data-pn="${p.id}" style="align-self:flex-start">${icon('plus', 16)}Add partner user</button>` : ''}</div>`; }).join('') || `<div class="card"><div class="empty">${icon('store', 34)}<div>No partners yet. Tap "New partner".</div></div></div>`}
       </div>`;
       const reload = async () => { [ps, pusers] = await load(); draw(); };
@@ -13689,7 +14001,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-pe]', main).forEach(b => b.onclick = () => partnerSheet(ps.find(p => p.id === +b.dataset.pe), reload));
       $$('[data-ps]', main).forEach(b => b.onclick = async () => { await stockSheet(ps.find(p => p.id === +b.dataset.ps)); });
       $$('[data-pn]', main).forEach(b => b.onclick = () => partnerUserSheet(ps.find(p => p.id === +b.dataset.pn), reload));
-      $$('[data-pu]', main).forEach(b => b.onclick = () => K.staffSheet(pusers.find(u => u.id === b.dataset.pu), {}));
+      $$('[data-pu]', main).forEach(b => b.onclick = e => { if (e.target.closest('[data-prl]')) return; K.staffSheet(pusers.find(u => u.id === b.dataset.pu), {}); });
+      $$('[data-prl]', main).forEach(b => b.onclick = () => partnerLoginSheet(pusers.find(u => u.id === b.dataset.prl), reload));
       buyingBox($('#pbuy', main), null, () => A.refreshCounts());
       approvalsBox($('#papv', main), null, () => A.refreshCounts());
     };
@@ -13732,7 +14045,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const t0 = K.period.today(), addD = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return K.period.dstr(x); };
     const mon = (() => { const x = new Date(t0 + 'T12:00:00'); return addD(t0, -((x.getDay() + 6) % 7)); })();
     const PER = { today: [t0, t0], week: [mon, t0], month: [t0.slice(0, 8) + '01', t0] };
-    let tab = ['dash', 'pnl', 'report', 'orders', 'customers', 'bought', 'products'].includes(q.t) ? q.t : 'dash', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
+    let tab = ['dash', 'pnl', 'statement', 'report', 'orders', 'customers', 'bought', 'products'].includes(q.t) ? q.t : 'dash', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     const body = $('#body', main);
     const dates = () => `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${per === k ? 'on' : ''}" data-per="${k}">${l}</button>`).join('')}</div>
@@ -13742,7 +14055,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#rf', body)) { $('#rf', body).onchange = e => { from = e.target.value || from; draw(); }; $('#rt', body).onchange = e => { to = e.target.value || to; draw(); }; }
     };
     const draw = async () => {
-      $('#tabs', main).innerHTML = [['dash', 'Dashboard'], ['pnl', 'Profit & loss'], ['report', 'Sales report'], ['orders', 'Orders'], ['customers', 'Customers']].concat(canBuyView() ? [['bought', 'Bought by K-TRONiCS']] : []).concat([['products', 'Their products']]).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')
+      $('#tabs', main).innerHTML = [['dash', 'Dashboard'], ['pnl', 'Profit & loss'], ['statement', 'Statement'], ['report', 'Sales report'], ['orders', 'Orders'], ['customers', 'Customers']].concat(canBuyView() ? [['bought', 'Bought by K-TRONiCS']] : []).concat([['products', 'Their products']]).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')
         + `<button class="chip" id="pstk">${icon('box', 14)} Stock</button>`;
       $$('[data-t]', main).forEach(b => b.onclick = () => { tab = b.dataset.t; if (tab !== 'orders') cust = null; draw(); });
       $('#pstk', main).onclick = () => stockSheet(p);
@@ -13751,6 +14064,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (tab === 'dash') {
         body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)} sees this same dashboard in its app. Its own numbers and prices · not counted in yours.</div><div id="pdash"></div>`;
         await K.partnerDashBox($('#pdash', body), (f, t) => Promise.all([api.partnerDashboardAdmin(p.id, f, t), api.partnerPnlAdmin ? api.partnerPnlAdmin(p.id, f, t).catch(() => null) : null]).then(([d, pl]) => Object.assign(d, { pnl: pl })), false, K.S.pDashA = K.S.pDashA || { p: 'today' });
+        return;
+      }
+      if (tab === 'statement') {
+        body.innerHTML = `<div class="small muted" style="margin-bottom:8px">Goods ${esc(p.name)} gave you, goods given back and your payments. ${esc(p.name)}'s owner sees the same page.</div><div id="pstm"></div>`;
+        await K.partnerStatementBox($('#pstm', body), (f, t) => api.partnerStatementAdmin(p.id, f, t), K.S.pStA = K.S.pStA || { p: 'month' });
         return;
       }
       if (tab === 'pnl') {
