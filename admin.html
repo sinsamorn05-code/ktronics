@@ -9974,7 +9974,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="card"><div class="row"><b class="grow">Low stock</b><a class="small" href="#/products?low=1" style="font-weight:700;text-decoration:none">All</a></div>
           ${low.length ? low.slice(0, 6).map(p => `<div class="row"><span class="grow" style="font-weight:600;font-size:14px">${esc(p.name)}</span><span class="pill ${p.total_qty <= 0 ? 'rd' : 'or'}">${p.total_qty} left</span></div>`).join('') : '<div class="muted small">All products have enough stock.</div>'}</div>
         <div class="card"><b>Latest activity</b>${activity.map(a => `<a class="row" href="${a.href}" style="text-decoration:none;color:inherit"><div class="grow small" style="line-height:1.4">${a.html}</div>${a.st ? statusPill(a.st) : `<span class="small muted">${when(a.t)}</span>`}</a>`).join('') || '<div class="muted small">No activity yet</div>'}</div>
-        <div class="card"><div class="row"><b class="grow">Sales targets · ${esc(K.monthName(K.monthKey()))}</b>${K.allow('dashboard.view') ? `<button class="btn sm out" id="tg">${icon('pen', 16)}Set targets</button>` : ''}${S.me.role === 'admin' ? `<button class="btn sm out" id="rkme" style="margin-left:6px">🏅 Me in staff ranking</button>` : ''}</div>
+        <div class="card"><b>Sales targets · ${esc(K.monthName(K.monthKey()))}</b>
+          ${S.me.role === 'admin' || K.allow('dashboard.view') ? `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">${S.me.role === 'admin' ? `<button class="btn sm out" id="rkme">🏅 Me in staff ranking</button>` : ''}${K.allow('dashboard.view') ? `<button class="btn sm out" id="tg">${icon('pen', 16)}Set targets</button>` : ''}</div>` : ''}
           ${K.rankingHtml(team.map(r => ({ id: r.user_id, name: r.full_name, total: r.total, target: r.target })), null, { targets: true })}
           ${team.some(r => r.target) ? `<div class="row small" style="border-top:1px solid var(--line);padding-top:8px"><b class="grow">Team total</b><b>${money(team.reduce((a, r) => a + +r.total, 0))} of ${money(team.reduce((a, r) => a + +(r.target || 0), 0))}</b></div>` : '<div class="small muted">No targets yet. Tap Set targets.</div>'}</div>
         <div class="card"><b>Top sales staff · 30 days</b>${d.top_staff.length ? d.top_staff.map((t, i) => `<div class="row">${avatar(t.name, 'sm')}<div class="grow"><div style="font-weight:700;font-size:14px">${esc(t.name)}</div><div class="bar" style="margin-top:5px"><div style="width:${(t.total / d.top_staff[0].total) * 100}%;background:var(--p)"></div></div></div><b style="font-size:14px">${money(t.total)}</b></div>`).join('') : '<div class="muted small">No sales yet</div>'}</div>
@@ -12057,7 +12058,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const rep = await api.commissionReport(cmonth), tot = rep.reduce((a, r) => a + +r.commission, 0);
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
         // each rep has their own % and own bonus % (Mr. Lee, 22 Oct 2026); nothing typed = 0%
-        h = `<div class="card" style="gap:10px"><b>Commission for each rep</b>
+        h = `<div class="card" style="gap:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">Commission for each rep</b><button class="btn sm out" id="hrtg">${icon('pen', 16)}Set sales targets</button></div>
             <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).</div>
             <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
             <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th>${reps.some(u => u.role === 'online_sales') ? '<th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th>' : ''}</tr></thead><tbody>
@@ -12073,7 +12074,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Sales</th><th style="text-align:right">Target</th><th style="text-align:right">Rate</th><th style="text-align:right">Commission</th></tr></thead><tbody>
             ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
-            <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>
+            <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets: the button above (or on the Dashboard).</div></div>
           <div id="otc" style="max-width:640px"></div><div id="ftc" style="max-width:640px;margin-top:14px"></div>`;
         S2.crep = rep;
       } else if (tab === 'work') {
@@ -12144,6 +12145,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
       if ($('#otc')) K.onlineTargetsCard($('#otc'));
+      if ($('#hrtg')) $('#hrtg').onclick = () => K.targetsSheet(() => K.render());   // the same Set targets as on the Dashboard (24 Oct 2026)
       if ($('#ftc') && K.fieldTargetsCard) K.fieldTargetsCard($('#ftc'));
       $$('[data-cl]').forEach(a => a.onclick = () => K.commissionLinesSheet(cmonth, (S2.crep || []).find(r => r.user_id === a.dataset.cl) || {}));
       if ($('#offhere')) $('#offhere').onclick = e => { const b = e.currentTarget; if (!navigator.geolocation) return toast('This device cannot find its location');
