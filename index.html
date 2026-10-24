@@ -1328,6 +1328,23 @@ window.makeSupabaseApi = function (cfg) {
     partnerRequestsMine: () => q(sb.rpc('partner_requests_mine')),
     partnerRequestAnswer: (id, items, reply) => q(sb.rpc('partner_request_answer', { p_id: id, p_items: items, p_reply: reply || null })),
     partnerRequestReject: (id, reason) => q(sb.rpc('partner_request_reject', { p_id: id, p_reason: reason })),
+    partnerGoodsList: pid => q(sb.rpc('partner_goods_list', { p_partner: pid || null })),
+    partnerGoodsReceive: id => q(sb.rpc('partner_goods_receive', { p_request: id })),
+    partnerGoodsCancel: (id, reason) => q(sb.rpc('partner_goods_cancel', { p_request: id, p_reason: reason || '' })),
+    partnerGoodsReturn: (id, items, note) => q(sb.rpc('partner_goods_return', { p_request: id, p_items: items || [], p_note: note || null })),
+    partnerKtrPay: (oid, amount, method, note) => q(sb.rpc('partner_ktr_pay', { p_order: oid, p_amount: amount, p_method: method, p_note: note || null })),
+    partnerKtrPayVoid: (id, reason) => q(sb.rpc('partner_ktr_pay_void', { p_id: id, p_reason: reason || '' })),
+    partnerProductSave: p => q(sb.rpc('partner_product_save', { p })),
+    partnerOwnProductsAdmin: pid => q(sb.rpc('partner_own_products_admin', { p_partner: pid })),
+    partnerStockInDecide: (id, ok, reason) => q(sb.rpc('partner_stock_in_decide', { p_id: id, p_ok: !!ok, p_reason: reason || null })),
+    partnerStockInCancel: (id, reason) => q(sb.rpc('partner_stock_in_cancel', { p_id: id, p_reason: reason || null })),
+    partnerStockInsList: (pid, status) => q(sb.rpc('partner_stock_ins_list', { p_partner: pid || null, p_status: status || null })),
+    partnerKtrPayDecide: (id, ok, reason) => q(sb.rpc('partner_ktr_pay_decide', { p_id: id, p_ok: !!ok, p_reason: reason || null })),
+    partnerApprovals: () => q(sb.rpc('partner_approvals')),
+    partnerDashboard: (from, to) => q(sb.rpc('partner_dashboard', { p_from: from || null, p_to: to || null })),
+    partnerDashboardAdmin: (pid, from, to) => q(sb.rpc('partner_dashboard_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
+    partnerSetWarn: items => q(sb.rpc('partner_set_warn', { p_items: items || [] })),
+    partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
     async uploadPartnerLogo(file) { return api.uploadPhoto(file, 'partners', true); },
     setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
     setProductsOrderable: (ids, on) => q(sb.rpc('set_products_orderable', { p_ids: ids, p_on: !!on })),
@@ -2236,8 +2253,13 @@ window.makeDemoApi = function () {
     return { id: r.id, request_no: r.request_no, partner_id: r.partner_id, partner: (partnersOf().find(x => x.id === r.partner_id) || {}).name, status: r.status, note: r.note, reply: r.reply,
       total: r.total, asked_total: +r.items.reduce((a, i) => a + i.qty * i.price, 0).toFixed(2), created_at: r.created_at, answered_at: r.answered_at || null,
       by: partnerView ? null : staffNameD(r.created_by), answered_by: partnerView ? null : staffNameD(r.answered_by),
-      purchase_no: pu ? pu.purchase_no : null, purchase_status: pu ? pu.status : null, paid: pu ? pu.paid_amount : 0, order_id: (pOrds().find(o => o.request_id === r.id) || {}).id || null, order_no: (pOrds().find(o => o.request_id === r.id) || {}).order_no || null, owed: pu ? Math.max(0, +(pu.total - (pu.returned_amount || 0) - pu.paid_amount).toFixed(2)) : 0,
-      items: r.items.map(i => { const p = D.products.find(x => x.id === i.product_id) || {}; return { product_id: i.product_id, name: p.name, sku: p.sku, qty: i.qty, price: i.price, qty_given: i.qty_given == null ? null : i.qty_given, have: partnerView ? pStock(r.partner_id, i.product_id) : null }; }) }; };
+      purchase_no: pu ? pu.purchase_no : null, purchase_status: pu ? pu.status : null, order_id: (pOrds().find(o => o.request_id === r.id) || {}).id || null, order_no: (pOrds().find(o => o.request_id === r.id) || {}).order_no || null,
+      flow: r.flow || 'purchase', received_at: r.received_at || null, received_by: partnerView ? null : staffNameD(r.received_by),
+      ...(() => { const o = pOrds().find(x => x.request_id === r.id); if (r.flow === 'goods') return { order_status: o ? o.status : null, paid: o ? o.paid_amount : 0, owed: !o || o.status === 'cancelled' ? 0 : Math.max(0, +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2)) };
+        return { order_status: o ? o.status : null, paid: pu ? pu.paid_amount : 0, owed: pu ? Math.max(0, +(pu.total - (pu.returned_amount || 0) - pu.paid_amount).toFixed(2)) : 0 }; })(),
+      items: r.items.map(i => { const p = D.products.find(x => x.id === i.product_id) || {}, o = pOrds().find(x => x.request_id === r.id);
+        return { product_id: i.product_id, name: p.name, sku: p.sku, qty: i.qty, price: i.price, qty_given: i.qty_given == null ? null : i.qty_given,
+          returned: o ? (D.pReturns || []).filter(t => t.order_id === o.id && t.product_id === i.product_id).reduce((a, t) => a + t.qty, 0) : 0, have: partnerView ? pStock(r.partner_id, i.product_id) : null }; }) }; };
   // sale to K-TRONiCS = a partner order (customer "K-TRONiCS", made once per partner); payments follow Purchasing
   const pKtrCust = pid => { let c = pCusts().find(x => x.partner_id === pid && x.is_ktronics);
     if (!c) { c = { id: Math.max(0, ...pCusts().map(y => y.id)) + 1, partner_id: pid, name: 'K-TRONiCS', notes: 'Made by the app: goods K-TRONiCS buys from you', active: true, is_ktronics: true, created_at: now() }; pCusts().push(c); }
@@ -2263,7 +2285,7 @@ window.makeDemoApi = function () {
       Object.assign(o, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'K-TRONiCS cancelled the purchase ' + pu.purchase_no }); } };
   const pReqOrder = r => { let o = pOrds().find(x => x.request_id === r.id); if (o) return o; const c = pKtrCust(r.partner_id);
     const seq = Math.max(0, ...pOrds().filter(x => x.partner_id === r.partner_id).map(x => x.seq)) + 1, lines = r.items.filter(i => i.qty_given > 0).map(i => ({ product_id: i.product_id, qty: i.qty_given, price: i.price }));
-    const waiting = (D.purchases.find(x => x.id === r.purchase_id) || {}).status === 'ordered';
+    const waiting = r.flow === 'goods' ? !r.received_at : (D.purchases.find(x => x.id === r.purchase_id) || {}).status === 'ordered';
     o = { id: Math.max(0, ...pOrds().map(y => y.id)) + 1, partner_id: r.partner_id, seq, order_no: 'P' + r.partner_id + '-' + String(seq).padStart(4, '0'), customer_id: c.id, status: waiting ? 'open' : 'delivered', payment: 'credit', due_date: null,
       total: +lines.reduce((a, l) => a + l.qty * l.price, 0).toFixed(2), paid_amount: 0, notes: 'Stock request ' + r.request_no, created_by: r.answered_by, created_at: r.answered_at || now(), delivered_at: waiting ? null : r.answered_at || now(), items: lines, request_id: r.id };
     pOrds().push(o); pSyncPays(r.purchase_id); return o; };
@@ -2406,18 +2428,51 @@ window.makeDemoApi = function () {
       if (D.warehouses.some(w => w.rep_id === id)) fail('This person has their own rep stock. Move or clear it first, or make a new account for the partner');
       u.role = 'partner'; u.partner_id = +pid; u.supervisor_id = null; u.department_id = null; D.members = D.members.filter(m => m.user_id !== id); save(); return wait(null); },
     async partnerSetCanAdd(id, on) { if (!hasRole('admin')) fail('Only the admin can change partners'); const p = partnersOf().find(x => x.id === +id); if (!p) fail('Partner not found'); p.can_add_stock = !!on; save(); return wait(null); },
-    async partnerMyStockIn(items, note) { const pid = myPartner(); if (!pid) fail('Not a partner account');
-      if (!(partnersOf().find(x => x.id === pid) || {}).can_add_stock) fail('K-TRONiCS has not allowed your partner to add stock'); if (!(items || []).length) fail('Add at least one product');
-      items.forEach(it => { if (!(+it.qty >= 1 && +it.qty <= 100000)) fail('Quantities must be between 1 and 100,000'); if (!D.products.some(p => p.id === +it.product_id && p.active)) fail('Product not found'); });
-      items.forEach(it => pStockChange(pid, +it.product_id, Math.floor(+it.qty), 'in', String(note || '').trim() || 'Added by partner', null)); save(); return wait(items.length); },
+    // 24 Oct 2026: stock-in waits for the other side (partner adds → admin approves; admin adds → partner approves)
+    _psiMake(pid, side, items, note) { if (!partnersOf().some(p => p.id === pid && p.active)) fail('Choose an active partner'); if (!(items || []).length) fail('Add at least one product');
+      const seen = new Set(); items.forEach(it => { if (!(+it.qty >= 1 && +it.qty <= 100000)) fail('Quantities must be between 1 and 100,000');
+        if (!D.products.some(p => p.id === +it.product_id && ((!p.partner_id && p.active) || p.partner_id === pid))) fail('Product not found'); if (seen.has(+it.product_id)) fail('Each product only once, please'); seen.add(+it.product_id); });
+      D.pIns = D.pIns || []; const id = Math.max(0, ...D.pIns.map(x => x.id)) + 1;
+      D.pIns.push({ id, in_no: 'PSI-' + String(id).padStart(5, '0'), partner_id: pid, side, status: 'waiting', note: String(note || '').trim() || null, reason: null, made_by: me.id, made_at: now(), decided_by: null, decided_at: null,
+        items: items.map(it => ({ product_id: +it.product_id, qty: Math.floor(+it.qty) })) }); save(); return id; },
+    async partnerMyStockIn(items, note) { const pid = myPartner(); if (!pid) fail('Not a partner account'); const id = api._psiMake(pid, 'partner', items, note); return wait(D.pIns.find(x => x.id === id).items.length); },
+    async partnerStockInDecide(id, ok, reason) { const x = (D.pIns || []).find(y => y.id === +id); if (!x) fail('Stock in not found'); const mp = myPartner();
+      if (x.side === 'partner' && !hasRole('admin')) fail('Only the admin can approve this'); if (x.side === 'ktronics' && mp !== x.partner_id) fail('Only ' + (partnersOf().find(p => p.id === x.partner_id) || {}).name + ' can approve this');
+      if (x.status !== 'waiting') fail('This stock in is already ' + x.status); if (!ok && !String(reason || '').trim()) fail('Write why you say no');
+      if (ok) x.items.forEach(i => pStockChange(x.partner_id, i.product_id, i.qty, 'in', x.note || x.in_no, x.in_no));
+      Object.assign(x, { status: ok ? 'approved' : 'rejected', reason: String(reason || '').trim() || null, decided_by: me.id, decided_at: now() }); save(); return wait(null); },
+    async partnerStockInCancel(id, reason) { const x = (D.pIns || []).find(y => y.id === +id); if (!x) fail('Stock in not found');
+      if ((x.side === 'ktronics' && !hasRole('admin')) || (x.side === 'partner' && myPartner() !== x.partner_id)) fail('Only the side that made it can cancel it'); if (x.status !== 'waiting') fail('This stock in is already ' + x.status);
+      Object.assign(x, { status: 'cancelled', reason: String(reason || '').trim() || null, decided_by: me.id, decided_at: now() }); save(); return wait(null); },
+    async partnerStockInsList(pid, status) { const mp = myPartner(); let see; if (mp) see = mp; else if (hasRole('admin')) see = pid ? +pid : null; else fail('Only the admin can see this');
+      return wait((D.pIns || []).filter(x => (!see || x.partner_id === see) && (!status || x.status === status)).sort((a, b) => (b.status === 'waiting') - (a.status === 'waiting') || b.id - a.id).map(x => ({ id: x.id, in_no: x.in_no, partner_id: x.partner_id,
+        partner: (partnersOf().find(p => p.id === x.partner_id) || {}).name, side: x.side, status: x.status, note: x.note, reason: x.reason, made_at: x.made_at, decided_at: x.decided_at,
+        made_by: !mp || x.side === 'partner' ? staffNameD(x.made_by) : 'K-TRONiCS', decided_by: !mp || x.side === 'ktronics' ? staffNameD(x.decided_by) : 'K-TRONiCS',
+        can_decide: x.status === 'waiting' && (x.side === 'partner' ? !mp : mp === x.partner_id), can_cancel: x.status === 'waiting' && (x.side === 'ktronics' ? !mp : mp === x.partner_id),
+        pcs: x.items.reduce((a, i) => a + i.qty, 0), items: x.items.map(i => ({ product_id: i.product_id, name: (D.products.find(p => p.id === i.product_id) || {}).name, sku: (D.products.find(p => p.id === i.product_id) || {}).sku, qty: i.qty })) }))); },
+    async partnerApprovals() { const pid = myPartner(); if (!pid) fail('Not a partner account'); const all = await api.partnerStockInsList(null, 'waiting');
+      return wait({ stock_ins: all.filter(x => x.can_decide), my_stock_ins: all.filter(x => x.side === 'partner'),
+        payments: (D.pOffers || []).filter(x => x.partner_id === pid && x.status === 'waiting').map(x => { const o = pOrds().find(y => y.id === x.order_id) || {}; return { id: x.id, amount: x.amount, method: x.method, note: x.note, made_at: x.made_at, order_no: o.order_no, order_id: o.id }; }) }); },
+    // partner's own products (only that partner; active = false for K-TRONiCS)
+    async partnerProductSave(p) { const pid = myPartner(); if (!pid) fail('Not a partner account'); const nm = String(p.name || '').trim().slice(0, 120); if (!nm) fail('Write the product name');
+      const pr = p.price === '' || p.price == null ? null : +p.price; if (pr != null && !(pr >= 0 && pr <= 1000000)) fail('Prices must be between 0 and 1,000,000');
+      let x = p.id ? D.products.find(y => y.id === +p.id && y.partner_id === pid) : null; if (p.id && !x) fail('You can change only your own products');
+      let sk = String(p.sku || '').trim().toUpperCase().slice(0, 40);
+      if (!sk) { if (x) sk = x.sku; else { let n = D.products.filter(y => y.partner_id === pid).length + 1; do { sk = 'P' + pid + '-' + String(n).padStart(4, '0'); n++; } while (D.products.some(y => y.sku.toUpperCase() === sk)); } }
+      if (D.products.some(y => y.sku.toUpperCase() === sk && y !== x)) fail('This code (SKU) is already used. Choose another.');
+      const cat = String(p.category || '').trim().slice(0, 60) || 'Other';
+      if (!x) { x = { id: Math.max(...D.products.map(y => y.id)) + 1, sku: sk, name: nm, category: cat, price: pr || 0, cost: 0, min_stock: 0, active: false, partner_id: pid, partner_active: true, staff_orderable: false, photo_url: null }; D.products.push(x); }
+      else Object.assign(x, { sku: sk, name: nm, category: cat, partner_active: p.active == null ? x.partner_active : !!p.active });
+      if (pr != null) { D.pPrices = (D.pPrices || []).filter(y => !(y.partner_id === pid && y.product_id === x.id)); D.pPrices.push({ partner_id: pid, product_id: x.id, price: Math.round(pr * 100) / 100 }); }
+      save(); return wait(x.id); },
+    async partnerOwnProductsAdmin(pid) { if (!hasRole('admin')) fail('Only the admin can see partners');
+      return wait(D.products.filter(p => p.partner_id === +pid).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, active: p.partner_active !== false, qty: pStock(+pid, p.id), price: pPrice(+pid, p.id) })).sort((a, b) => a.name.localeCompare(b.name))); },
     async partnerMe() { const p = me && me.active && me.role === 'partner' && partnersOf().find(x => x.id === me.partner_id && x.active); if (!p) fail('Not a partner account');
       return wait({ id: p.id, name: p.name, phone: p.phone, address: p.address, logo_url: p.logo_url, can_add_stock: !!p.can_add_stock }); },
     async uploadPartnerLogo(file) { return api.uploadPhoto(file, 'partners'); },
     // partner stock and prices (step 2) — same rules as the database
-    async partnerStockIn(pid, items, note) { if (!hasRole('admin')) fail('Only the admin can add stock to a partner');
-      if (!partnersOf().some(p => p.id === pid && p.active)) fail('Choose an active partner'); if (!(items || []).length) fail('Add at least one product');
-      items.forEach(it => { if (!(+it.qty > 0)) fail('Quantities must be more than 0'); if (!D.products.some(p => p.id === +it.product_id && p.active)) fail('Product not found'); });
-      items.forEach(it => pStockChange(pid, +it.product_id, +it.qty, 'in', note, null)); save(); return wait(items.length); },
+    async partnerStockIn(pid, items, note) { if (!hasRole('admin')) fail('Only the admin can add stock to a partner');   // waits for the partner's approval (24 Oct 2026)
+      const id = api._psiMake(+pid, 'ktronics', items, note); return wait(D.pIns.find(x => x.id === id).items.length); },
     async partnerStockFix(pid, productId, qty, note) { if (!hasRole('admin')) fail('Only the admin can fix a partner\'s stock');
       if (!(qty >= 0)) fail('The new count must be 0 or more'); if (!String(note || '').trim()) fail('Write why the count is changed');
       const cur = pStock(pid, productId); if (qty !== cur) pStockChange(pid, productId, qty - cur, 'fix', note, null); save(); return wait(qty); },
@@ -2426,10 +2481,12 @@ window.makeDemoApi = function () {
         .sort((a, b) => a.name.localeCompare(b.name))); },
     async partnerMovesAdmin(pid) { if (!hasRole('admin')) fail('Only the admin can see partner stock'); return wait(pMoves(pid).map(m => Object.assign({}, m, { by: staffNameD(m.created_by) }))); },
     async partnerProducts() { const pid = myPartner(); if (!pid) fail('Not a partner account');
-      return wait(D.products.filter(p => p.active || pStock(pid, p.id) > 0).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, photo_url: p.photo_url || null, qty: pStock(pid, p.id), price: pPrice(pid, p.id) }))
+      return wait(D.products.filter(p => (!p.partner_id && (p.active || pStock(pid, p.id) > 0)) || p.partner_id === pid).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, photo_url: p.photo_url || null, qty: pStock(pid, p.id), price: pPrice(pid, p.id),
+        mine: !!p.partner_id, active: p.partner_id ? p.partner_active !== false : p.active, warn_at: (pStockRow(pid, p.id) || {}).warn_at ?? null }))
         .sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))); },
     async partnerSetPrices(items) { const pid = myPartner(); if (!pid) fail('Not a partner account'); D.pPrices = D.pPrices || [];
       (items || []).forEach(it => { const pr = it.price === '' || it.price == null ? null : +it.price; if (pr != null && !(pr >= 0 && pr <= 1000000)) fail('Prices must be between 0 and 1,000,000');
+        if (!D.products.some(x => x.id === +it.product_id && (!x.partner_id || x.partner_id === pid))) fail('Product not found');
         D.pPrices = D.pPrices.filter(x => !(x.partner_id === pid && x.product_id === +it.product_id)); if (pr != null) D.pPrices.push({ partner_id: pid, product_id: +it.product_id, price: Math.round(pr * 100) / 100 }); });
       save(); return wait((items || []).length); },
     // partner customers, orders, payments, report (step 3) — same rules as the database
@@ -2500,6 +2557,27 @@ window.makeDemoApi = function () {
     async partnerOrdersAdmin(pid, from, to, status, customer) { adminPartner(pid); return api._pOrdersOf(pid, from, to, status, customer); },
     async partnerOrderAdmin(id) { if (!hasRole('admin')) fail('Only the admin can see partner sales'); const o = pOrds().find(x => x.id === +id); if (!o) fail('Order not found'); return api._pOrderOf(o); },
     async partnerSalesReportAdmin(pid, from, to) { adminPartner(pid); return api._pReportOf(pid, from, to); },
+    // the partner's own dashboard (24 Oct 2026) — same numbers as partner_dashboard_of
+    async _pDashOf(pid, from, to) { const t = localDay0(now()); let f = from || t, e = to || from || t; if (e < f) [f, e] = [e, f];
+      const sh = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return localDay0(x.toISOString()); }, n = Math.round((new Date(e + 'T12:00:00') - new Date(f + 'T12:00:00')) / 864e5) + 1;
+      const o = pOrds().filter(x => x.partner_id === pid && x.status !== 'cancelled'), ktr = pCusts().filter(c => c.partner_id === pid && c.is_ktronics).map(c => c.id), day = x => localDay0(x.created_at), inR = (d, a2, b2) => d >= a2 && d <= b2;
+      const net = x => x.total - (x.returned_amount || 0), sum = (l, fn) => +l.reduce((a2, x) => a2 + fn(x), 0).toFixed(2), pays = pPays().filter(y => y.partner_id === pid && !y.voided_at && inR(localDay0(y.received_at), f, e));
+      const stock = (D.pStock || []).filter(st => st.partner_id === pid), owe = l => l.filter(x => net(x) > x.paid_amount), offers = (D.pOffers || []).filter(x => x.partner_id === pid && x.status === 'waiting');
+      return wait({ from: f, to: e, today: t, sales: sum(o.filter(x => inR(day(x), f, e)), net), orders: o.filter(x => inR(day(x), f, e)).length, sales_before: sum(o.filter(x => inR(day(x), sh(f, -n), sh(f, -1))), net),
+        collected: sum(pays, y => y.amount_usd), payments: pays.length,
+        customers_owe: sum(owe(o.filter(x => !ktr.includes(x.customer_id))), x => net(x) - x.paid_amount), customers_owing: new Set(owe(o.filter(x => !ktr.includes(x.customer_id))).map(x => x.customer_id)).size,
+        ktronics_owes: sum(owe(o.filter(x => ktr.includes(x.customer_id))), x => net(x) - x.paid_amount), ktronics_pay_waiting: sum(offers, x => x.amount), ktronics_pay_waiting_count: offers.length,
+        pieces: stock.reduce((a2, st) => a2 + st.qty, 0), products_in_stock: stock.filter(st => st.qty > 0).length, stock_value: sum(stock.filter(st => st.qty > 0), st => st.qty * (pPrice(pid, st.product_id) || 0)),
+        no_price: stock.filter(st => st.qty > 0 && pPrice(pid, st.product_id) == null).length,
+        low: stock.filter(st => st.warn_at != null && st.qty <= st.warn_at).map(st => { const p = D.products.find(x => x.id === st.product_id) || {}; return { product_id: st.product_id, name: p.name, sku: p.sku, qty: st.qty, warn_at: st.warn_at }; }).sort((a2, b2) => a2.qty - b2.qty),
+        stock_in_waiting_me: (D.pIns || []).filter(x => x.partner_id === pid && x.status === 'waiting' && x.side === 'ktronics').length,
+        stock_in_waiting_ktronics: (D.pIns || []).filter(x => x.partner_id === pid && x.status === 'waiting' && x.side === 'partner').length,
+        requests_waiting: pReqs().filter(r => r.partner_id === pid && r.status === 'waiting').length, period: await api._pReportOf(pid, f, e) }); },
+    async partnerDashboard(from, to) { const pid = myPartner(); if (!pid) fail('Not a partner account'); return api._pDashOf(pid, from, to); },
+    async partnerDashboardAdmin(pid, from, to) { adminPartner(pid); return api._pDashOf(+pid, from, to); },
+    async partnerSetWarn(items) { const pid = myPartner(); if (!pid) fail('Not a partner account');
+      (items || []).forEach(it => { const w = it.warn_at === '' || it.warn_at == null ? null : Math.floor(+it.warn_at); if (w != null && !(w >= 0 && w <= 100000)) fail('Warn at: a number from 0 to 100,000');
+        let r = pStockRow(pid, +it.product_id); if (!r) { r = { partner_id: pid, product_id: +it.product_id, qty: 0 }; D.pStock.push(r); } r.warn_at = w; }); save(); return wait((items || []).length); },
     // "See partner stock" / "Request stock from partner": pieces only, no prices
     async partnerStockView() { if (!(allow('partners.stock') || allow('partners.request'))) fail('You do not have permission to see partner stock');
       return wait(partnersOf().filter(p => p.active).sort((a, b) => a.name.localeCompare(b.name)).map(p => ({ id: p.id, name: p.name,
@@ -2526,20 +2604,81 @@ window.makeDemoApi = function () {
         if (g < 0 || g > i.qty) fail('For ' + (D.products.find(p => p.id === i.product_id) || {}).name + ' you can give 0 to ' + i.qty); return g; });
       if (!giv.some(g => g > 0)) fail('Give at least one piece, or reject the request');
       r.items.forEach((i, k) => { if (giv[k] > pStock(pid, i.product_id)) fail('Not enough stock of ' + (D.products.find(p => p.id === i.product_id) || {}).name + ': only ' + pStock(pid, i.product_id) + ' left'); });
-      let sup = D.suppliers.find(x => x.partner_id === pid);
-      if (!sup) { sup = { id: Math.max(0, ...D.suppliers.map(x => x.id)) + 1, name: pa.name, contact_name: null, phone: pa.phone, telegram: null, country: 'Cambodia', currency: 'USD', notes: 'Partner warehouse (made automatically for stock requests)', active: true, created_at: now(), partner_id: pid }; D.suppliers.push(sup); }
-      const wh = Math.min(...D.warehouses.filter(w => !w.rep_id).map(w => w.id)), po = Math.max(0, ...D.purchases.map(x => x.id)) + 1, pno = 'PO-' + String(po).padStart(5, '0');
+      // 24 Oct 2026: no purchase any more — the goods wait in the Partners tab ("Received" → Goods from partners)
       const tot = +r.items.reduce((a, i, k) => a + giv[k] * i.price, 0).toFixed(2);
-      r.items.forEach((i, k) => { i.qty_given = giv[k]; if (giv[k] > 0) D.pitems.push({ id: ++D.seq.pitem, purchase_id: po, product_id: i.product_id, qty: giv[k], unit_cost: i.price, landed_cost: i.price }); });
-      D.purchases.push({ id: po, purchase_no: pno, supplier_id: sup.id, warehouse_id: wh, status: 'ordered', currency: 'USD', rate: 1, extra_cost: 0, total: tot, paid_amount: 0,
-        note: 'Stock request ' + r.request_no + ' from partner ' + pa.name, ordered_on: localDay(now()), received_at: null, created_by: r.created_by, received_by: null, created_at: now() });
+      r.items.forEach((i, k) => { i.qty_given = giv[k]; });
       const all_ = r.items.every(i => i.qty_given === i.qty);
-      Object.assign(r, { status: all_ ? 'approved' : 'part', reply: String(reply || '').trim() || null, total: tot, purchase_id: po, answered_by: me.id, answered_at: now() });
-      const o = pReqOrder(r);   // my order: sold to K-TRONiCS
+      Object.assign(r, { status: all_ ? 'approved' : 'part', reply: String(reply || '').trim() || null, total: tot, flow: 'goods', answered_by: me.id, answered_at: now() });
+      const o = pReqOrder(r);   // my order: sold to K-TRONiCS (open until received)
       r.items.forEach(i => { if (i.qty_given > 0) pStockChange(pid, i.product_id, -i.qty_given, 'to_ktronics', r.request_no, o.order_no); });
-      // the purchase waits in Purchasing ("Waiting to arrive"); Receive puts the goods into the Main warehouse
-      notifyPerm('partners.request', pa.name + (all_ ? ' gave all of ' : ' gave part of ') + r.request_no, pno + ' is waiting in Purchasing · $' + tot.toFixed(2) + ' · tap Receive to put the goods into the Main warehouse', '#/purchases');
+      notifyPerm('partners.request', pa.name + (all_ ? ' gave all of ' : ' gave part of ') + r.request_no, 'Waiting in Partners · $' + tot.toFixed(2) + ' · tap Received when the goods are with you', '#/partners');
       save(); return wait(pReqJson(r, true)); },
+    // ---- Goods from partners (24 Oct 2026): same rules as partner_goods_* in the database ----
+    _pgCan() { return role() === 'admin' || allow('partners.request') || allow('purchases.manage') || allow('purchases.receive'); },
+    _pgChange(pid, prod, change, kind, ref, note, cost) { D.pGoods = D.pGoods || []; D.pgMoves = D.pgMoves || [];
+      let g = D.pGoods.find(x => x.partner_id === pid && x.product_id === prod); if (!g) { g = { partner_id: pid, product_id: prod, qty: 0, unit_cost: cost || 0 }; D.pGoods.push(g); }
+      const after = g.qty + change; if (after < 0) fail('Goods from partners: only ' + g.qty + ' of ' + ((D.products.find(p => p.id === prod) || {}).name || '') + ' left');
+      if (change > 0 && after > 0) g.unit_cost = +((g.qty * g.unit_cost + change * (cost ?? g.unit_cost)) / after).toFixed(4);
+      g.qty = after; D.pgMoves.push({ id: D.pgMoves.length + 1, partner_id: pid, product_id: prod, change, qty_after: after, kind, ref, note: (note || '').trim() || null, unit_cost: cost ?? g.unit_cost, created_by: me.id, created_at: now() }); },
+    _pgReq(id) { const r = pReqs().find(x => x.id === +id); if (!r || r.flow !== 'goods') fail('Request not found'); return r; },
+    async partnerGoodsReceive(id) { if (!api._pgCan()) fail('You are not allowed to receive partner goods'); const r = api._pgReq(id);
+      if (!['approved', 'part'].includes(r.status)) fail('This request is ' + r.status); if (r.received_at) fail('Already received');
+      r.items.forEach(i => { if (i.qty_given > 0) api._pgChange(r.partner_id, i.product_id, i.qty_given, 'received', r.request_no, null, i.price); });
+      Object.assign(r, { received_at: now(), received_by: me.id }); const o = pOrds().find(x => x.request_id === r.id); if (o && o.status === 'open') Object.assign(o, { status: 'delivered', delivered_at: now() });
+      save(); return wait(null); },
+    async partnerGoodsCancel(id, reason) { if (!api._pgCan()) fail('You are not allowed to change partner goods'); if (!String(reason || '').trim()) fail('Write why'); const r = api._pgReq(id);
+      if (!['approved', 'part'].includes(r.status) || r.received_at) fail('Only goods not received yet can be cancelled'); const o = pOrds().find(x => x.request_id === r.id);
+      if (pPays().some(y => y.order_id === o.id && !y.voided_at)) fail('K-TRONiCS already paid for this. Cancel the payment first.');
+      r.items.forEach(i => { if (i.qty_given > 0) pStockChange(r.partner_id, i.product_id, i.qty_given, 'cancel', 'K-TRONiCS cancelled ' + r.request_no + ': ' + reason.trim(), o.order_no); });
+      Object.assign(o, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'K-TRONiCS cancelled ' + r.request_no + ': ' + reason.trim() }); r.status = 'cancelled'; save(); return wait(null); },
+    async partnerGoodsReturn(id, items, note) { if (!api._pgCan()) fail('You are not allowed to change partner goods'); const r = api._pgReq(id); if (!r.received_at) fail('Only received goods can be given back');
+      const o = pOrds().find(x => x.request_id === r.id); let n = 0;
+      (items || []).forEach(it => { const q = Math.floor(+it.qty || 0); if (!q) return; const li = r.items.find(i => i.product_id === +it.product_id); if (!li || q < 0) fail('Product not in this request');
+        const back = (D.pReturns || []).filter(t => t.order_id === o.id && t.product_id === li.product_id).reduce((a, t) => a + t.qty, 0);
+        if (q > li.qty_given - back) fail(api._pname(li.product_id) + ': you can give back at most ' + (li.qty_given - back));
+        api._pgChange(r.partner_id, li.product_id, -q, 'returned', r.request_no, note, null); pStockChange(r.partner_id, li.product_id, q, 'returned', (note || '').trim() || 'Given back by K-TRONiCS', r.request_no);
+        (D.pReturns = D.pReturns || []).push({ order_id: o.id, return_id: null, return_no: 'Given back', product_id: li.product_id, qty: q, price: li.price }); n++; });
+      if (!n) fail('Type how many pieces to give back');
+      o.returned_amount = +(D.pReturns || []).filter(x => x.order_id === o.id).reduce((a, x) => a + x.qty * x.price, 0).toFixed(2); save(); return wait(null); },
+    async partnerKtrPay(oid, amount, method, note) { if (!(role() === 'admin' || allow('purchases.manage'))) fail('Only admin or purchasing managers can pay partners');   // waits for the partner (24 Oct 2026)
+      const o = pOrds().find(x => x.id === +oid), r = o && pReqs().find(x => x.id === o.request_id); if (!o || !r || r.flow !== 'goods') fail('Order not found'); if (o.status === 'cancelled') fail('This order was cancelled');
+      const amt = Math.round(+amount * 100) / 100; if (!(amt > 0)) fail('Type the amount'); if (!['cash', 'aba', 'bank', 'other'].includes(method)) fail('Choose how it was paid');
+      D.pOffers = D.pOffers || []; const waiting = D.pOffers.filter(x => x.order_id === o.id && x.status === 'waiting').reduce((a, x) => a + x.amount, 0);
+      const owed = +(o.total - (o.returned_amount || 0) - o.paid_amount - waiting).toFixed(2); if (amt > owed) fail('K-TRONiCS owes only $' + Math.max(0, owed).toFixed(2) + ' (payments waiting for the partner count too)');
+      const id = Math.max(0, ...D.pOffers.map(z => z.id)) + 1; D.pOffers.push({ id, partner_id: o.partner_id, order_id: o.id, amount: amt, method, note: String(note || '').trim() || null, status: 'waiting', reason: null, made_by: me.id, made_at: now(), decided_at: null, payment_id: null });
+      save(); return wait(id); },
+    async partnerKtrPayDecide(id, ok, reason) { const pid = myPartner(); if (!pid) fail('Not a partner account'); const x = (D.pOffers || []).find(y => y.id === +id && y.partner_id === pid); if (!x) fail('Payment not found');
+      if (x.status !== 'waiting') fail('This payment is already ' + x.status); if (!ok && !String(reason || '').trim()) fail('Write why'); const o = pOrds().find(y => y.id === x.order_id);
+      if (ok) { const yid = Math.max(0, ...pPays().map(z => z.id)) + 1; pPays().push({ id: yid, partner_id: o.partner_id, order_id: o.id, customer_id: o.customer_id, amount: x.amount, currency: 'USD', rate: 1, amount_usd: x.amount, method: x.method, note: x.note || 'Paid by K-TRONiCS', received_at: now(), created_by: x.made_by, voided_at: null, void_reason: null });
+        x.payment_id = yid; o.paid_amount = +pPays().filter(z => z.order_id === o.id && !z.voided_at).reduce((a, z) => a + z.amount_usd, 0).toFixed(2); }
+      Object.assign(x, { status: ok ? 'confirmed' : 'rejected', reason: String(reason || '').trim() || null, decided_at: now() }); save(); return wait(null); },
+    async partnerKtrPayVoid(id, reason) { if (!(role() === 'admin' || allow('purchases.manage'))) fail('Only admin or purchasing managers can change partner payments'); if (!String(reason || '').trim()) fail('Write why');
+      const x = (D.pOffers || []).find(z => z.id === +id); if (!x) fail('Payment not found');
+      if (x.status === 'confirmed') { const y = pPays().find(z => z.id === x.payment_id); if (y && !y.voided_at) { Object.assign(y, { voided_at: now(), void_reason: reason.trim() }); const o = pOrds().find(z => z.id === y.order_id); o.paid_amount = +pPays().filter(z => z.order_id === o.id && !z.voided_at).reduce((a, z) => a + z.amount_usd, 0).toFixed(2); } }
+      else if (x.status !== 'waiting') fail('This payment is already ' + x.status);
+      Object.assign(x, { status: 'cancelled', reason: reason.trim(), decided_at: now() }); save(); return wait(null); },
+    async partnerGoodsMove(pid, supplier, items, note) { if (!allow('purchases.manage')) fail('Only admin or purchasing managers can move goods into your stock');
+      if (!D.suppliers.some(x => x.id === +supplier)) fail('Choose a supplier');
+      const lines = (items || []).filter(it => Math.floor(+it.qty || 0)).map(it => { const q = Math.floor(+it.qty); if (q < 0) fail('Pieces must be more than 0'); if (it.price === '' || it.price == null || +it.price < 0) fail('Write the price per piece for ' + api._pname(+it.product_id));
+        const g = (D.pGoods || []).find(x => x.partner_id === +pid && x.product_id === +it.product_id); if (!g || g.qty < q) fail('Goods from partners: only ' + (g ? g.qty : 0) + ' of ' + api._pname(+it.product_id) + ' left');
+        return { product_id: +it.product_id, qty: q, unit_cost: +it.price }; });
+      if (!lines.length) fail('Type how many pieces to move');
+      lines.forEach(l => { const pr = D.products.find(x => x.id === l.product_id); if (pr && pr.partner_id) Object.assign(pr, { partner_id: null, active: true }); });   // a partner-made product joins the K-TRONiCS list
+      const wh = Math.min(...D.warehouses.filter(w => !w.rep_id && !w.deleted_at).map(w => w.id));
+      const poId = await api.createPurchase({ supplier_id: +supplier, warehouse_id: wh, currency: 'USD', rate: 1, extra_cost: 0, note: (note || '').trim() || 'From partner goods · ' + ((partnersOf().find(x => x.id === +pid) || {}).name || ''), items: lines, receive: true });
+      const po = D.purchases.find(x => x.id === poId);
+      lines.forEach(l => api._pgChange(+pid, l.product_id, -l.qty, 'moved', po.purchase_no, note, null)); save(); return wait({ purchase_id: poId, purchase_no: po.purchase_no }); },
+    async partnerGoodsList(pid) { if (!api._pgCan()) fail('You are not allowed to see partner goods'); const pn = id => (partnersOf().find(x => x.id === id) || {}).name;
+      const reqs = pReqs().filter(r => r.flow === 'goods' && (!pid || r.partner_id === +pid));
+      return wait({ waiting: reqs.filter(r => ['approved', 'part'].includes(r.status) && !r.received_at).map(r => pReqJson(r, false)),
+        goods: (D.pGoods || []).filter(g => g.qty > 0 && (!pid || g.partner_id === +pid)).map(g => { const p = D.products.find(x => x.id === g.product_id) || {};
+          return { partner_id: g.partner_id, partner: pn(g.partner_id), product_id: g.product_id, name: p.name, sku: p.sku, qty: g.qty, unit_cost: +(+g.unit_cost).toFixed(2), value: +(g.qty * g.unit_cost).toFixed(2) }; }),
+        orders: reqs.map(r => ({ r, o: pOrds().find(x => x.request_id === r.id) })).filter(x => x.o && x.o.status !== 'cancelled').sort((a, b) => b.o.id - a.o.id).map(({ r, o }) => ({ order_id: o.id, order_no: o.order_no, request_id: r.id, request_no: r.request_no,
+          partner_id: o.partner_id, partner: pn(o.partner_id), status: o.status, received_at: r.received_at || null, total: o.total, returned: o.returned_amount || 0, paid: o.paid_amount, owed: +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2), created_at: o.created_at,
+          payments: pPays().filter(y => y.order_id === o.id).map(y => ({ id: y.id, amount: y.amount_usd, method: y.method, note: y.note, at: y.received_at, by: staffNameD(y.created_by), voided_at: y.voided_at, void_reason: y.void_reason })),
+          offers: (D.pOffers || []).filter(f => f.order_id === o.id).map(f => ({ id: f.id, amount: f.amount, method: f.method, note: f.note, at: f.made_at, by: staffNameD(f.made_by), status: f.status, reason: f.reason, decided_at: f.decided_at })),
+          waiting_pay: (D.pOffers || []).filter(f => f.order_id === o.id && f.status === 'waiting').reduce((a2, f) => a2 + f.amount, 0), items: pReqJson(r, false).items })),
+        moves: (D.pgMoves || []).filter(m => !pid || m.partner_id === +pid).slice().reverse().slice(0, 100).map(m => Object.assign({ partner: pn(m.partner_id), name: api._pname(m.product_id), who: staffNameD(m.created_by) }, m)) }); },
     async partnerRequestReject(id, reason) { if (!String(reason || '').trim()) fail('Write why you say no'); const r = myPReq(id);
       Object.assign(r, { status: 'rejected', reply: reason.trim(), answered_by: me.id, answered_at: now() }); r.items.forEach(i => { i.qty_given = 0; });
       notifyPerm('partners.request', (partnersOf().find(x => x.id === r.partner_id) || {}).name + ' said no to ' + r.request_no, reason.trim(), null); save(); return wait(null); },
@@ -5533,6 +5672,125 @@ window.KT_KM_PATTERNS.push(
   [/^Show all (\d+)$/, 'បង្ហាញទាំង $1']
 );
 
+// Partners: Goods from partners (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Loading goods from partners…': 'កំពុងផ្ទុកទំនិញពីដៃគូ…',
+  'Partner gives the goods → you tap': 'ដៃគូផ្តល់ទំនិញ → អ្នកចុច',
+  '→ they wait in': '→ ទំនិញរង់ចាំក្នុង',
+  '(not in your stock, value or reports).': '(មិនមែនក្នុងស្តុក តម្លៃ ឬរបាយការណ៍របស់អ្នក)។',
+  'makes a normal purchase (supplier you choose) into the Main warehouse.': 'បង្កើតការទិញធម្មតា (អ្នកផ្គត់ផ្គង់ដែលអ្នកជ្រើស) ចូលឃ្លាំងធំ។',
+  'Waiting to receive': 'រង់ចាំទទួល',
+  'Goods from partners': 'ទំនិញពីដៃគូ',
+  'On the way': 'កំពុងដឹក',
+  'Move to my stock': 'ផ្ទេរចូលស្តុកខ្ញុំ',
+  'Nothing here. Goods come here when you tap Received.': 'គ្មានអ្វីទេ។ ទំនិញមកទីនេះ ពេលអ្នកចុច បានទទួល។',
+  'Received goods · money': 'ទំនិញបានទទួល · ប្រាក់',
+  'Not received yet': 'មិនទាន់ទទួល',
+  '↩️ Give back': '↩️ ប្រគល់វិញ',
+  '💵 Pay partner': '💵 បង់ប្រាក់ដៃគូ',
+  'Goods received?': 'បានទទួលទំនិញហើយ?',
+  'Received · in Goods from partners': 'បានទទួល · នៅក្នុងទំនិញពីដៃគូ',
+  'Cancel payment': 'បោះបង់ការបង់ប្រាក់',
+  'Cancel this payment?': 'បោះបង់ការបង់ប្រាក់នេះ?',
+  'Payment saved': 'បានរក្សាទុកការបង់ប្រាក់',
+  'Payment cancelled': 'បានបោះបង់ការបង់ប្រាក់',
+  '💵 Save payment': '💵 រក្សាទុកការបង់ប្រាក់',
+  'Given back': 'បានប្រគល់វិញ',
+  'Type how many pieces to give back': 'វាយចំនួនគ្រឿងដែលត្រូវប្រគល់វិញ',
+  'Type how many pieces to move': 'វាយចំនួនគ្រឿងដែលត្រូវផ្ទេរ',
+  'Add a supplier in Purchasing first': 'សូមបន្ថែមអ្នកផ្គត់ផ្គង់ក្នុង ការទិញ ជាមុន',
+  'Makes a normal purchase in Purchasing (received at once): the pieces go into the Main warehouse and leave Goods from partners. You pay that supplier in Purchasing.': 'បង្កើតការទិញធម្មតាក្នុង ការទិញ (ទទួលភ្លាម)៖ ទំនិញចូលឃ្លាំងធំ ហើយចេញពីទំនិញពីដៃគូ។ អ្នកបង់ប្រាក់អ្នកផ្គត់ផ្គង់នោះក្នុង ការទិញ។',
+  'Price per piece ($)': 'តម្លៃក្នុងមួយគ្រឿង ($)',
+  'These were made the old way (as purchases into the Main warehouse) and stay as they are.': 'ទាំងនេះធ្វើតាមរបៀបចាស់ (ជាការទិញចូលឃ្លាំងធំ) ហើយនៅដដែល។',
+  'Waiting for you to tap Received': 'រង់ចាំអ្នកចុច បានទទួល',
+  '(Partners tab)': '(ផ្ទាំងដៃគូ)',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Old purchases from partners \(before 24 Oct\) · (\d+)$/, 'ការទិញចាស់ពីដៃគូ (មុន ២៤ តុលា) · $1'],
+  [/^(PO-\d+) made in Purchasing \(received\)$/, '$1 បានបង្កើតក្នុង ការទិញ (បានទទួល)'],
+  [/^(\d+) pcs go into Goods from partners \(not your Main stock\)\. Check the goods first\.$/, '$1 គ្រឿងចូលទំនិញពីដៃគូ (មិនមែនស្តុកធំ)។ សូមពិនិត្យទំនិញជាមុន។']
+);
+
+// Partners: own products and approvals (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Between you and K-TRONiCS': 'រវាងអ្នក និង K-TRONiCS',
+  'Stock from K-TRONiCS': 'ស្តុកពី K-TRONiCS',
+  'Money from K-TRONiCS': 'ប្រាក់ពី K-TRONiCS',
+  'Nothing waits for you.': 'គ្មានអ្វីរង់ចាំអ្នកទេ។',
+  'Approve only when the goods are really in your warehouse.': 'អនុម័តតែពេលទំនិញពិតជានៅក្នុងឃ្លាំងរបស់អ្នក។',
+  'Not received': 'មិនបានទទួល',
+  'I got the money': 'ខ្ញុំបានទទួលប្រាក់ហើយ',
+  'No stock in yet': 'មិនទាន់មានការដាក់ស្តុក',
+  'Money not received': 'មិនបានទទួលប្រាក់',
+  'Cancel this stock in': 'បោះបង់ការដាក់ស្តុកនេះ',
+  'Approved · stock added': 'បានអនុម័ត · បានបន្ថែមស្តុក',
+  'Thank you · marked as paid': 'អរគុណ · បានកត់ថាបានបង់',
+  'My products': 'ទំនិញរបស់ខ្ញុំ',
+  'Products you made yourself (only yours)': 'ទំនិញដែលអ្នកបង្កើតខ្លួនឯង (តែរបស់អ្នក)',
+  'Stock in and payments between you and K-TRONiCS': 'ការដាក់ស្តុក និងការបង់ប្រាក់រវាងអ្នក និង K-TRONiCS',
+  'Stock or money from K-TRONiCS waits for you': 'ស្តុក ឬប្រាក់ពី K-TRONiCS កំពុងរង់ចាំអ្នក',
+  'Only your partner sees these': 'មានតែដៃគូរបស់អ្នកឃើញ',
+  'Code (SKU)': 'លេខកូដ (SKU)',
+  'empty = made for you': 'ទទេ = បង្កើតឱ្យអ្នក',
+  'My selling price ($)': 'តម្លៃលក់របស់ខ្ញុំ ($)',
+  'Active (can be sold)': 'សកម្ម (អាចលក់បាន)',
+  'Product saved': 'បានរក្សាទុកទំនិញ',
+  'No products of your own yet': 'មិនទាន់មានទំនិញផ្ទាល់ខ្លួន',
+  'Put stock of them with My stock → Add stock (K-TRONiCS approves). K-TRONiCS products are always in your list too.': 'ដាក់ស្តុកវាតាម ស្តុករបស់ខ្ញុំ → បន្ថែមស្តុក (K-TRONiCS អនុម័ត)។ ទំនិញ K-TRONiCS ក៏នៅក្នុងបញ្ជីរបស់អ្នកជានិច្ច។',
+  'Sent · waits for K-TRONiCS approval': 'បានផ្ញើ · រង់ចាំ K-TRONiCS អនុម័ត',
+  'You and K-TRONiCS can add stock to your warehouse. Each stock in waits for the other side to approve. Your sales take it out.': 'អ្នក និង K-TRONiCS អាចបន្ថែមស្តុកក្នុងឃ្លាំងរបស់អ្នក។ ការដាក់ស្តុកនីមួយៗរង់ចាំភាគីម្ខាងទៀតអនុម័ត។ ការលក់របស់អ្នកដកវាចេញ។',
+  '✅ Stock in · approvals': '✅ ការដាក់ស្តុក · ការអនុម័ត',
+  'Stock a partner adds waits for you. Stock you add waits for the partner.': 'ស្តុកដែលដៃគូបន្ថែម រង់ចាំអ្នក។ ស្តុកដែលអ្នកបន្ថែម រង់ចាំដៃគូ។',
+  'Waiting for the partner:': 'រង់ចាំដៃគូ:',
+  'Approved · stock added to the partner': 'បានអនុម័ត · បានបន្ថែមស្តុកឱ្យដៃគូ',
+  'Waiting for partner': 'រង់ចាំដៃគូ',
+  'Partner confirmed': 'ដៃគូបានបញ្ជាក់',
+  'Partner: not received': 'ដៃគូ: មិនបានទទួល',
+  'Sent · waits for the partner to confirm': 'បានផ្ញើ · រង់ចាំដៃគូបញ្ជាក់',
+  'Their products': 'ទំនិញរបស់ពួកគេ',
+  'No products of their own': 'គ្មានទំនិញផ្ទាល់ខ្លួន',
+});
+window.KT_KM_PATTERNS.push(
+  [/^To approve: (\d+)$/, 'ត្រូវអនុម័ត: $1'],
+  [/^Sent · waits for (.+) to approve$/, 'បានផ្ញើ · រង់ចាំ $1 អនុម័ត'],
+  [/^(\$[\d,.]+) waiting for partner$/, '$1 រង់ចាំដៃគូ']
+);
+
+// Partners: own dashboard (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Money': 'ប្រាក់',
+  'Collected this month': 'ប្រមូលបានខែនេះ',
+  'Customers owe': 'អតិថិជនជំពាក់',
+  'Value (selling prices)': 'តម្លៃ (តម្លៃលក់)',
+  'Stock in waiting': 'ការដាក់ស្តុករង់ចាំ',
+  'Best products · this month': 'ទំនិញលក់ដាច់ · ខែនេះ',
+  'Best customers · this month': 'អតិថិជនល្អបំផុត · ខែនេះ',
+  'No sales yet': 'មិនទាន់មានការលក់',
+  'Sales by day · this month': 'ការលក់តាមថ្ងៃ · ខែនេះ',
+  'Warn at': 'ព្រមានពេល',
+  'Warn me when I have this many or fewer (empty = no warning). It shows on your dashboard as low stock.': 'ព្រមានខ្ញុំពេលខ្ញុំមានចំនួននេះ ឬតិចជាង (ទទេ = មិនព្រមាន)។ វាបង្ហាញលើផ្ទាំងរបស់អ្នកជាស្តុកទាប។',
+  'You and K-TRONiCS can add stock to your warehouse. Each stock in waits for the other side to approve. Your sales take it out. Tap a product to set when to warn you (low stock).': 'អ្នក និង K-TRONiCS អាចបន្ថែមស្តុកក្នុងឃ្លាំងរបស់អ្នក។ ការដាក់ស្តុកនីមួយៗរង់ចាំភាគីម្ខាងទៀតអនុម័ត។ ការលក់របស់អ្នកដកវាចេញ។ ចុចលើទំនិញដើម្បីកំណត់ពេលព្រមាន (ស្តុកទាប)។',
+});
+window.KT_KM_PATTERNS.push(
+  [/^(\d+) order\(s\)$/, 'ការបញ្ជាទិញ $1'],
+  [/^(\d+) customer\(s\)$/, 'អតិថិជន $1'],
+  [/^(\d+) product\(s\)$/, 'ទំនិញ $1'],
+  [/^(\$[\d,.]+) waiting for confirmation$/, '$1 រង់ចាំការបញ្ជាក់']
+);
+
+// Partners: dashboard dates (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Money collected': 'ប្រាក់បានប្រមូល',
+  'Owed now': 'ជំពាក់ឥឡូវ',
+  'Stock now': 'ស្តុកឥឡូវ',
+  'Best products': 'ទំនិញលក់ដាច់',
+  'Best customers': 'អតិថិជនល្អបំផុត',
+  'vs before': 'ធៀបមុន',
+});
+window.KT_KM_PATTERNS.push(
+  [/^(\d+) payment\(s\)$/, 'ការបង់ប្រាក់ $1']
+);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -6737,6 +6995,125 @@ Object.assign(window.KT_ZH, {
 });
 window.KT_ZH_PATTERNS.push(
   [/^Show all (\d+)$/, '显示全部 $1']
+);
+
+// Partners: Goods from partners (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Loading goods from partners…': '正在加载合作伙伴的货物…',
+  'Partner gives the goods → you tap': '合作伙伴交货 → 您点击',
+  '→ they wait in': '→ 货物放在',
+  '(not in your stock, value or reports).': '（不在您的库存、价值或报表中）。',
+  'makes a normal purchase (supplier you choose) into the Main warehouse.': '会生成一张普通采购单（您选择的供应商），进入主仓库。',
+  'Waiting to receive': '等待收货',
+  'Goods from partners': '合作伙伴的货物',
+  'On the way': '在途',
+  'Move to my stock': '转入我的库存',
+  'Nothing here. Goods come here when you tap Received.': '这里没有货物。点击"已收到"后货物会放在这里。',
+  'Received goods · money': '已收货物 · 款项',
+  'Not received yet': '尚未收到',
+  '↩️ Give back': '↩️ 退回',
+  '💵 Pay partner': '💵 付款给合作伙伴',
+  'Goods received?': '已收到货物？',
+  'Received · in Goods from partners': '已收到 · 放在合作伙伴的货物中',
+  'Cancel payment': '取消付款',
+  'Cancel this payment?': '取消这笔付款？',
+  'Payment saved': '付款已保存',
+  'Payment cancelled': '付款已取消',
+  '💵 Save payment': '💵 保存付款',
+  'Given back': '已退回',
+  'Type how many pieces to give back': '请输入要退回的件数',
+  'Type how many pieces to move': '请输入要转移的件数',
+  'Add a supplier in Purchasing first': '请先在"采购"中添加供应商',
+  'Makes a normal purchase in Purchasing (received at once): the pieces go into the Main warehouse and leave Goods from partners. You pay that supplier in Purchasing.': '在"采购"中生成一张普通采购单（立即收货）：货物进入主仓库并离开合作伙伴的货物。您在"采购"中付款给该供应商。',
+  'Price per piece ($)': '单价（$）',
+  'These were made the old way (as purchases into the Main warehouse) and stay as they are.': '这些是按旧方式（作为进入主仓库的采购）做的，保持不变。',
+  'Waiting for you to tap Received': '等待您点击"已收到"',
+  '(Partners tab)': '（合作伙伴页面）',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Old purchases from partners \(before 24 Oct\) · (\d+)$/, '旧的合作伙伴采购（10月24日前）· $1'],
+  [/^(PO-\d+) made in Purchasing \(received\)$/, '$1 已在采购中生成（已收货）'],
+  [/^(\d+) pcs go into Goods from partners \(not your Main stock\)\. Check the goods first\.$/, '$1 件进入合作伙伴的货物（不是您的主库存）。请先检查货物。']
+);
+
+// Partners: own products and approvals (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Between you and K-TRONiCS': '您和 K-TRONiCS 之间',
+  'Stock from K-TRONiCS': '来自 K-TRONiCS 的库存',
+  'Money from K-TRONiCS': '来自 K-TRONiCS 的款项',
+  'Nothing waits for you.': '没有等待您处理的事项。',
+  'Approve only when the goods are really in your warehouse.': '只有货物真的在您的仓库时才批准。',
+  'Not received': '没有收到',
+  'I got the money': '我已收到款项',
+  'No stock in yet': '还没有入库',
+  'Money not received': '没有收到款项',
+  'Cancel this stock in': '取消这次入库',
+  'Approved · stock added': '已批准 · 已加入库存',
+  'Thank you · marked as paid': '谢谢 · 已记为已付',
+  'My products': '我的产品',
+  'Products you made yourself (only yours)': '您自己创建的产品（只属于您）',
+  'Stock in and payments between you and K-TRONiCS': '您与 K-TRONiCS 之间的入库和付款',
+  'Stock or money from K-TRONiCS waits for you': '来自 K-TRONiCS 的库存或款项等待您处理',
+  'Only your partner sees these': '只有您的合作伙伴能看到',
+  'Code (SKU)': '编码（SKU）',
+  'empty = made for you': '空白 = 自动生成',
+  'My selling price ($)': '我的售价（$）',
+  'Active (can be sold)': '启用（可以销售）',
+  'Product saved': '产品已保存',
+  'No products of your own yet': '还没有自己的产品',
+  'Put stock of them with My stock → Add stock (K-TRONiCS approves). K-TRONiCS products are always in your list too.': '通过 我的库存 → 添加库存 来入库（K-TRONiCS 批准）。K-TRONiCS 的产品也一直在您的列表中。',
+  'Sent · waits for K-TRONiCS approval': '已发送 · 等待 K-TRONiCS 批准',
+  'You and K-TRONiCS can add stock to your warehouse. Each stock in waits for the other side to approve. Your sales take it out.': '您和 K-TRONiCS 都可以向您的仓库添加库存。每次入库都要等对方批准。您的销售会扣减库存。',
+  '✅ Stock in · approvals': '✅ 入库 · 审批',
+  'Stock a partner adds waits for you. Stock you add waits for the partner.': '合作伙伴添加的库存等待您批准。您添加的库存等待合作伙伴批准。',
+  'Waiting for the partner:': '等待合作伙伴：',
+  'Approved · stock added to the partner': '已批准 · 已加入合作伙伴库存',
+  'Waiting for partner': '等待合作伙伴',
+  'Partner confirmed': '合作伙伴已确认',
+  'Partner: not received': '合作伙伴：未收到',
+  'Sent · waits for the partner to confirm': '已发送 · 等待合作伙伴确认',
+  'Their products': '他们的产品',
+  'No products of their own': '没有他们自己的产品',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^To approve: (\d+)$/, '待审批：$1'],
+  [/^Sent · waits for (.+) to approve$/, '已发送 · 等待 $1 批准'],
+  [/^(\$[\d,.]+) waiting for partner$/, '$1 等待合作伙伴']
+);
+
+// Partners: own dashboard (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Money': '款项',
+  'Collected this month': '本月已收',
+  'Customers owe': '客户欠款',
+  'Value (selling prices)': '价值（售价）',
+  'Stock in waiting': '待审批入库',
+  'Best products · this month': '畅销产品 · 本月',
+  'Best customers · this month': '最佳客户 · 本月',
+  'No sales yet': '还没有销售',
+  'Sales by day · this month': '每日销售 · 本月',
+  'Warn at': '提醒数量',
+  'Warn me when I have this many or fewer (empty = no warning). It shows on your dashboard as low stock.': '当库存等于或少于这个数量时提醒我（空白 = 不提醒）。会在您的仪表板上显示为库存不足。',
+  'You and K-TRONiCS can add stock to your warehouse. Each stock in waits for the other side to approve. Your sales take it out. Tap a product to set when to warn you (low stock).': '您和 K-TRONiCS 都可以向您的仓库添加库存。每次入库都要等对方批准。您的销售会扣减库存。点击产品可以设置提醒（库存不足）。',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^(\d+) order\(s\)$/, '$1 个订单'],
+  [/^(\d+) customer\(s\)$/, '$1 位客户'],
+  [/^(\d+) product\(s\)$/, '$1 个产品'],
+  [/^(\$[\d,.]+) waiting for confirmation$/, '$1 等待确认']
+);
+
+// Partners: dashboard dates (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Money collected': '已收款项',
+  'Owed now': '当前欠款',
+  'Stock now': '当前库存',
+  'Best products': '畅销产品',
+  'Best customers': '最佳客户',
+  'vs before': '对比之前',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^(\d+) payment\(s\)$/, '$1 笔付款']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -12357,8 +12734,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   route(/^\/partner$/, async (_, __, current) => {
     const main = page({ title: 'Partner app', sub: K.S.me.full_name });
-    const [p, reqs] = await Promise.all([api.partnerMe(), api.partnerRequestsMine().catch(() => [])]);
-    const waiting = reqs.filter(r => r.status === 'waiting').length;
+    const [p, reqs, apv] = await Promise.all([api.partnerMe(), api.partnerRequestsMine().catch(() => []), api.partnerApprovals ? api.partnerApprovals().catch(() => null) : null]);
+    const dash = !!(api.partnerDashboard && K.partnerDashBox);
+    const waiting = reqs.filter(r => r.status === 'waiting').length, toOk = apv ? apv.stock_ins.length + apv.payments.length : 0;
     if (!current()) return;
     main.innerHTML = `<div class="pad">
       <div class="card" style="align-items:center;text-align:center;gap:8px">
@@ -12367,6 +12745,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${p.phone ? `<div class="small muted">${esc(p.phone)}</div>` : ''}${p.address ? `<div class="small muted">${esc(p.address)}</div>` : ''}
       </div>
       <a class="btn block" href="#/partner/new">${icon('plus', 18)}New order</a>
+      ${dash ? '<div id="pdash"></div>' : toOk ? `<a class="card" href="#/partner/approve" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px">${icon('check', 20)}<div class="grow"><b>To approve: ${toOk}</b><div class="small">Stock or money from K-TRONiCS waits for you</div></div>${icon('right', 18)}</a>` : ''}
       ${waiting ? `<a class="card" href="#/partner/requests" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px">${icon('bell', 20)}<div class="grow"><b>K-TRONiCS asks for goods</b><div class="small">${waiting} request(s) waiting for your answer</div></div>${icon('right', 18)}</a>` : ''}
       <div class="card flush">
         <a class="list-item" href="#/partner/orders">${icon('order', 20)}<div class="grow"><div class="tt">Orders</div><div class="st">Your sales, payments, invoices</div></div>${icon('right', 18)}</a>
@@ -12375,6 +12754,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       </div>
       <div class="card flush">
         <a class="list-item" href="#/partner/stock">${icon('box', 20)}<div class="grow"><div class="tt">My stock</div><div class="st">What is in your partner warehouse</div></div>${icon('right', 18)}</a>
+        <a class="list-item" href="#/partner/products">${icon('box', 20)}<div class="grow"><div class="tt">My products</div><div class="st">Products you made yourself (only yours)</div></div>${icon('right', 18)}</a>
+        <a class="list-item" href="#/partner/approve">${icon('check', 20)}<div class="grow"><div class="tt">Approvals</div><div class="st">Stock in and payments between you and K-TRONiCS</div></div>${toOk ? `<span class="pill or">${toOk}</span>` : icon('right', 18)}</a>
         <a class="list-item" href="#/partner/prices">${icon('cash', 20)}<div class="grow"><div class="tt">My prices</div><div class="st">Your own selling prices</div></div>${icon('right', 18)}</a>
         <a class="list-item" href="#/partner/requests">${icon('send', 20)}<div class="grow"><div class="tt">Requests from K-TRONiCS</div><div class="st">K-TRONiCS buys goods from you</div></div>${waiting ? `<span class="pill or">${waiting}</span>` : ''}${icon('right', 18)}</a>
         <a class="list-item" href="#/partner/history">${icon('list', 20)}<div class="grow"><div class="tt">Stock history</div><div class="st">Stock in, counts and sales</div></div>${icon('right', 18)}</a>
@@ -12384,6 +12765,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <button class="list-item" id="pprof" style="width:100%;text-align:left">${icon('lock', 20)}<div class="grow"><div class="tt">My profile</div><div class="st">Appearance and password</div></div>${icon('right', 18)}</button>
         <button class="list-item" id="pout" style="width:100%;text-align:left">${icon('logout', 20)}<div class="grow"><div class="tt">Log out</div></div></button>
       </div></div>`;
+    if (dash) K.partnerDashBox(K.$('#pdash', main), (f, t) => api.partnerDashboard(f, t), true, K.S.pDash = K.S.pDash || { p: 'today' });
     K.$('#pprof', main).onclick = passwordSheet;
     K.$('#pout', main).onclick = async () => { if (await K.confirmSheet('Log out?', 'You will need your username and password to log in again.', 'Log out', true)) K.logout(); };
   });
@@ -12394,7 +12776,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // add stock myself (only when K-TRONiCS allowed it for my partner): goods I bought myself go into my partner warehouse
   function addStockSheet(rows, onDone) {
     const lines = new Map();   // product_id -> qty
-    const s = K.sheet('Add stock', `<div class="small muted" style="line-height:1.5">Goods you bought yourself. They go into your partner warehouse.</div>
+    const s = K.sheet('Add stock', `<div class="small muted" style="line-height:1.5">Goods you bought yourself. They go into your partner warehouse when K-TRONiCS approves.</div>
       <div class="search">${icon('search', 18)}<input id="aq" placeholder="Search product or SKU"></div>
       <div class="card flush" id="al" style="max-height:300px;overflow:auto"></div>
       <div id="asum" class="small"></div>
@@ -12414,7 +12796,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const items = [...lines].filter(([, q]) => q > 0).map(([product_id, qty]) => ({ product_id, qty }));
       if (!items.length) return toast('Type how many pieces of at least one product');
       await busy(e.currentTarget, () => api.partnerMyStockIn(items, K.$('#anote', s.el).value.trim()));
-      s.close(); toast('Stock added'); if (onDone) onDone();
+      s.close(); toast('Sent · waits for K-TRONiCS approval'); if (onDone) onDone();
     };
   }
 
@@ -12427,15 +12809,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const list = rows.filter(r => (!only || r.qty > 0) && (!term || (r.name + ' ' + r.sku + ' ' + (r.category || '')).toLowerCase().includes(term)));
       const pcs = rows.reduce((a, r) => a + r.qty, 0);
       main.innerHTML = `<div class="pad">
-        ${me.can_add_stock ? `<button class="btn block" id="sadd">${icon('plus', 18)}Add stock</button>` : ''}
+        <button class="btn block" id="sadd">${icon('plus', 18)}Add stock</button>
         <div class="kpis">${'<div class="stat"><b>' + rows.filter(r => r.qty > 0).length + '</b><span>Products in stock</span></div><div class="stat"><b>' + pcs + '</b><span>Pieces</span></div>'}</div>
         <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product or SKU" value="${esc(term)}"></div>
         <div class="seg">${[['1', 'In stock'], ['0', 'All products']].map(([k, l]) => `<button data-o="${k}" class="${(only ? '1' : '0') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <div class="card flush">${list.map(r => `<div class="list-item"><div class="grow"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)} · ${r.price != null ? K.money(r.price) : 'no price yet'}</div></div><b style="font-size:16px;${r.qty ? '' : 'color:var(--mu)'}">${r.qty}</b></div>`).join('') || `<div class="empty">${only ? 'No stock yet. K-TRONiCS adds stock to your warehouse.' : 'No products found'}</div>`}</div>
-        <div class="small muted">${me.can_add_stock ? 'You and K-TRONiCS can add stock to your warehouse. Your sales take it out.' : 'Only K-TRONiCS can add stock to your warehouse. Your sales take it out.'}</div></div>`;
+        <div class="card flush">${list.map(r => `<div class="list-item" data-wa="${r.product_id}" style="cursor:pointer"><div class="grow"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)} · ${r.price != null ? K.money(r.price) : 'no price yet'}${r.warn_at != null ? ' · warn at ' + r.warn_at : ''}</div></div><b style="font-size:16px;${r.qty ? '' : 'color:var(--mu)'}">${r.qty}</b></div>`).join('') || `<div class="empty">${only ? 'No stock yet. K-TRONiCS adds stock to your warehouse.' : 'No products found'}</div>`}</div>
+        <div class="small muted">You and K-TRONiCS can add stock to your warehouse. Each stock in waits for the other side to approve. Your sales take it out. Tap a product to set when to warn you (low stock).</div></div>`;
       if (K.$('#sadd', main)) K.$('#sadd', main).onclick = () => addStockSheet(rows.filter(r => r.qty >= 0), async () => { rows = await api.partnerProducts(); draw(); });
       const q = K.$('#q', main); q.oninput = e => { term = e.target.value.trim().toLowerCase(); const pos = e.target.selectionStart; draw(); const i = K.$('#q', main); i.focus(); i.setSelectionRange(pos, pos); };
       K.$$('[data-o]', main).forEach(b => b.onclick = () => { only = b.dataset.o === '1'; draw(); });
+      K.$$('[data-wa]', main).forEach(b => b.onclick = () => { const r = rows.find(x => x.product_id === +b.dataset.wa);   // "warn at": low stock on my dashboard
+        const s = K.sheet(r.name, `<div class="small muted">Warn me when I have this many or fewer (empty = no warning). It shows on your dashboard as low stock.</div>
+          <label class="f">Warn at<input class="inp" id="wat" type="number" min="0" inputmode="numeric" value="${r.warn_at ?? ''}"></label><button class="btn block" id="waok">Save</button>`);
+        K.$('#waok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.partnerSetWarn([{ product_id: r.product_id, warn_at: K.$('#wat', s.el).value.trim() }])); s.close(); rows = await api.partnerProducts(); toast('Saved'); draw(); }; });
     };
     draw();
   });
@@ -12471,6 +12857,67 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const moves = await api.partnerMyMoves();
     if (!current()) return;
     main.innerHTML = `<div class="pad"><div class="card flush">${moves.map(m => `<div class="list-item"><div class="grow"><div class="tt">${esc(m.product)}</div><div class="st">${esc(KIND[m.kind] || m.kind)}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(fmtWhen(m.at))}</div></div><b style="color:${m.change > 0 ? 'var(--gr)' : 'var(--rd)'}">${m.change > 0 ? '+' : ''}${m.change}</b><span class="small muted" style="width:52px;text-align:right">= ${m.qty_after}</span></div>`).join('') || '<div class="empty">No history yet</div>'}</div></div>`;
+  });
+
+  // approvals (24 Oct 2026): stock K-TRONiCS put into my warehouse and money K-TRONiCS paid me wait for my OK
+  const METH = { cash: 'Cash', aba: 'ABA', bank: 'Bank', other: 'Other' };
+  route(/^\/partner\/approve$/, async (_, __, current) => {
+    const main = page({ title: 'Approvals', sub: 'Between you and K-TRONiCS', back: '#/partner' });
+    const draw = async () => {
+      const [a, all] = await Promise.all([api.partnerApprovals(), api.partnerStockInsList(null, null)]);
+      if (!current()) return;
+      const items = x => x.items.map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
+      const pill = x => x.status === 'approved' ? '<span class="pill gr">Approved</span>' : x.status === 'rejected' ? '<span class="pill rd">Not approved</span>' : x.status === 'cancelled' ? '<span class="pill gy">Cancelled</span>' : '<span class="pill or">Waiting</span>';
+      main.innerHTML = `<div class="pad">
+        <div class="sec">Stock from K-TRONiCS</div>
+        ${a.stock_ins.map(x => `<div class="card" style="gap:6px"><div class="row"><b class="grow">${esc(x.in_no)} · ${x.pcs} pcs</b>${pill(x)}</div><div class="small">${items(x)}</div>${x.note ? `<div class="small muted">${esc(x.note)}</div>` : ''}
+          <div class="small muted">Approve only when the goods are really in your warehouse.</div>
+          <div class="btns" style="margin:0"><button class="btn sm out" data-sno="${x.id}" style="color:var(--rd)">Say no</button><button class="btn sm green" data-sok="${x.id}">${icon('check', 16)}Approve</button></div></div>`).join('') || '<div class="card small muted">Nothing waits for you.</div>'}
+        <div class="sec">Money from K-TRONiCS</div>
+        ${a.payments.map(y => `<div class="card" style="gap:6px"><div class="row"><b class="grow">${K.money(y.amount)} · ${esc(METH[y.method] || y.method)}</b><span class="pill or">Waiting</span></div>
+          <div class="small muted">For ${esc(y.order_no)} · ${esc(fmtWhen(y.made_at))}${y.note ? ' · ' + esc(y.note) : ''}</div>
+          <div class="btns" style="margin:0"><button class="btn sm out" data-pno="${y.id}" style="color:var(--rd)">Not received</button><button class="btn sm green" data-pok="${y.id}">${icon('check', 16)}I got the money</button></div></div>`).join('') || '<div class="card small muted">Nothing waits for you.</div>'}
+        <div class="sec">History</div>
+        <div class="card flush">${all.slice(0, 50).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.in_no)} · ${x.side === 'partner' ? 'You added' : 'K-TRONiCS added'} ${x.pcs} pcs</div>
+          <div class="st">${esc(fmtWhen(x.made_at))}${x.reason ? ' · ' + esc(x.reason) : ''}</div></div>${pill(x)}${x.can_cancel ? `<button class="btn sm out" data-scx="${x.id}" style="margin-left:6px">Cancel</button>` : ''}</div>`).join('') || '<div class="empty">No stock in yet</div>'}</div></div>`;
+      const why = (title, fn) => { const s = K.sheet(title, `<label class="f">Why?<input class="inp" id="wy"></label><button class="btn red block" id="wyok">Send</button>`);
+        K.$('#wyok', s.el).onclick = async e => { await busy(e.currentTarget, () => fn(K.$('#wy', s.el).value.trim())); s.close(); draw(); }; };
+      K.$$('[data-sok]', main).forEach(b => b.onclick = async () => { await busy(b, () => api.partnerStockInDecide(+b.dataset.sok, true, null)); toast('Approved · stock added'); draw(); });
+      K.$$('[data-sno]', main).forEach(b => b.onclick = () => why('Say no', r => api.partnerStockInDecide(+b.dataset.sno, false, r)));
+      K.$$('[data-pok]', main).forEach(b => b.onclick = async () => { await busy(b, () => api.partnerKtrPayDecide(+b.dataset.pok, true, null)); toast('Thank you · marked as paid'); draw(); });
+      K.$$('[data-pno]', main).forEach(b => b.onclick = () => why('Money not received', r => api.partnerKtrPayDecide(+b.dataset.pno, false, r)));
+      K.$$('[data-scx]', main).forEach(b => b.onclick = () => why('Cancel this stock in', r => api.partnerStockInCancel(+b.dataset.scx, r)));
+    };
+    await draw();
+  });
+
+  // my own products (24 Oct 2026): only my partner sees them; K-TRONiCS never sells them
+  function productSheet(x, onDone) {
+    x = x || {};
+    const s = K.sheet(x.product_id ? 'Edit product' : 'New product', `<label class="f">Name<input class="inp" id="pnn" value="${esc(x.name || '')}" maxlength="120"></label>
+      <div class="btns"><label class="f">Code (SKU)<input class="inp" id="pns" value="${esc(x.sku || '')}" placeholder="empty = made for you" maxlength="40"></label><label class="f">Category<input class="inp" id="pnc" value="${esc(x.category || '')}" maxlength="60"></label></div>
+      <label class="f">My selling price ($)<input class="inp" id="pnp" type="number" min="0" step="0.01" inputmode="decimal" value="${x.price ?? ''}"></label>
+      ${x.product_id ? `<label class="row" style="gap:10px"><input type="checkbox" id="pna" ${x.active !== false ? 'checked' : ''} style="width:20px;height:20px"><span>Active (can be sold)</span></label>` : ''}
+      <button class="btn block" id="pnok">Save</button>`);
+    K.$('#pnok', s.el).onclick = async e => {
+      const name = K.$('#pnn', s.el).value.trim(); if (!name) return toast('Write the product name');
+      await busy(e.currentTarget, () => api.partnerProductSave({ id: x.product_id || null, name, sku: K.$('#pns', s.el).value.trim(), category: K.$('#pnc', s.el).value.trim(), price: K.$('#pnp', s.el).value, active: K.$('#pna', s.el) ? K.$('#pna', s.el).checked : true }));
+      s.close(); toast('Product saved'); if (onDone) onDone();
+    };
+  }
+  route(/^\/partner\/products$/, async (_, __, current) => {
+    const main = page({ title: 'My products', sub: 'Only your partner sees these', back: '#/partner' });
+    const draw = async () => {
+      const rows = (await api.partnerProducts()).filter(r => r.mine);
+      if (!current()) return;
+      main.innerHTML = `<div class="pad"><button class="btn block" id="pnew">${icon('plus', 18)}New product</button>
+        <div class="card flush">${rows.map(r => `<button class="list-item" data-pe="${r.product_id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(r.name)}${r.active === false ? ' <span class="pill gy">Off</span>' : ''}</div>
+          <div class="st">${esc(r.sku)} · ${esc(r.category || '')} · ${r.price != null ? K.money(r.price) : 'no price yet'}</div></div><b>${r.qty}</b></button>`).join('') || '<div class="empty">No products of your own yet</div>'}</div>
+        <div class="small muted">Put stock of them with My stock → Add stock (K-TRONiCS approves). K-TRONiCS products are always in your list too.</div></div>`;
+      K.$('#pnew', main).onclick = () => productSheet(null, draw);
+      K.$$('[data-pe]', main).forEach(b => b.onclick = () => productSheet(rows.find(r => r.product_id === +b.dataset.pe), draw));
+    };
+    await draw();
   });
 })();
 
@@ -12822,6 +13269,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     <div class="card flush" style="margin:0">${r.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${K.money(i.price)} each · asked ${i.qty}</div></div>${i.qty_given != null ? `<b style="color:${i.qty_given ? 'var(--gr)' : 'var(--mu)'}">${i.qty_given} given</b>` : `<b>${i.qty}</b>`}</div>`).join('')}</div>
     ${r.reply ? `<div class="small">${r.status === 'cancelled' ? 'Why cancelled' : 'Partner says'}: ${esc(r.reply)}</div>` : ''}
     ${r.purchase_no ? `<div class="small"><b>${esc(r.purchase_no)}</b> in Purchasing${r.purchase_status === 'ordered' ? ' · <b style="color:var(--or)">waiting for you to Receive</b>' : r.purchase_status === 'cancelled' ? ' · cancelled' : ''} · ${K.money(r.total)} · paid ${K.money(r.paid)}${+r.owed > 0 ? ` · <b style="color:var(--or)">you owe ${K.money(r.owed)}</b>` : ''}</div>` : ''}
+    ${r.flow === 'goods' ? `<div class="small">${r.received_at ? '<b>Received</b> · in Goods from partners' : '<b style="color:var(--or)">Waiting for you to tap Received</b> (Partners tab)'} · ${K.money(r.total)} · paid ${K.money(r.paid)}${+r.owed > 0 ? ` · <b style="color:var(--or)">you owe ${K.money(r.owed)}</b>` : ''}</div>` : ''}
     ${r.status === 'waiting' ? `<button class="btn sm out red" data-rx="${r.id}" style="align-self:flex-start">${icon('x', 16)}Cancel request</button>` : ''}</div>`;
 
   // all requests (optionally one partner)
@@ -12839,6 +13287,51 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         try { await api.partnerRequestCancel(+b.dataset.rx, null); toast('Request cancelled'); } catch (e) { toast(e.message); } draw(); });
     };
     await draw();
+  };
+
+  // the partner's own dashboard (24 Oct 2026): partner app Home and admin Partners → partner → Dashboard (same numbers)
+  // the dates chosen on a partner dashboard (kept per screen): today / week / month / custom
+  K.partnerDashPeriod = (st) => { const P = K.period, t = P.today(), x = new Date(t + 'T12:00:00');
+    if (st.p === 'week') { x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return [P.dstr(x), t]; }
+    if (st.p === 'month') return [t.slice(0, 8) + '01', t];
+    if (st.p === 'custom') return [st.from || t, st.to || t];
+    return [t, t]; };
+  // draws the dashboard into el; load(from, to) gives the numbers. Used by the partner app Home and the admin partner page.
+  K.partnerDashBox = async function (el, load, partnerApp, st) {
+    st = st || { p: 'today' };
+    const draw = async () => {
+      const [f, t] = K.partnerDashPeriod(st);
+      el.innerHTML = K.loading;
+      const d = await load(f, t).catch(e => { toast(e.message); return null; });
+      if (!d || !el.isConnected) return;
+      el.innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${st.p === k ? 'on' : ''}" data-dp="${k}">${l}</button>`).join('')}</div>
+        ${st.p === 'custom' ? `<div class="btns"><label class="f">From<input class="inp" type="date" id="dpf" value="${esc(f)}"></label><label class="f">To<input class="inp" type="date" id="dpt" value="${esc(t)}"></label></div>` : ''}` + K.partnerDash(d, partnerApp);
+      K.$$('[data-dp]', el).forEach(b => b.onclick = () => { st.p = b.dataset.dp; if (st.p === 'custom' && !st.from) { st.from = f; st.to = t; } draw(); });
+      if (K.$('#dpf', el)) { K.$('#dpf', el).onchange = e => { st.from = e.target.value || st.from; draw(); }; K.$('#dpt', el).onchange = e => { st.to = e.target.value || st.to; draw(); }; }
+    };
+    await draw();
+  };
+  K.partnerDash = function (d, partnerApp) {
+    const m = K.money, M = d.period || {}, vs = +d.sales_before, diff = vs > 0 ? Math.round((+d.sales - vs) / vs * 100) : null;
+    const tile = (v, l, sub, color, href) => `<${href ? `a href="${href}"` : 'div'} class="card" style="padding:12px;gap:2px;text-decoration:none;color:inherit"><b style="font-size:20px;${color ? 'color:' + color : ''}">${v}</b><span class="small muted">${l}</span>${sub ? `<span class="small">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
+    const grid = h => `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">${h}</div>`;
+    const max = Math.max(1, ...(M.by_day || []).map(x => +x.sales));
+    const waitMe = +d.stock_in_waiting_me + +d.ktronics_pay_waiting_count;
+    return `<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+      ${waitMe && partnerApp ? `<a class="card" href="#/partner/approve" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;text-decoration:none;color:inherit"><div class="grow"><b>To approve: ${waitMe}</b><div class="small">Stock or money from K-TRONiCS waits for you</div></div></a>` : ''}
+      ${grid(tile(m(d.sales), 'Sales', d.orders + ' order(s)' + (diff != null ? ` · <b style="color:${diff >= 0 ? 'var(--gr)' : 'var(--rd)'}">${diff >= 0 ? '+' : ''}${diff}%</b> vs before` : ''), null, partnerApp ? '#/partner/orders' : null)
+        + tile(m(d.collected), 'Money collected', d.payments + ' payment(s)', +d.collected > 0 ? 'var(--gr)' : null))}
+      <div class="sec" style="margin:0">Owed now</div>
+      ${grid(tile(m(d.customers_owe), 'Customers owe', d.customers_owing + ' customer(s)', +d.customers_owe > 0 ? 'var(--or)' : null, partnerApp ? '#/partner/customers' : null)
+        + tile(m(d.ktronics_owes), 'K-TRONiCS owes', +d.ktronics_pay_waiting > 0 ? m(d.ktronics_pay_waiting) + ' waiting for confirmation' : '', null, partnerApp && +d.ktronics_pay_waiting > 0 ? '#/partner/approve' : null))}
+      <div class="sec" style="margin:0">Stock now</div>
+      ${grid(tile(d.pieces + ' pcs', 'In stock', d.products_in_stock + ' product(s)', null, partnerApp ? '#/partner/stock' : null) + tile(m(d.stock_value), 'Value (selling prices)', +d.no_price ? d.no_price + ' product(s) without price' : '')
+        + tile(d.low.length, 'Low stock', '', d.low.length ? 'var(--rd)' : null) + tile(+d.stock_in_waiting_me + +d.stock_in_waiting_ktronics, 'Stock in waiting', (+d.stock_in_waiting_me ? d.stock_in_waiting_me + ' for ' + (partnerApp ? 'you' : 'the partner') : '') + (+d.stock_in_waiting_ktronics ? (+d.stock_in_waiting_me ? ' · ' : '') + d.stock_in_waiting_ktronics + ' for K-TRONiCS' : '')))}
+      ${d.low.length ? `<div class="card flush">${d.low.slice(0, 10).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')} · warn at ${x.warn_at}</div></div><b style="color:${x.qty <= 0 ? 'var(--rd)' : 'var(--or)'}">${x.qty}</b></div>`).join('')}</div>` : ''}
+      ${(M.by_day || []).length > 1 ? `<div class="card"><b>Sales by day</b>${M.by_day.map(x => `<div class="row" style="gap:8px"><span class="small" style="width:56px">${esc(new Date(x.day + 'T12:00:00').toLocaleDateString([], { day: 'numeric', month: 'short' }))}</span><div class="grow" style="background:var(--bg);border-radius:6px;height:12px"><div style="width:${Math.round(+x.sales / max * 100)}%;height:12px;border-radius:6px;background:var(--p)"></div></div><span class="small" style="width:80px;text-align:right">${m(x.sales)}</span></div>`).join('')}</div>` : ''}
+      ${grid(`<div class="card flush"><div class="list-item"><b class="grow">Best products</b></div>${(M.by_product || []).slice(0, 5).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.product)}</div><div class="st">${x.pcs} pcs</div></div><b>${m(x.sales)}</b></div>`).join('') || '<div class="empty">No sales in these dates</div>'}</div>`
+        + `<div class="card flush"><div class="list-item"><b class="grow">Best customers</b></div>${(M.by_customer || []).slice(0, 5).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.customer)}</div><div class="st">${x.orders} order(s)</div></div><b>${m(x.sales)}</b></div>`).join('') || '<div class="empty">No sales in these dates</div>'}</div>`)}
+    </div>`;
   };
 })();
 
