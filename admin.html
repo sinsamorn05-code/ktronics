@@ -1520,6 +1520,8 @@ window.makeSupabaseApi = function (cfg) {
     visitsBetween: (from, to, staffId) => all(() => { let x = sb.from('visits').select('*, customers(name, area, lat, lng), profiles(full_name)').gte('check_in_at', from).lt('check_in_at', to).order('check_in_at').order('id'); if (staffId) x = x.eq('staff_id', staffId); return x; }),
     listVisits: () => q(sb.from('visits').select('*, customers(name, area), profiles(full_name)').order('id', { ascending: false }).limit(200)),
     activeVisit: () => me ? q(sb.from('visits').select('*, customers(*)').eq('staff_id', me.id).is('check_out_at', null).order('id', { ascending: false }).limit(1).maybeSingle()) : null,
+    // a new shop together with its first check-in (field staff, 24 Oct 2026)
+    shopCreateCheckin: (row, pos, photoUrl) => q(sb.rpc('shop_create_checkin', { p: row, p_lat: pos.lat, p_lng: pos.lng, p_acc: Math.round(pos.acc), p_photo: photoUrl, p_notes: null })),
     async checkIn(v) {
       const photo_url = v.photo ? await api.uploadPhoto(v.photo, 'visits') : null;
       return q(sb.from('visits').insert({ customer_id: v.customer_id, staff_id: me.id, lat: v.lat, lng: v.lng, distance_m: v.distance_m, photo_url, notes: v.notes || null, reason: v.reason || null }).select().single());
@@ -1784,9 +1786,9 @@ window.makeDemoApi = function () {
       below_price: ['🏷', 'Sold below price / free items'], over_credit_limit: ['🚨', 'Shop over its credit limit'], stock_moved: ['🔀', 'Stock moved between stocks'],
       stock_adjusted: ['✏️', 'Stock count changed by hand'], goods_returned: ['↩️', 'Returned to supplier'], data_cleared: ['🧹', 'Clear data was used'], staff_account: ['👤', 'Staff account or permissions changed'],
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
-      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'] },
+      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves'],
+    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -2196,7 +2198,7 @@ window.makeDemoApi = function () {
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
   const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance', 'shops', 'expenses', 'leave', 'below_price', 'over_credit_limit',
     'stock_moved', 'stock_adjusted', 'goods_returned', 'data_cleared', 'staff_account', 'price_changed', 'order_changed', 'credit_overdue',
-    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent'];   // same as alert_kinds in the database
+    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle'];   // same as alert_kinds in the database
   if (D && D.convs && !D.alertsMore) {   // like the database: the new alerts start ticked in the built-in channel that fits
     D.convs.forEach(c => { if (c.slug === 'alerts') c.alert_types = ['below_price', 'over_credit_limit', 'data_cleared', 'staff_account', 'price_changed', 'order_changed'];
       if (c.slug === 'stock_alerts') c.alert_types = ['stock_moved', 'stock_adjusted']; });
@@ -2205,6 +2207,9 @@ window.makeDemoApi = function () {
     D.convs.forEach(c => { const add = c.slug === 'visit_alerts' ? ['shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list'] : c.slug === 'alerts' ? ['credit_overdue'] : c.slug === 'attendance_alerts' ? ['staff_absent'] : [];
       if (add.length) c.alert_types = [...new Set((c.alert_types || []).concat(add))]; });
     D.alertsMore2 = 1; }
+  if (D && D.convs && !D.alertsIdle) {   // 24 Oct 2026: "rep with no shop visit" starts ticked in the visit alerts channel
+    D.convs.forEach(c => { if (c.slug === 'visit_alerts') c.alert_types = [...new Set((c.alert_types || []).concat(['staff_idle']))]; });
+    D.alertsIdle = 1; }
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
   const canPost = c => !c ? false : SYS_ALERT.includes(c.slug) || (c.alert_types || []).length ? false : c.slug === 'announcements' ? allow('chat.announce') : c.kind === 'channel' ? convAdmin(c) : canAccessConv(c);
@@ -3146,6 +3151,7 @@ window.makeDemoApi = function () {
       if (!c.id && !allow('customers.create')) fail('You are not allowed to add shops');
       const prevC = c.id && D.customers.find(x => x.id === c.id), src = c.source !== undefined ? (c.source || null) : prevC ? prevC.source || null : null;
       if (!c.id && !src && role() === 'online_sales') fail('Choose where the customer came from (Facebook, TikTok, …)');
+      if (!c.id && !src && ['sales', 'supervisor', 'agent'].includes(role()) && !api._shopCk) fail('Check in at the shop first (GPS + photo), then save the new shop');   // 24 Oct 2026
       if (src) { if (![...'facebook tiktok telegram_group referral walk_in other'.split(' ')].includes(src)) fail('Unknown source');
         if (!row.name || !row.phone || !row.telegram) fail('Please fill in: name, phone and Telegram'); row.source = src; }
       if ((D.settings || {}).shop_rules_strict === 'true' && !src) { const miss = [['name', 'Shop name'], ['owner_name', 'Owner'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['province', 'Province'], ['district', 'District'], ['commune', 'Commune'], ['village', 'Village'], ['area', 'Area / market']].filter(([k]) => !String(row[k] || (k === 'name' ? c.name : '') || '').trim()).map(x => x[1]);
@@ -4251,6 +4257,8 @@ window.makeDemoApi = function () {
         if (['alert_not_visited_days', 'alert_sleeping_days', 'alert_new_unvisited_days'].includes(k)) { if (!/^\d+$/.test(v) || +v < 1 || +v > 365) fail('Days: type a number from 1 to 365'); }
         else if (k === 'alert_absent_time') { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:30'); }
         else if (k === 'alert_to_rep') { if (!['on', 'off'].includes(v)) fail('Unknown value'); }
+        else if (['alert_idle_from', 'alert_idle_to'].includes(k)) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:00'); }
+        else if (k === 'alert_idle_after') { const m = /^(\d{1,2}):([0-5]\d)$/.exec(v), mins = m ? +m[1] * 60 + +m[2] : 0; if (v && (!m || mins < 10 || mins > 720)) fail('No shop visit: type hours:minutes from 0:10 to 12:00 (empty = off)'); }
         else fail('Unknown setting ' + k); });
       D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
     async saveSettings(obj) { if (!hasRole('admin')) fail('Only the admin can change settings'); D.settings = Object.assign(D.settings || {}, obj); save(); return wait(null); },
@@ -4584,6 +4592,17 @@ window.makeDemoApi = function () {
   api.partnerTgGroupDelete = async id => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); D.pTg = (D.pTg || []).filter(g => g.id !== +id); save(); return wait(null); };
   api.partnerTgGroupTest = async id => { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); const T = D.tg || {}; if (!T.token) fail('Save the bot token first');
     if (!(D.pTg || []).some(g => g.id === +id)) fail('Group not found'); T.last = { ok: true }; save(); return wait(4); };
+  // a new shop together with its first check-in (field staff, 24 Oct 2026) — like shop_create_checkin
+  api.shopCreateCheckin = async (row, pos, photoUrl) => {
+    if (!pos || pos.lat == null || pos.lng == null) fail('Check in at the shop first: GPS is missing');
+    if (!(pos.acc <= 100)) fail('GPS is not good enough (more than 100 m). Go outside or near the door and try again');
+    if (!/^(https?:|data:|blob:)/.test(photoUrl || '')) fail('Check in at the shop first: take a photo of the shop');
+    if (!allow('visits.create')) fail('You are not allowed to check in');
+    let saved; api._shopCk = true;
+    try { saved = await api.saveCustomer(Object.assign({}, row, { lat: pos.lat, lng: pos.lng, map_url: row.map_url || `https://www.google.com/maps?q=${pos.lat},${pos.lng}` })); } finally { api._shopCk = false; }
+    const v = await api.checkIn({ customer_id: saved.id, lat: pos.lat, lng: pos.lng, notes: 'New shop' });
+    const vr = D.visits.find(x => x.id === (v && v.id)) || D.visits[D.visits.length - 1]; if (vr) { vr.photo_url = photoUrl; vr.distance_m = 0; } save();
+    return wait({ customer: D.customers.find(x => x.id === saved.id), visit_id: vr && vr.id }); };
   // owner / seller partner logins (24 Oct 2026): a seller only sells, sees customers and stock — same as the database
   api.adminSetPartnerRole = async (id, role) => { if (!hasRole('admin')) fail('Only the admin can change partner logins'); if (!['owner', 'seller'].includes(role)) fail('Choose Owner or Seller');
     const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login'); u.partner_role = role; save(); return wait(null); };
@@ -5841,6 +5860,39 @@ Object.assign(window.KT_KM, {
 window.KT_KM_PATTERNS.push(
   [/^Make a Telegram group with (.+) \(your people, their people and your company bot\), send \/start in it, then add it here\. Only the news you tick goes there\.$/, 'បង្កើតក្រុម Telegram ជាមួយ $1 (មនុស្សរបស់អ្នក មនុស្សរបស់គេ និង bot ក្រុមហ៊ុន) ផ្ញើ /start ក្នុងក្រុម រួចបន្ថែមវានៅទីនេះ។ មានតែព័ត៌មានដែលអ្នកធីកប៉ុណ្ណោះ ដែលទៅទីនោះ។'],
   [/^Add Telegram group · (.+)$/, 'បន្ថែមក្រុម Telegram · $1']
+);
+Object.assign(window.KT_KM, {
+  '"No shop visit" alert after (hours:minutes, e.g. 2:00 · empty = off)': 'ជូនដំណឹង "មិនចុះហាង" បន្ទាប់ពី (ម៉ោង:នាទី ឧ. 2:00 · ទទេ = បិទ)',
+  'Check from': 'ពិនិត្យចាប់ពី',
+  'until': 'ដល់',
+  'off': 'បិទ',
+  'Sales reps, supervisors and agents who started work but made no shop check-in and no order for that long. Checked every 10 minutes; one alert per gap. Not on Sundays, holidays, leave or after finish work. Tick "⏳ Rep with no shop visit" in Settings → Telegram alerts for the groups that should get it.': 'អ្នកលក់ អ្នកគ្រប់គ្រង និងភ្នាក់ងារ ដែលចាប់ផ្តើមការងារ ប៉ុន្តែមិនបានចុះហាង និងមិនបានបញ្ជាទិញក្នុងរយៈពេលនោះ។ ពិនិត្យរៀងរាល់ ១០ នាទី ជូនដំណឹងម្តងក្នុងមួយចន្លោះ។ មិនពិនិត្យថ្ងៃអាទិត្យ ថ្ងៃបុណ្យ ច្បាប់ ឬក្រោយចប់ការងារ។ ធីក "⏳ អ្នកលក់មិនចុះហាង" ក្នុង ការកំណត់ → ការជូនដំណឹង Telegram សម្រាប់ក្រុមដែលគួរទទួល។',
+  'Also send each sales rep their own shops (bell in the app)': 'ផ្ញើហាងរបស់អ្នកលក់ម្នាក់ៗទៅពួកគេផងដែរ (កណ្តឹងក្នុងកម្មវិធី)',
+  '⏳ Rep with no shop visit': '⏳ អ្នកលក់មិនចុះហាង',
+  'Rep with no shop visit': 'អ្នកលក់មិនចុះហាង',
+  'Rep with no shop visit (time in Settings → Alerts)': 'អ្នកលក់មិនចុះហាង (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)',
+  'A rep made no shop check-in and no order for the time in Settings → Alerts': 'អ្នកលក់មិនបានចុះហាង និងមិនបានបញ្ជាទិញ ក្នុងរយៈពេលក្នុង ការកំណត់ → ការជូនដំណឹង',
+  '⏳ No-shop-visit gaps (each rep: how many times, the longest)': '⏳ ចន្លោះមិនចុះហាង (អ្នកលក់ម្នាក់ៗ៖ ប៉ុន្មានដង វែងបំផុត)',
+  'No shop visit: type hours:minutes from 0:10 to 12:00 (empty = off)': 'មិនចុះហាង៖ វាយ ម៉ោង:នាទី ពី 0:10 ដល់ 12:00 (ទទេ = បិទ)',
+  'Time: type it like 08:00': 'ម៉ោង៖ វាយដូចជា 08:00',
+});
+Object.assign(window.KT_KM, {
+  '📍 Check in here first (required)': '📍 ចុះឈ្មោះនៅទីនេះជាមុនសិន (ត្រូវតែធ្វើ)',
+  'Stand at the shop. The GPS becomes the shop\'s location and this is your first visit there.': 'ឈរនៅហាង។ GPS ក្លាយជាទីតាំងហាង ហើយនេះជាការចុះហាងលើកដំបូងរបស់អ្នក។',
+  'Tap to take a photo of the shop': 'ចុចដើម្បីថតរូបហាង',
+  'Finding GPS…': 'កំពុងរក GPS…',
+  'Retry GPS': 'រក GPS ម្តងទៀត',
+  'Check in first: take a photo of the shop': 'ចុះឈ្មោះជាមុន៖ ថតរូបហាង',
+  'Check in first: wait for good GPS (or tap Retry GPS outside)': 'ចុះឈ្មោះជាមុន៖ រង់ចាំ GPS ល្អ (ឬចុច រក GPS ម្តងទៀត នៅខាងក្រៅ)',
+  'Shop saved · you are checked in there': 'បានរក្សាទុកហាង · អ្នកបានចុះឈ្មោះនៅទីនោះ',
+  'Check in at the shop first (GPS + photo), then save the new shop': 'ចុះឈ្មោះនៅហាងជាមុន (GPS + រូបថត) រួចរក្សាទុកហាងថ្មី',
+  'Check in at the shop first: GPS is missing': 'ចុះឈ្មោះនៅហាងជាមុន៖ មិនមាន GPS',
+  'GPS is not good enough (more than 100 m). Go outside or near the door and try again': 'GPS មិនល្អគ្រប់គ្រាន់ (លើស ១០០ ម)។ ចេញទៅខាងក្រៅ ឬជិតទ្វារ ហើយព្យាយាមម្តងទៀត',
+  'Check in at the shop first: take a photo of the shop': 'ចុះឈ្មោះនៅហាងជាមុន៖ ថតរូបហាង',
+});
+window.KT_KM_PATTERNS.push(
+  [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS ល្អ (± $1 ម)'],
+  [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS ខ្សោយ (± $1 ម) — ចេញទៅខាងក្រៅ ឬជិតទ្វារ']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -7345,6 +7397,39 @@ Object.assign(window.KT_ZH, {
 window.KT_ZH_PATTERNS.push(
   [/^Make a Telegram group with (.+) \(your people, their people and your company bot\), send \/start in it, then add it here\. Only the news you tick goes there\.$/, '与 $1 建一个 Telegram 群组（您的人、他们的人和公司机器人），在群里发送 /start，然后在这里添加。只有您勾选的消息会发到那里。'],
   [/^Add Telegram group · (.+)$/, '添加 Telegram 群组 · $1']
+);
+Object.assign(window.KT_ZH, {
+  '"No shop visit" alert after (hours:minutes, e.g. 2:00 · empty = off)': '"没有拜访店铺"提醒时间（时:分，例如 2:00 · 空 = 关闭）',
+  'Check from': '检查从',
+  'until': '到',
+  'off': '关闭',
+  'Sales reps, supervisors and agents who started work but made no shop check-in and no order for that long. Checked every 10 minutes; one alert per gap. Not on Sundays, holidays, leave or after finish work. Tick "⏳ Rep with no shop visit" in Settings → Telegram alerts for the groups that should get it.': '已开始工作但在这段时间内没有拜访店铺也没有下订单的销售员、主管和代理。每 10 分钟检查一次，每个空档只提醒一次。周日、节假日、请假或下班后不检查。在 设置 → Telegram 提醒 中为需要的群组勾选"⏳ 没有拜访店铺的销售员"。',
+  'Also send each sales rep their own shops (bell in the app)': '也把每个销售员自己的店铺发给他们（应用中的铃铛）',
+  '⏳ Rep with no shop visit': '⏳ 没有拜访店铺的销售员',
+  'Rep with no shop visit': '没有拜访店铺的销售员',
+  'Rep with no shop visit (time in Settings → Alerts)': '没有拜访店铺的销售员（时间在 设置 → 提醒）',
+  'A rep made no shop check-in and no order for the time in Settings → Alerts': '销售员在 设置 → 提醒 中的时间内没有拜访店铺也没有下订单',
+  '⏳ No-shop-visit gaps (each rep: how many times, the longest)': '⏳ 没有拜访店铺的空档（每个销售员：次数、最长）',
+  'No shop visit: type hours:minutes from 0:10 to 12:00 (empty = off)': '没有拜访店铺：输入 时:分，0:10 到 12:00（空 = 关闭）',
+  'Time: type it like 08:00': '时间：像 08:00 这样输入',
+});
+Object.assign(window.KT_ZH, {
+  '📍 Check in here first (required)': '📍 先在这里签到（必填）',
+  'Stand at the shop. The GPS becomes the shop\'s location and this is your first visit there.': '请站在店铺处。GPS 会成为店铺的位置，这也是您第一次拜访这家店。',
+  'Tap to take a photo of the shop': '点击拍摄店铺照片',
+  'Finding GPS…': '正在定位…',
+  'Retry GPS': '重新定位',
+  'Check in first: take a photo of the shop': '请先签到：拍摄店铺照片',
+  'Check in first: wait for good GPS (or tap Retry GPS outside)': '请先签到：等待良好的 GPS（或到外面点击重新定位）',
+  'Shop saved · you are checked in there': '店铺已保存 · 您已在那里签到',
+  'Check in at the shop first (GPS + photo), then save the new shop': '请先在店铺签到（GPS + 照片），再保存新店铺',
+  'Check in at the shop first: GPS is missing': '请先在店铺签到：没有 GPS',
+  'GPS is not good enough (more than 100 m). Go outside or near the door and try again': 'GPS 不够准确（超过 100 米）。请到外面或门口再试',
+  'Check in at the shop first: take a photo of the shop': '请先在店铺签到：拍摄店铺照片',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS 良好（± $1 米）'],
+  [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS 较弱（± $1 米）— 请到外面或门口']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -12500,10 +12585,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <label class="f">Shop not visited for how many days<input class="inp" data-al="alert_not_visited_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_not_visited_days || '14')}"></label>
           <label class="f">Sleeping shop: no order for how many days<input class="inp" data-al="alert_sleeping_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_sleeping_days || '30')}"></label>
           <label class="f">New shop never visited: how many days after it was added<input class="inp" data-al="alert_new_unvisited_days" type="number" min="1" max="365" inputmode="numeric" value="${esc(st.alert_new_unvisited_days || '7')}"></label>
-          <label class="row small" style="gap:10px"><input type="checkbox" id="al_rep" ${(st.alert_to_rep || 'on') === 'on' ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)"><span>Also send each sales rep their own shops (bell + their Telegram)</span></label>
+          <label class="row small" style="gap:10px"><input type="checkbox" id="al_rep" ${(st.alert_to_rep || 'on') === 'on' ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)"><span>Also send each sales rep their own shops (bell in the app)</span></label>
           <div class="small muted">A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets "shops to visit this week".</div>
           <div class="sec" style="margin:6px 0 0">Staff</div>
           <label class="f">"Not at work" check time (Sundays, holidays and staff on leave are skipped)<input class="inp" data-al="alert_absent_time" type="time" value="${esc(st.alert_absent_time || '08:30')}"></label>
+          <label class="f">"No shop visit" alert after (hours:minutes, e.g. 2:00 · empty = off)<input class="inp" data-al="alert_idle_after" placeholder="off" inputmode="numeric" value="${esc(st.alert_idle_after || '')}"></label>
+          <div class="btns" style="margin:0"><label class="f">Check from<input class="inp" data-al="alert_idle_from" type="time" value="${esc(st.alert_idle_from || '08:00')}"></label><label class="f">until<input class="inp" data-al="alert_idle_to" type="time" value="${esc(st.alert_idle_to || '17:00')}"></label></div>
+          <div class="small muted">Sales reps, supervisors and agents who started work but made no shop check-in and no order for that long. Checked every 10 minutes; one alert per gap. Not on Sundays, holidays, leave or after finish work. Tick "⏳ Rep with no shop visit" in Settings → Telegram alerts for the groups that should get it.</div>
           <button class="btn" id="alsave">Save</button></div><div id="omid"></div>`;
       } else if (tab === 'messages') {
         $('#body').innerHTML = '<div id="tpl"></div>'; K.templatesEditor($('#tpl'), st); return;
@@ -12713,7 +12801,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier'], ['stock_moved', '🔀', 'Stock moved between stocks'], ['stock_adjusted', '✏️', 'Stock count changed by hand'], ['goods_returned', '↩️', 'Returned to supplier']]],
     ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
     ['Leave & attendance', [['leave_new', '🏖', 'Leave request'], ['leave_approved', '✅', 'Leave approved'], ['leave_rejected', '❌', 'Leave rejected'],
-      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)']]],
+      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)'], ['staff_idle', '⏳', 'Rep with no shop visit (time in Settings → Alerts)']]],
     ['Security', [['data_cleared', '🧹', 'Clear data was used'], ['staff_account', '👤', 'Staff account or permissions changed'], ['price_changed', '💲', 'Product price changed'], ['order_changed', '✏️', 'Order changed after approval']]]
   ];
   const EV = {}; GROUPS.forEach(([, l]) => l.forEach(([k, ic, t]) => { EV[k] = [ic, t]; }));
@@ -12737,7 +12825,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['shops_not_visited', '📍 Shops not visited + 😴 sleeping shops (same days as the morning alerts, by rep)'],
     ['silent_customers', '🤫 Silent customers (bought 2+ times, then nothing)'],
     ['price_issues', '🏷 Below price, 🎁 free items and 💰 big orders'],
-    ['stock_moves', '🚚 Stock moved and adjustments (transfers, missing / damaged, adjustments, count sheets)']
+    ['stock_moves', '🚚 Stock moved and adjustments (transfers, missing / damaged, adjustments, count sheets)'],
+    ['idle_gaps', '⏳ No-shop-visit gaps (each rep: how many times, the longest)']
   ];
   const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 days (with today)'], ['last_week', 'The 7 days before today'], ['month', 'This month so far']];
   const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']];
