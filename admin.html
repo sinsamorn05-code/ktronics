@@ -1362,6 +1362,13 @@ window.makeSupabaseApi = function (cfg) {
     partnerTgGroupSave: x => q(sb.rpc('partner_tg_group_save', { p: x })),
     partnerTgGroupDelete: id => q(sb.rpc('partner_tg_group_delete', { p_id: id })),
     partnerTgGroupTest: id => q(sb.rpc('partner_tg_group_test', { p_id: id })),
+    // field targets and the admin's place in the staff ranking (24 Oct 2026)
+    fieldToday: uid => q(sb.rpc('field_today', { p_user: uid || null })),
+    fieldTeamToday: () => q(sb.rpc('field_team_today')),
+    fieldTargetSet: (uid, visits, shops) => q(sb.rpc('field_target_set', { p_user: uid, p_visits: visits, p_new: shops })),
+    fieldSettingsSave: p => q(sb.rpc('field_settings_save', { p })),
+    rankingMeGet: () => q(sb.rpc('ranking_me_get')),
+    rankingMeSet: place => q(sb.rpc('ranking_me_set', { p_place: place })),
     partnerStatement: (from, to) => q(sb.rpc('partner_statement', { p_from: from || null, p_to: to || null })),
     partnerStatementAdmin: (pid, from, to) => q(sb.rpc('partner_statement_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
@@ -1786,9 +1793,9 @@ window.makeDemoApi = function () {
       below_price: ['🏷', 'Sold below price / free items'], over_credit_limit: ['🚨', 'Shop over its credit limit'], stock_moved: ['🔀', 'Stock moved between stocks'],
       stock_adjusted: ['✏️', 'Stock count changed by hand'], goods_returned: ['↩️', 'Returned to supplier'], data_cleared: ['🧹', 'Clear data was used'], staff_account: ['👤', 'Staff account or permissions changed'],
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
-      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'] },
+      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'], field_behind: ['📉', 'Rep behind daily target'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps'],
+    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps', 'field_targets'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -2198,7 +2205,7 @@ window.makeDemoApi = function () {
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
   const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance', 'shops', 'expenses', 'leave', 'below_price', 'over_credit_limit',
     'stock_moved', 'stock_adjusted', 'goods_returned', 'data_cleared', 'staff_account', 'price_changed', 'order_changed', 'credit_overdue',
-    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle'];   // same as alert_kinds in the database
+    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle', 'field_behind'];   // same as alert_kinds in the database
   if (D && D.convs && !D.alertsMore) {   // like the database: the new alerts start ticked in the built-in channel that fits
     D.convs.forEach(c => { if (c.slug === 'alerts') c.alert_types = ['below_price', 'over_credit_limit', 'data_cleared', 'staff_account', 'price_changed', 'order_changed'];
       if (c.slug === 'stock_alerts') c.alert_types = ['stock_moved', 'stock_adjusted']; });
@@ -2208,7 +2215,7 @@ window.makeDemoApi = function () {
       if (add.length) c.alert_types = [...new Set((c.alert_types || []).concat(add))]; });
     D.alertsMore2 = 1; }
   if (D && D.convs && !D.alertsIdle) {   // 24 Oct 2026: "rep with no shop visit" starts ticked in the visit alerts channel
-    D.convs.forEach(c => { if (c.slug === 'visit_alerts') c.alert_types = [...new Set((c.alert_types || []).concat(['staff_idle']))]; });
+    D.convs.forEach(c => { if (c.slug === 'visit_alerts') c.alert_types = [...new Set((c.alert_types || []).concat(['staff_idle', 'field_behind']))]; });
     D.alertsIdle = 1; }
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
@@ -3136,7 +3143,7 @@ window.makeDemoApi = function () {
       const k = D.customers.find(c => c.id === keep), r = D.customers.find(c => c.id === remove);
       if (!k || !r || keep === remove) fail('Choose two different shops');
       const mv = list => { let n = 0; (list || []).forEach(x => { if (x.customer_id === remove) { x.customer_id = keep; n++; } }); return n; };
-      const out = { orders: mv(D.orders), payments: mv(D.payments), visits: mv(D.visits) };
+      const out = { orders: mv(D.orders), payments: mv(D.payments), visits: mv(D.visits), followups: mv(D.followups), online_sales: mv(D.nopSales) };   // follow-ups and online sales too (24 Oct 2026)
       if (D.locFix) D.locFix = D.locFix.filter(x => x.customer_id !== remove);
       if (k.lat == null && r.lat != null) { k.lat = r.lat; k.lng = r.lng; }
       if (!k.map_url) k.map_url = r.map_url; if (!k.owner_name) k.owner_name = r.owner_name;
@@ -3596,7 +3603,9 @@ window.makeDemoApi = function () {
     },
     async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1);
       alert('🗑 ' + me.full_name + ' deleted ' + (v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s") + ' visit at ' + shopName(v.customer_id) + ' (' + new Date(v.check_in_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')', { customer_id: v.customer_id }, 'visits'); save(); return wait(null); },
-    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes;
+    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id);
+      if (['sales', 'supervisor', 'agent'].includes(role()) && String(notes || v.notes || '').trim().length < 5) fail('Write the customer feedback / report before you check out');   // 24 Oct 2026
+      v.check_out_at = now(); if (notes) v.notes = notes;
       alert('✅ ' + me.full_name + ' finished the visit at ' + shopName(v.customer_id) + ' · ' + Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) + ' min', { customer_id: v.customer_id, visit_id: v.id }, 'visits');
       save(); return wait(null); },
 
@@ -4225,6 +4234,9 @@ window.makeDemoApi = function () {
       const delEv = D.events.filter(e => e.created_by === me.id && e.status === 'delivered');
       const all = await api._teamSalesAll(m0 + '-01'), mx = Math.max(1, ...all.map(r => +r.total));
       const ranking = all.map(r => { const bar = Math.round(r.total / mx * 100); return r.user_id === me.id || allow('dashboard.view') ? { id: r.user_id, name: r.full_name, total: r.total, target: r.target, bar } : { bar }; });
+      const rm = String((D.settings || {}).ranking_me || '').split('|');   // 24 Oct 2026: the admin's place in the STAFF ranking (hidden line)
+      if (!allow('dashboard.view') && rm[0] === m0 + '-01' && +rm[1] > 0) { const pl = Math.min(+rm[1], ranking.length + 1), n = ranking.length;
+        const b = pl === 1 ? 100 : pl > n ? Math.max((ranking[n - 1] || {}).bar - 5, 1) : Math.round(((ranking[pl - 2] || {}).bar + (ranking[pl - 1] || {}).bar) / 2); ranking.splice(pl - 1, 0, { bar: b }); }
       return wait({
         sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)), np_month: nopSum(me.id, m0 + '-01', today), np_target: api._nopTarget(me.id, m0), np_month_count: nopOf(me.id, m0 + '-01', today).length,
         target: ((D.targets || {})[me.id] || {})[m0 + '-01'] || null, last7: days,
@@ -4603,6 +4615,30 @@ window.makeDemoApi = function () {
     const v = await api.checkIn({ customer_id: saved.id, lat: pos.lat, lng: pos.lng, notes: 'New shop' });
     const vr = D.visits.find(x => x.id === (v && v.id)) || D.visits[D.visits.length - 1]; if (vr) { vr.photo_url = photoUrl; vr.distance_m = 0; } save();
     return wait({ customer: D.customers.find(x => x.id === saved.id), visit_id: vr && vr.id }); };
+  // field targets and the admin's place in the staff ranking (24 Oct 2026) — like the database
+  const fieldCounts = (uid, day) => { const t = (D.fieldT || {})[uid] || {}, st = D.settings || {};
+    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length,
+      new_shops: D.customers.filter(c => c.created_by === uid && !c.source && c.created_at && localDay0(c.created_at) === day).length,
+      target_visits: t.visits_per_day ?? +(st.field_visits_per_day ?? 8), target_new: t.new_shops_per_day ?? +(st.field_new_shops_per_day ?? 1) }; };
+  api.fieldToday = async uid => { if (!role()) fail('Your account is not active'); return wait(fieldCounts(uid || me.id, localDay0(now()))); };
+  api.fieldTeamToday = async () => { if (!(hasRole('admin') || allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can see this');
+    const d = localDay0(now()), st = D.settings || {};
+    return wait({ visits_per_day: st.field_visits_per_day ?? '8', new_shops_per_day: st.field_new_shops_per_day ?? '1', behind_time: st.field_behind_time || '',
+      reps: D.users.filter(u => u.active !== false && ['sales', 'supervisor', 'agent'].includes(u.role)).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(u => Object.assign(fieldCounts(u.id, d),
+        { id: u.id, full_name: u.full_name, role: u.role, own_visits: ((D.fieldT || {})[u.id] || {}).visits_per_day ?? null, own_new: ((D.fieldT || {})[u.id] || {}).new_shops_per_day ?? null,
+          at_work: (D.attendance || []).some(a => a.staff_id === u.id && a.work_date === d), on_leave: false })) }); };
+  api.fieldTargetSet = async (uid, v, n) => { if (!(hasRole('admin') || allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can set targets');
+    if (v < 0 || v > 1000 || n < 0 || n > 1000) fail('Targets: type a number from 0 to 1000'); D.fieldT = D.fieldT || {};
+    if (v == null && n == null) delete D.fieldT[uid]; else D.fieldT[uid] = { visits_per_day: v, new_shops_per_day: n }; save(); return wait(null); };
+  api.fieldSettingsSave = async p => { if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin can change these settings');
+    Object.entries(p || {}).forEach(([k, v]) => { v = String(v ?? '').trim();
+      if (['field_visits_per_day', 'field_new_shops_per_day'].includes(k)) { if (!/^\d+$/.test(v) || +v > 1000) fail('Targets: type a number from 0 to 1000'); }
+      else if (k === 'field_behind_time') { if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 15:00'); }
+      else fail('Unknown setting ' + k); D.settings = Object.assign(D.settings || {}, { [k]: v }); }); save(); return wait(null); };
+  api.rankingMeGet = async () => { if (!hasRole('admin')) return wait(null); const r = String((D.settings || {}).ranking_me || '').split('|');
+    return wait(r[0] === localDay0(now()).slice(0, 7) + '-01' && +r[1] > 0 ? +r[1] : null); };
+  api.rankingMeSet = async place => { if (!hasRole('admin')) fail('Only the admin can do this'); if (place != null && (place < 1 || place > 100)) fail('Place: type a number from 1 to 100');
+    D.settings = Object.assign(D.settings || {}, { ranking_me: place == null ? '' : localDay0(now()).slice(0, 7) + '-01|' + place }); save(); return wait(null); };
   // owner / seller partner logins (24 Oct 2026): a seller only sells, sees customers and stock — same as the database
   api.adminSetPartnerRole = async (id, role) => { if (!hasRole('admin')) fail('Only the admin can change partner logins'); if (!['owner', 'seller'].includes(role)) fail('Choose Owner or Seller');
     const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login'); u.partner_role = role; save(); return wait(null); };
@@ -5893,6 +5929,38 @@ Object.assign(window.KT_KM, {
 window.KT_KM_PATTERNS.push(
   [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS ល្អ (± $1 ម)'],
   [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS ខ្សោយ (± $1 ម) — ចេញទៅខាងក្រៅ ឬជិតទ្វារ']
+);
+Object.assign(window.KT_KM, {
+  'Customer feedback / report': 'មតិអតិថិជន / របាយការណ៍',
+  'Customer feedback / report (required before check out)': 'មតិអតិថិជន / របាយការណ៍ (ត្រូវសរសេរមុនចេញ)',
+  'What did the customer say? What does the shop need? Prices, stock, problems…': 'អតិថិជននិយាយអ្វី? ហាងត្រូវការអ្វី? តម្លៃ ស្តុក បញ្ហា…',
+  'Write the customer feedback / report before you check out': 'សរសេរមតិអតិថិជន / របាយការណ៍ មុននឹងចេញ',
+  '🏪 Shop visits today': '🏪 ការចុះហាងថ្ងៃនេះ',
+  '🆕 New shops today': '🆕 ហាងថ្មីថ្ងៃនេះ',
+  'Field staff · daily targets': 'បុគ្គលិកចុះមូលដ្ឋាន · គោលដៅប្រចាំថ្ងៃ',
+  'Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.': 'អ្នកលក់ អ្នកគ្រប់គ្រង និងភ្នាក់ងារ។ បង្ហាញលើទំព័រដើម៖ "ការចុះហាងថ្ងៃនេះ X / Y" និង "ហាងថ្មីថ្ងៃនេះ X / Y"។ ទទេ = លេខសម្រាប់គ្រប់គ្នា។',
+  'Shop visits a day (everyone)': 'ការចុះហាងក្នុងមួយថ្ងៃ (គ្រប់គ្នា)',
+  'New shops a day (everyone)': 'ហាងថ្មីក្នុងមួយថ្ងៃ (គ្រប់គ្នា)',
+  '"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names': 'ម៉ោងពិនិត្យ "មិនដល់គោលដៅ" (ទទេ = បិទ)៖ អ្នកលក់ដែលនៅក្រោមគោលដៅទទួលកណ្តឹង ក្រុមរបស់អ្នកទទួលឈ្មោះ',
+  'Per person: shop visits · new shops a day · today': 'តាមម្នាក់ៗ៖ ការចុះហាង · ហាងថ្មីក្នុងមួយថ្ងៃ · ថ្ងៃនេះ',
+  'No field staff yet.': 'មិនទាន់មានបុគ្គលិកចុះមូលដ្ឋាន។',
+  'Save field targets': 'រក្សាទុកគោលដៅចុះមូលដ្ឋាន',
+  'Field targets saved': 'បានរក្សាទុកគោលដៅចុះមូលដ្ឋាន',
+  '🏅 Me in staff ranking': '🏅 ខ្ញុំក្នុងចំណាត់ថ្នាក់បុគ្គលិក',
+  'Me in the staff ranking': 'ខ្ញុំក្នុងចំណាត់ថ្នាក់បុគ្គលិក',
+  'My place (1 = top)': 'លំដាប់របស់ខ្ញុំ (1 = ខ្ពស់បំផុត)',
+  'not in the ranking': 'មិននៅក្នុងចំណាត់ថ្នាក់',
+  'Remove me from the staff ranking': 'ដកខ្ញុំចេញពីចំណាត់ថ្នាក់បុគ្គលិក',
+  'Type your place: 1, 2, 3…': 'វាយលំដាប់របស់អ្នក៖ 1, 2, 3…',
+  '📉 Rep behind daily target': '📉 អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ',
+  'Rep behind daily target': 'អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ',
+  'Rep behind daily target (time in HR → Field targets)': 'អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ (ម៉ោងក្នុង ធនធានមនុស្ស → គោលដៅចុះមូលដ្ឋាន)',
+  'At the time in HR → Field targets: reps under their shop visit / new shop target': 'តាមម៉ោងក្នុង ធនធានមនុស្ស → គោលដៅចុះមូលដ្ឋាន៖ អ្នកលក់ដែលនៅក្រោមគោលដៅចុះហាង / ហាងថ្មី',
+  '🎯 Shop visits & new shops vs daily target (each field rep)': '🎯 ការចុះហាង និងហាងថ្មី ធៀបនឹងគោលដៅ (អ្នកលក់ម្នាក់ៗ)',
+  'Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.': 'ជ្រើសលំដាប់របស់អ្នកក្នុងចំណាត់ថ្នាក់ក្រុម <b>បុគ្គលិក</b> ខែនេះ។ អ្នកលក់រក្សាលំដាប់ពិត ពីលំដាប់របស់អ្នកចុះក្រោម ពួកគេធ្លាក់មួយលេខ។ បុគ្គលិកឃើញបន្ទាត់របស់អ្នកដូចអ្នកលក់ផ្សេងទៀត (របារ គ្មានឈ្មោះ)។ ផ្ទាំងគ្រប់គ្រង ការលក់ និងរបាយការណ៍របស់អ្នកនៅពិតដដែល។ ខែក្រោយចាប់ផ្តើមឡើងវិញដោយគ្មានអ្នក។',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Saved: you are #(\d+) in the staff ranking this month$/, 'បានរក្សាទុក៖ អ្នកជាលេខ $1 ក្នុងចំណាត់ថ្នាក់បុគ្គលិកខែនេះ']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -7431,6 +7499,39 @@ window.KT_ZH_PATTERNS.push(
   [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS 良好（± $1 米）'],
   [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS 较弱（± $1 米）— 请到外面或门口']
 );
+Object.assign(window.KT_ZH, {
+  'Customer feedback / report': '客户反馈 / 报告',
+  'Customer feedback / report (required before check out)': '客户反馈 / 报告（签退前必填）',
+  'What did the customer say? What does the shop need? Prices, stock, problems…': '客户说了什么？店铺需要什么？价格、库存、问题…',
+  'Write the customer feedback / report before you check out': '签退前请写客户反馈 / 报告',
+  '🏪 Shop visits today': '🏪 今日拜访店铺',
+  '🆕 New shops today': '🆕 今日新店铺',
+  'Field staff · daily targets': '外勤人员 · 每日目标',
+  'Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.': '销售员、主管和代理。显示在他们的首页："今日拜访店铺 X / Y"（签到）和"今日新店铺 X / Y"（他们添加的店铺）。空 = 所有人的数字。',
+  'Shop visits a day (everyone)': '每天拜访店铺（所有人）',
+  'New shops a day (everyone)': '每天新店铺（所有人）',
+  '"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names': '"未达目标"检查时间（空 = 关闭）：仍未达标的销售员会收到铃铛提醒，您的群组会收到名单',
+  'Per person: shop visits · new shops a day · today': '每人：拜访店铺 · 每天新店铺 · 今天',
+  'No field staff yet.': '还没有外勤人员。',
+  'Save field targets': '保存外勤目标',
+  'Field targets saved': '外勤目标已保存',
+  '🏅 Me in staff ranking': '🏅 我在员工排名中',
+  'Me in the staff ranking': '我在员工排名中',
+  'My place (1 = top)': '我的名次（1 = 第一）',
+  'not in the ranking': '不在排名中',
+  'Remove me from the staff ranking': '把我从员工排名中移除',
+  'Type your place: 1, 2, 3…': '输入您的名次：1、2、3…',
+  'Removed': '已移除',
+  '📉 Rep behind daily target': '📉 销售员未达每日目标',
+  'Rep behind daily target': '销售员未达每日目标',
+  'Rep behind daily target (time in HR → Field targets)': '销售员未达每日目标（时间在 人事 → 外勤目标）',
+  'At the time in HR → Field targets: reps under their shop visit / new shop target': '在 人事 → 外勤目标 的时间：未达到拜访店铺 / 新店铺目标的销售员',
+  '🎯 Shop visits & new shops vs daily target (each field rep)': '🎯 拜访店铺和新店铺 对比 每日目标（每个外勤）',
+  'Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.': '选择您本月在<b>员工</b>团队排名中的名次。销售员保持真实顺序；从您的名次往下，他们各下降一位。员工看到您的一行和其他销售员一样（只有进度条，没有名字）。您自己的仪表板、销售和报告保持真实。下个月重新开始，不包括您。',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Saved: you are #(\d+) in the staff ranking this month$/, '已保存：您本月在员工排名中第 $1 名']
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -8683,6 +8784,52 @@ window.KT_ZH_PATTERNS.push(
   };
 })();
 
+// Field staff daily targets (24 Oct 2026, Mr. Lee): shop visits and new shops a day — the rep's Home card and the
+// admin "Field targets" card (the number for everyone, own numbers per person, every rep today, behind-target time).
+// Also the admin's own place in the STAFF ranking ("Me in staff ranking", display only). Both bundles.
+(function () {
+  const K = window.KT;
+  const { api, esc, $, $$, toast, busy } = K;
+  const meter = (v, t, label, href) => { const pct = t ? Math.min(100, Math.round(v / t * 100)) : 0, ok = t && v >= t;
+    return `<a class="stat" href="${href}" style="text-decoration:none;color:inherit"><b style="color:${ok ? 'var(--gr)' : 'inherit'}">${v} / ${t || '–'}${ok ? ' ✓' : ''}</b><span>${label}</span><div class="paybar" style="height:6px;margin-top:6px"><div style="width:${pct}%;background:${ok ? 'var(--gr)' : 'var(--p)'}"></div></div></a>`; };
+
+  // the rep's Home: today's shop visits and new shops
+  K.fieldHomeHtml = t => `<div class="stats" style="margin-bottom:12px">${meter(+t.visits, +t.target_visits, '🏪 Shop visits today', '#/visits')}${meter(+t.new_shops, +t.target_new, '🆕 New shops today', '#/customers')}</div>`;
+
+  // admin / HR: the targets and every field rep today
+  K.fieldTargetsCard = async el => {
+    const d = await api.fieldTeamToday().catch(e => { toast(e.message); return null; });
+    if (!d || !el.isConnected) return;
+    const ok = r => +r.visits >= +r.target_visits && +r.new_shops >= +r.target_new;
+    el.innerHTML = `<div class="card" style="gap:10px"><b>Field staff · daily targets</b>
+      <div class="small muted">Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.</div>
+      <div class="btns"><label class="f">Shop visits a day (everyone)<input class="inp" id="ftv" type="number" min="0" max="1000" value="${esc(d.visits_per_day ?? '8')}"></label>
+        <label class="f">New shops a day (everyone)<input class="inp" id="ftn" type="number" min="0" max="1000" value="${esc(d.new_shops_per_day ?? '1')}"></label></div>
+      <label class="f">"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names<input class="inp" id="ftb" type="time" value="${esc(d.behind_time || '')}"></label>
+      <div class="small muted">Per person: shop visits · new shops a day · today</div>
+      ${d.reps.map(r => `<div class="row" style="gap:6px"><span class="grow" style="font-weight:700;min-width:0">${esc(r.full_name)}<span class="small muted" style="font-weight:400"> · today ${r.visits}/${r.target_visits} · ${r.new_shops}/${r.target_new}${r.on_leave ? ' · on leave' : !r.at_work ? ' · not at work' : ''}</span>${r.at_work && ok(r) ? ' ✅' : ''}</span>
+        <input class="inp" data-fv="${esc(r.id)}" type="number" min="0" placeholder="${esc(d.visits_per_day ?? '')}" value="${r.own_visits ?? ''}" style="width:70px;text-align:right" aria-label="Shop visits a day">
+        <input class="inp" data-fn="${esc(r.id)}" type="number" min="0" placeholder="${esc(d.new_shops_per_day ?? '')}" value="${r.own_new ?? ''}" style="width:70px;text-align:right" aria-label="New shops a day"></div>`).join('') || '<div class="small muted">No field staff yet.</div>'}
+      <button class="btn out" id="ftsave">Save field targets</button></div>`;
+    $('#ftsave', el).onclick = async e => { await busy(e.currentTarget, async () => {
+      await api.fieldSettingsSave({ field_visits_per_day: $('#ftv', el).value.trim() || '0', field_new_shops_per_day: $('#ftn', el).value.trim() || '0', field_behind_time: $('#ftb', el).value.trim() });
+      for (const r of d.reps) { const a = $(`[data-fv="${r.id}"]`, el).value.trim(), b = $(`[data-fn="${r.id}"]`, el).value.trim();
+        if (a !== String(r.own_visits ?? '') || b !== String(r.own_new ?? '')) await api.fieldTargetSet(r.id, a === '' ? null : +a, b === '' ? null : +b); }
+    }); toast('Field targets saved'); K.fieldTargetsCard(el); };
+  };
+
+  // admin: put myself into the STAFF ranking at a place (this month; staff see a hidden line, the reps move down one place)
+  K.rankingMeSheet = async () => {
+    const cur = await api.rankingMeGet().catch(() => null);
+    const s = K.sheet('Me in the staff ranking', `<div class="small muted" style="line-height:1.5">Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.</div>
+      <label class="f">My place (1 = top)<input class="inp" id="rkp" type="number" min="1" max="100" inputmode="numeric" value="${cur ?? ''}" placeholder="not in the ranking"></label>
+      <button class="btn block" id="rkok">Save</button>${cur ? '<button class="btn out block" id="rkx">Remove me from the staff ranking</button>' : ''}`);
+    $('#rkok', s.el).onclick = async e => { const v = $('#rkp', s.el).value.trim(); if (!/^\d+$/.test(v) || +v < 1) return toast('Type your place: 1, 2, 3…');
+      await busy(e.currentTarget, () => api.rankingMeSet(+v)); s.close(); toast('Saved: you are #' + v + ' in the staff ranking this month'); };
+    if ($('#rkx', s.el)) $('#rkx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.rankingMeSet(null)); s.close(); toast('Removed'); };
+  };
+})();
+
 // QR code generator for JavaScript — Copyright (c) 2009 Kazuhiko Arase — MIT license (http://www.opensource.org/licenses/mit-license.php)
 var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(n*r,o*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}(function(){return qrcode});
 // Products: photo on the product form · old orders that came from the (removed) Telegram shop keep a small badge.
@@ -9827,7 +9974,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="card"><div class="row"><b class="grow">Low stock</b><a class="small" href="#/products?low=1" style="font-weight:700;text-decoration:none">All</a></div>
           ${low.length ? low.slice(0, 6).map(p => `<div class="row"><span class="grow" style="font-weight:600;font-size:14px">${esc(p.name)}</span><span class="pill ${p.total_qty <= 0 ? 'rd' : 'or'}">${p.total_qty} left</span></div>`).join('') : '<div class="muted small">All products have enough stock.</div>'}</div>
         <div class="card"><b>Latest activity</b>${activity.map(a => `<a class="row" href="${a.href}" style="text-decoration:none;color:inherit"><div class="grow small" style="line-height:1.4">${a.html}</div>${a.st ? statusPill(a.st) : `<span class="small muted">${when(a.t)}</span>`}</a>`).join('') || '<div class="muted small">No activity yet</div>'}</div>
-        <div class="card"><div class="row"><b class="grow">Sales targets · ${esc(K.monthName(K.monthKey()))}</b>${K.allow('dashboard.view') ? `<button class="btn sm out" id="tg">${icon('pen', 16)}Set targets</button>` : ''}</div>
+        <div class="card"><div class="row"><b class="grow">Sales targets · ${esc(K.monthName(K.monthKey()))}</b>${K.allow('dashboard.view') ? `<button class="btn sm out" id="tg">${icon('pen', 16)}Set targets</button>` : ''}${S.me.role === 'admin' ? `<button class="btn sm out" id="rkme" style="margin-left:6px">🏅 Me in staff ranking</button>` : ''}</div>
           ${K.rankingHtml(team.map(r => ({ id: r.user_id, name: r.full_name, total: r.total, target: r.target })), null, { targets: true })}
           ${team.some(r => r.target) ? `<div class="row small" style="border-top:1px solid var(--line);padding-top:8px"><b class="grow">Team total</b><b>${money(team.reduce((a, r) => a + +r.total, 0))} of ${money(team.reduce((a, r) => a + +(r.target || 0), 0))}</b></div>` : '<div class="small muted">No targets yet. Tap Set targets.</div>'}</div>
         <div class="card"><b>Top sales staff · 30 days</b>${d.top_staff.length ? d.top_staff.map((t, i) => `<div class="row">${avatar(t.name, 'sm')}<div class="grow"><div style="font-weight:700;font-size:14px">${esc(t.name)}</div><div class="bar" style="margin-top:5px"><div style="width:${(t.total / d.top_staff[0].total) * 100}%;background:var(--p)"></div></div></div><b style="font-size:14px">${money(t.total)}</b></div>`).join('') : '<div class="muted small">No sales yet</div>'}</div>
@@ -9838,6 +9985,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if ($('#dper')) P.bind($('#dper'), dst, () => K.render());
     if ($('#expbox') && per) $('#expbox').onclick = () => (K.opexSheet && K.allow('reports.view') && K.allow('purchases.manage')) ? K.opexSheet(per.from, per.to, 'Operating expenses · ' + pName) : go('#/expenses');
     if ($('#tg')) $('#tg').onclick = () => K.targetsSheet(() => K.render());
+    if ($('#rkme') && K.rankingMeSheet) $('#rkme').onclick = () => K.rankingMeSheet();
   });
 
   // ---------------- Orders ----------------
@@ -11926,7 +12074,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
             <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>
-          <div id="otc" style="max-width:640px"></div>`;
+          <div id="otc" style="max-width:640px"></div><div id="ftc" style="max-width:640px;margin-top:14px"></div>`;
         S2.crep = rep;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
@@ -11996,6 +12144,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
       if ($('#otc')) K.onlineTargetsCard($('#otc'));
+      if ($('#ftc') && K.fieldTargetsCard) K.fieldTargetsCard($('#ftc'));
       $$('[data-cl]').forEach(a => a.onclick = () => K.commissionLinesSheet(cmonth, (S2.crep || []).find(r => r.user_id === a.dataset.cl) || {}));
       if ($('#offhere')) $('#offhere').onclick = e => { const b = e.currentTarget; if (!navigator.geolocation) return toast('This device cannot find its location');
         b.disabled = true; navigator.geolocation.getCurrentPosition(p => { b.disabled = false; $('[data-k="office_lat"]').value = p.coords.latitude.toFixed(6); $('[data-k="office_lng"]').value = p.coords.longitude.toFixed(6); toast('Location found (± ' + Math.round(p.coords.accuracy) + ' m). Tap Save office location.'); },
@@ -12801,7 +12950,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier'], ['stock_moved', '🔀', 'Stock moved between stocks'], ['stock_adjusted', '✏️', 'Stock count changed by hand'], ['goods_returned', '↩️', 'Returned to supplier']]],
     ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
     ['Leave & attendance', [['leave_new', '🏖', 'Leave request'], ['leave_approved', '✅', 'Leave approved'], ['leave_rejected', '❌', 'Leave rejected'],
-      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)'], ['staff_idle', '⏳', 'Rep with no shop visit (time in Settings → Alerts)']]],
+      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)'], ['staff_idle', '⏳', 'Rep with no shop visit (time in Settings → Alerts)'], ['field_behind', '📉', 'Rep behind daily target (time in HR → Field targets)']]],
     ['Security', [['data_cleared', '🧹', 'Clear data was used'], ['staff_account', '👤', 'Staff account or permissions changed'], ['price_changed', '💲', 'Product price changed'], ['order_changed', '✏️', 'Order changed after approval']]]
   ];
   const EV = {}; GROUPS.forEach(([, l]) => l.forEach(([k, ic, t]) => { EV[k] = [ic, t]; }));
@@ -12826,7 +12975,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['silent_customers', '🤫 Silent customers (bought 2+ times, then nothing)'],
     ['price_issues', '🏷 Below price, 🎁 free items and 💰 big orders'],
     ['stock_moves', '🚚 Stock moved and adjustments (transfers, missing / damaged, adjustments, count sheets)'],
-    ['idle_gaps', '⏳ No-shop-visit gaps (each rep: how many times, the longest)']
+    ['idle_gaps', '⏳ No-shop-visit gaps (each rep: how many times, the longest)'],
+    ['field_targets', '🎯 Shop visits & new shops vs daily target (each field rep)']
   ];
   const PERIODS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 days (with today)'], ['last_week', 'The 7 days before today'], ['month', 'This month so far']];
   const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']];
@@ -13144,6 +13294,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       try { const d = await api.myDashboard(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px">${K.sellerDashHtml(d, '#/mydash')}</div>`; } catch (e) {}
       // online sales: today's targets and "Follow up today" on top (22 Oct 2026)
       if (K.isOnlineSeller()) try { S.onlineT = await api.onlineToday(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px">${K.onlineHomeHtml(S.onlineT)}</div>` + top; } catch (e) { S.onlineT = null; }
+      // field staff: today's shop visits and new shops vs their daily targets (24 Oct 2026)
+      if (K.fieldHomeHtml && ['sales', 'supervisor', 'agent'].includes(S.me.role)) try { const ft = await api.fieldToday(); if (!current()) return; top = K.fieldHomeHtml(ft) + top; } catch (e) {}
       html = top + `<div class="card" style="padding:18px 10px;margin-top:12px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;

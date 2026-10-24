@@ -1362,6 +1362,13 @@ window.makeSupabaseApi = function (cfg) {
     partnerTgGroupSave: x => q(sb.rpc('partner_tg_group_save', { p: x })),
     partnerTgGroupDelete: id => q(sb.rpc('partner_tg_group_delete', { p_id: id })),
     partnerTgGroupTest: id => q(sb.rpc('partner_tg_group_test', { p_id: id })),
+    // field targets and the admin's place in the staff ranking (24 Oct 2026)
+    fieldToday: uid => q(sb.rpc('field_today', { p_user: uid || null })),
+    fieldTeamToday: () => q(sb.rpc('field_team_today')),
+    fieldTargetSet: (uid, visits, shops) => q(sb.rpc('field_target_set', { p_user: uid, p_visits: visits, p_new: shops })),
+    fieldSettingsSave: p => q(sb.rpc('field_settings_save', { p })),
+    rankingMeGet: () => q(sb.rpc('ranking_me_get')),
+    rankingMeSet: place => q(sb.rpc('ranking_me_set', { p_place: place })),
     partnerStatement: (from, to) => q(sb.rpc('partner_statement', { p_from: from || null, p_to: to || null })),
     partnerStatementAdmin: (pid, from, to) => q(sb.rpc('partner_statement_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
@@ -1786,9 +1793,9 @@ window.makeDemoApi = function () {
       below_price: ['🏷', 'Sold below price / free items'], over_credit_limit: ['🚨', 'Shop over its credit limit'], stock_moved: ['🔀', 'Stock moved between stocks'],
       stock_adjusted: ['✏️', 'Stock count changed by hand'], goods_returned: ['↩️', 'Returned to supplier'], data_cleared: ['🧹', 'Clear data was used'], staff_account: ['👤', 'Staff account or permissions changed'],
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
-      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'] },
+      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'], field_behind: ['📉', 'Rep behind daily target'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps'],
+    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps', 'field_targets'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -2198,7 +2205,7 @@ window.makeDemoApi = function () {
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
   const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance', 'shops', 'expenses', 'leave', 'below_price', 'over_credit_limit',
     'stock_moved', 'stock_adjusted', 'goods_returned', 'data_cleared', 'staff_account', 'price_changed', 'order_changed', 'credit_overdue',
-    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle'];   // same as alert_kinds in the database
+    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle', 'field_behind'];   // same as alert_kinds in the database
   if (D && D.convs && !D.alertsMore) {   // like the database: the new alerts start ticked in the built-in channel that fits
     D.convs.forEach(c => { if (c.slug === 'alerts') c.alert_types = ['below_price', 'over_credit_limit', 'data_cleared', 'staff_account', 'price_changed', 'order_changed'];
       if (c.slug === 'stock_alerts') c.alert_types = ['stock_moved', 'stock_adjusted']; });
@@ -2208,7 +2215,7 @@ window.makeDemoApi = function () {
       if (add.length) c.alert_types = [...new Set((c.alert_types || []).concat(add))]; });
     D.alertsMore2 = 1; }
   if (D && D.convs && !D.alertsIdle) {   // 24 Oct 2026: "rep with no shop visit" starts ticked in the visit alerts channel
-    D.convs.forEach(c => { if (c.slug === 'visit_alerts') c.alert_types = [...new Set((c.alert_types || []).concat(['staff_idle']))]; });
+    D.convs.forEach(c => { if (c.slug === 'visit_alerts') c.alert_types = [...new Set((c.alert_types || []).concat(['staff_idle', 'field_behind']))]; });
     D.alertsIdle = 1; }
   const memberRow = (cid, uid) => D.members.find(m => m.conversation_id === cid && m.user_id === uid);
   const convAdmin = c => !!c && !!role() && (role() === 'admin' || (!c.slug && !!(memberRow(c.id, me.id) || {}).is_admin));
@@ -3136,7 +3143,7 @@ window.makeDemoApi = function () {
       const k = D.customers.find(c => c.id === keep), r = D.customers.find(c => c.id === remove);
       if (!k || !r || keep === remove) fail('Choose two different shops');
       const mv = list => { let n = 0; (list || []).forEach(x => { if (x.customer_id === remove) { x.customer_id = keep; n++; } }); return n; };
-      const out = { orders: mv(D.orders), payments: mv(D.payments), visits: mv(D.visits) };
+      const out = { orders: mv(D.orders), payments: mv(D.payments), visits: mv(D.visits), followups: mv(D.followups), online_sales: mv(D.nopSales) };   // follow-ups and online sales too (24 Oct 2026)
       if (D.locFix) D.locFix = D.locFix.filter(x => x.customer_id !== remove);
       if (k.lat == null && r.lat != null) { k.lat = r.lat; k.lng = r.lng; }
       if (!k.map_url) k.map_url = r.map_url; if (!k.owner_name) k.owner_name = r.owner_name;
@@ -3596,7 +3603,9 @@ window.makeDemoApi = function () {
     },
     async deleteVisit(id) { const v = D.visits.find(x => x.id === id); if (!v || !canFixVisit(v)) fail('You can only delete your own visits from today'); D.visits.splice(D.visits.indexOf(v), 1);
       alert('🗑 ' + me.full_name + ' deleted ' + (v.staff_id === me.id ? 'their' : who(v.staff_id) + "'s") + ' visit at ' + shopName(v.customer_id) + ' (' + new Date(v.check_in_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')', { customer_id: v.customer_id }, 'visits'); save(); return wait(null); },
-    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id); v.check_out_at = now(); if (notes) v.notes = notes;
+    async checkOut(id, notes) { const v = D.visits.find(x => x.id === id && x.staff_id === me.id);
+      if (['sales', 'supervisor', 'agent'].includes(role()) && String(notes || v.notes || '').trim().length < 5) fail('Write the customer feedback / report before you check out');   // 24 Oct 2026
+      v.check_out_at = now(); if (notes) v.notes = notes;
       alert('✅ ' + me.full_name + ' finished the visit at ' + shopName(v.customer_id) + ' · ' + Math.max(1, Math.round((new Date(v.check_out_at) - new Date(v.check_in_at)) / 60000)) + ' min', { customer_id: v.customer_id, visit_id: v.id }, 'visits');
       save(); return wait(null); },
 
@@ -4225,6 +4234,9 @@ window.makeDemoApi = function () {
       const delEv = D.events.filter(e => e.created_by === me.id && e.status === 'delivered');
       const all = await api._teamSalesAll(m0 + '-01'), mx = Math.max(1, ...all.map(r => +r.total));
       const ranking = all.map(r => { const bar = Math.round(r.total / mx * 100); return r.user_id === me.id || allow('dashboard.view') ? { id: r.user_id, name: r.full_name, total: r.total, target: r.target, bar } : { bar }; });
+      const rm = String((D.settings || {}).ranking_me || '').split('|');   // 24 Oct 2026: the admin's place in the STAFF ranking (hidden line)
+      if (!allow('dashboard.view') && rm[0] === m0 + '-01' && +rm[1] > 0) { const pl = Math.min(+rm[1], ranking.length + 1), n = ranking.length;
+        const b = pl === 1 ? 100 : pl > n ? Math.max((ranking[n - 1] || {}).bar - 5, 1) : Math.round(((ranking[pl - 2] || {}).bar + (ranking[pl - 1] || {}).bar) / 2); ranking.splice(pl - 1, 0, { bar: b }); }
       return wait({
         sales_today: sum(mine.filter(o => o.d === today)), sales_week: sum(mine.filter(o => o.d >= w0)), sales_month: sum(mine.filter(o => o.d.slice(0, 7) === m0)), np_month: nopSum(me.id, m0 + '-01', today), np_target: api._nopTarget(me.id, m0), np_month_count: nopOf(me.id, m0 + '-01', today).length,
         target: ((D.targets || {})[me.id] || {})[m0 + '-01'] || null, last7: days,
@@ -4603,6 +4615,30 @@ window.makeDemoApi = function () {
     const v = await api.checkIn({ customer_id: saved.id, lat: pos.lat, lng: pos.lng, notes: 'New shop' });
     const vr = D.visits.find(x => x.id === (v && v.id)) || D.visits[D.visits.length - 1]; if (vr) { vr.photo_url = photoUrl; vr.distance_m = 0; } save();
     return wait({ customer: D.customers.find(x => x.id === saved.id), visit_id: vr && vr.id }); };
+  // field targets and the admin's place in the staff ranking (24 Oct 2026) — like the database
+  const fieldCounts = (uid, day) => { const t = (D.fieldT || {})[uid] || {}, st = D.settings || {};
+    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length,
+      new_shops: D.customers.filter(c => c.created_by === uid && !c.source && c.created_at && localDay0(c.created_at) === day).length,
+      target_visits: t.visits_per_day ?? +(st.field_visits_per_day ?? 8), target_new: t.new_shops_per_day ?? +(st.field_new_shops_per_day ?? 1) }; };
+  api.fieldToday = async uid => { if (!role()) fail('Your account is not active'); return wait(fieldCounts(uid || me.id, localDay0(now()))); };
+  api.fieldTeamToday = async () => { if (!(hasRole('admin') || allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can see this');
+    const d = localDay0(now()), st = D.settings || {};
+    return wait({ visits_per_day: st.field_visits_per_day ?? '8', new_shops_per_day: st.field_new_shops_per_day ?? '1', behind_time: st.field_behind_time || '',
+      reps: D.users.filter(u => u.active !== false && ['sales', 'supervisor', 'agent'].includes(u.role)).sort((a, b) => a.full_name.localeCompare(b.full_name)).map(u => Object.assign(fieldCounts(u.id, d),
+        { id: u.id, full_name: u.full_name, role: u.role, own_visits: ((D.fieldT || {})[u.id] || {}).visits_per_day ?? null, own_new: ((D.fieldT || {})[u.id] || {}).new_shops_per_day ?? null,
+          at_work: (D.attendance || []).some(a => a.staff_id === u.id && a.work_date === d), on_leave: false })) }); };
+  api.fieldTargetSet = async (uid, v, n) => { if (!(hasRole('admin') || allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can set targets');
+    if (v < 0 || v > 1000 || n < 0 || n > 1000) fail('Targets: type a number from 0 to 1000'); D.fieldT = D.fieldT || {};
+    if (v == null && n == null) delete D.fieldT[uid]; else D.fieldT[uid] = { visits_per_day: v, new_shops_per_day: n }; save(); return wait(null); };
+  api.fieldSettingsSave = async p => { if (!(hasRole('admin') || allow('hr.manage'))) fail('Only the admin can change these settings');
+    Object.entries(p || {}).forEach(([k, v]) => { v = String(v ?? '').trim();
+      if (['field_visits_per_day', 'field_new_shops_per_day'].includes(k)) { if (!/^\d+$/.test(v) || +v > 1000) fail('Targets: type a number from 0 to 1000'); }
+      else if (k === 'field_behind_time') { if (v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 15:00'); }
+      else fail('Unknown setting ' + k); D.settings = Object.assign(D.settings || {}, { [k]: v }); }); save(); return wait(null); };
+  api.rankingMeGet = async () => { if (!hasRole('admin')) return wait(null); const r = String((D.settings || {}).ranking_me || '').split('|');
+    return wait(r[0] === localDay0(now()).slice(0, 7) + '-01' && +r[1] > 0 ? +r[1] : null); };
+  api.rankingMeSet = async place => { if (!hasRole('admin')) fail('Only the admin can do this'); if (place != null && (place < 1 || place > 100)) fail('Place: type a number from 1 to 100');
+    D.settings = Object.assign(D.settings || {}, { ranking_me: place == null ? '' : localDay0(now()).slice(0, 7) + '-01|' + place }); save(); return wait(null); };
   // owner / seller partner logins (24 Oct 2026): a seller only sells, sees customers and stock — same as the database
   api.adminSetPartnerRole = async (id, role) => { if (!hasRole('admin')) fail('Only the admin can change partner logins'); if (!['owner', 'seller'].includes(role)) fail('Choose Owner or Seller');
     const u = D.users.find(x => x.id === id && x.role === 'partner'); if (!u) fail('Not a partner login'); u.partner_role = role; save(); return wait(null); };
@@ -6152,6 +6188,38 @@ window.KT_KM_PATTERNS.push(
   [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS ល្អ (± $1 ម)'],
   [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS ខ្សោយ (± $1 ម) — ចេញទៅខាងក្រៅ ឬជិតទ្វារ']
 );
+Object.assign(window.KT_KM, {
+  'Customer feedback / report': 'មតិអតិថិជន / របាយការណ៍',
+  'Customer feedback / report (required before check out)': 'មតិអតិថិជន / របាយការណ៍ (ត្រូវសរសេរមុនចេញ)',
+  'What did the customer say? What does the shop need? Prices, stock, problems…': 'អតិថិជននិយាយអ្វី? ហាងត្រូវការអ្វី? តម្លៃ ស្តុក បញ្ហា…',
+  'Write the customer feedback / report before you check out': 'សរសេរមតិអតិថិជន / របាយការណ៍ មុននឹងចេញ',
+  '🏪 Shop visits today': '🏪 ការចុះហាងថ្ងៃនេះ',
+  '🆕 New shops today': '🆕 ហាងថ្មីថ្ងៃនេះ',
+  'Field staff · daily targets': 'បុគ្គលិកចុះមូលដ្ឋាន · គោលដៅប្រចាំថ្ងៃ',
+  'Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.': 'អ្នកលក់ អ្នកគ្រប់គ្រង និងភ្នាក់ងារ។ បង្ហាញលើទំព័រដើម៖ "ការចុះហាងថ្ងៃនេះ X / Y" និង "ហាងថ្មីថ្ងៃនេះ X / Y"។ ទទេ = លេខសម្រាប់គ្រប់គ្នា។',
+  'Shop visits a day (everyone)': 'ការចុះហាងក្នុងមួយថ្ងៃ (គ្រប់គ្នា)',
+  'New shops a day (everyone)': 'ហាងថ្មីក្នុងមួយថ្ងៃ (គ្រប់គ្នា)',
+  '"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names': 'ម៉ោងពិនិត្យ "មិនដល់គោលដៅ" (ទទេ = បិទ)៖ អ្នកលក់ដែលនៅក្រោមគោលដៅទទួលកណ្តឹង ក្រុមរបស់អ្នកទទួលឈ្មោះ',
+  'Per person: shop visits · new shops a day · today': 'តាមម្នាក់ៗ៖ ការចុះហាង · ហាងថ្មីក្នុងមួយថ្ងៃ · ថ្ងៃនេះ',
+  'No field staff yet.': 'មិនទាន់មានបុគ្គលិកចុះមូលដ្ឋាន។',
+  'Save field targets': 'រក្សាទុកគោលដៅចុះមូលដ្ឋាន',
+  'Field targets saved': 'បានរក្សាទុកគោលដៅចុះមូលដ្ឋាន',
+  '🏅 Me in staff ranking': '🏅 ខ្ញុំក្នុងចំណាត់ថ្នាក់បុគ្គលិក',
+  'Me in the staff ranking': 'ខ្ញុំក្នុងចំណាត់ថ្នាក់បុគ្គលិក',
+  'My place (1 = top)': 'លំដាប់របស់ខ្ញុំ (1 = ខ្ពស់បំផុត)',
+  'not in the ranking': 'មិននៅក្នុងចំណាត់ថ្នាក់',
+  'Remove me from the staff ranking': 'ដកខ្ញុំចេញពីចំណាត់ថ្នាក់បុគ្គលិក',
+  'Type your place: 1, 2, 3…': 'វាយលំដាប់របស់អ្នក៖ 1, 2, 3…',
+  '📉 Rep behind daily target': '📉 អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ',
+  'Rep behind daily target': 'អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ',
+  'Rep behind daily target (time in HR → Field targets)': 'អ្នកលក់មិនដល់គោលដៅប្រចាំថ្ងៃ (ម៉ោងក្នុង ធនធានមនុស្ស → គោលដៅចុះមូលដ្ឋាន)',
+  'At the time in HR → Field targets: reps under their shop visit / new shop target': 'តាមម៉ោងក្នុង ធនធានមនុស្ស → គោលដៅចុះមូលដ្ឋាន៖ អ្នកលក់ដែលនៅក្រោមគោលដៅចុះហាង / ហាងថ្មី',
+  '🎯 Shop visits & new shops vs daily target (each field rep)': '🎯 ការចុះហាង និងហាងថ្មី ធៀបនឹងគោលដៅ (អ្នកលក់ម្នាក់ៗ)',
+  'Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.': 'ជ្រើសលំដាប់របស់អ្នកក្នុងចំណាត់ថ្នាក់ក្រុម <b>បុគ្គលិក</b> ខែនេះ។ អ្នកលក់រក្សាលំដាប់ពិត ពីលំដាប់របស់អ្នកចុះក្រោម ពួកគេធ្លាក់មួយលេខ។ បុគ្គលិកឃើញបន្ទាត់របស់អ្នកដូចអ្នកលក់ផ្សេងទៀត (របារ គ្មានឈ្មោះ)។ ផ្ទាំងគ្រប់គ្រង ការលក់ និងរបាយការណ៍របស់អ្នកនៅពិតដដែល។ ខែក្រោយចាប់ផ្តើមឡើងវិញដោយគ្មានអ្នក។',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Saved: you are #(\d+) in the staff ranking this month$/, 'បានរក្សាទុក៖ អ្នកជាលេខ $1 ក្នុងចំណាត់ថ្នាក់បុគ្គលិកខែនេះ']
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7689,6 +7757,39 @@ window.KT_ZH_PATTERNS.push(
   [/^✓ GPS good \(± (\d+) m\)$/, '✓ GPS 良好（± $1 米）'],
   [/^GPS weak \(± (\d+) m\) — go outside or near the door$/, 'GPS 较弱（± $1 米）— 请到外面或门口']
 );
+Object.assign(window.KT_ZH, {
+  'Customer feedback / report': '客户反馈 / 报告',
+  'Customer feedback / report (required before check out)': '客户反馈 / 报告（签退前必填）',
+  'What did the customer say? What does the shop need? Prices, stock, problems…': '客户说了什么？店铺需要什么？价格、库存、问题…',
+  'Write the customer feedback / report before you check out': '签退前请写客户反馈 / 报告',
+  '🏪 Shop visits today': '🏪 今日拜访店铺',
+  '🆕 New shops today': '🆕 今日新店铺',
+  'Field staff · daily targets': '外勤人员 · 每日目标',
+  'Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.': '销售员、主管和代理。显示在他们的首页："今日拜访店铺 X / Y"（签到）和"今日新店铺 X / Y"（他们添加的店铺）。空 = 所有人的数字。',
+  'Shop visits a day (everyone)': '每天拜访店铺（所有人）',
+  'New shops a day (everyone)': '每天新店铺（所有人）',
+  '"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names': '"未达目标"检查时间（空 = 关闭）：仍未达标的销售员会收到铃铛提醒，您的群组会收到名单',
+  'Per person: shop visits · new shops a day · today': '每人：拜访店铺 · 每天新店铺 · 今天',
+  'No field staff yet.': '还没有外勤人员。',
+  'Save field targets': '保存外勤目标',
+  'Field targets saved': '外勤目标已保存',
+  '🏅 Me in staff ranking': '🏅 我在员工排名中',
+  'Me in the staff ranking': '我在员工排名中',
+  'My place (1 = top)': '我的名次（1 = 第一）',
+  'not in the ranking': '不在排名中',
+  'Remove me from the staff ranking': '把我从员工排名中移除',
+  'Type your place: 1, 2, 3…': '输入您的名次：1、2、3…',
+  'Removed': '已移除',
+  '📉 Rep behind daily target': '📉 销售员未达每日目标',
+  'Rep behind daily target': '销售员未达每日目标',
+  'Rep behind daily target (time in HR → Field targets)': '销售员未达每日目标（时间在 人事 → 外勤目标）',
+  'At the time in HR → Field targets: reps under their shop visit / new shop target': '在 人事 → 外勤目标 的时间：未达到拜访店铺 / 新店铺目标的销售员',
+  '🎯 Shop visits & new shops vs daily target (each field rep)': '🎯 拜访店铺和新店铺 对比 每日目标（每个外勤）',
+  'Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.': '选择您本月在<b>员工</b>团队排名中的名次。销售员保持真实顺序；从您的名次往下，他们各下降一位。员工看到您的一行和其他销售员一样（只有进度条，没有名字）。您自己的仪表板、销售和报告保持真实。下个月重新开始，不包括您。',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Saved: you are #(\d+) in the staff ranking this month$/, '已保存：您本月在员工排名中第 $1 名']
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -7962,6 +8063,8 @@ window.KT_ZH_PATTERNS.push(
       try { const d = await api.myDashboard(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px">${K.sellerDashHtml(d, '#/mydash')}</div>`; } catch (e) {}
       // online sales: today's targets and "Follow up today" on top (22 Oct 2026)
       if (K.isOnlineSeller()) try { S.onlineT = await api.onlineToday(); if (!current()) return; top = `<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px">${K.onlineHomeHtml(S.onlineT)}</div>` + top; } catch (e) { S.onlineT = null; }
+      // field staff: today's shop visits and new shops vs their daily targets (24 Oct 2026)
+      if (K.fieldHomeHtml && ['sales', 'supervisor', 'agent'].includes(S.me.role)) try { const ft = await api.fieldToday(); if (!current()) return; top = K.fieldHomeHtml(ft) + top; } catch (e) {}
       html = top + `<div class="card" style="padding:18px 10px;margin-top:12px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     if (visit) html += `<a class="card" href="#/visits" style="text-decoration:none;color:inherit;border-color:#BFE3CC;background:var(--grs);margin-top:${html ? 12 : 0}px"><div class="row"><div class="ic-av sq" style="background:var(--card);color:var(--gr)">${icon('pin')}</div><div class="grow"><div class="tt">At ${esc(visit.customers.name)}</div><div class="st">Checked in ${K.hhmm(visit.check_in_at)} · tap to check out</div></div>${icon('right', 20)}</div></a>`;
@@ -8195,7 +8298,8 @@ window.KT_ZH_PATTERNS.push(
     ['shop_not_visited', '📍 Shop not visited', 'Every morning: shops not visited for the days in Settings → Alerts', 5], ['shop_sleeping', '😴 Sleeping shop (no order)', 'Every morning: shops with no order for the days in Settings → Alerts', 5],
     ['shop_new_unvisited', '🆕 New shop never visited', 'A new shop still not visited after the days in Settings → Alerts', 5], ['shop_week_list', '🗓 Monday: shops to visit this week', 'Each rep\'s list, every Monday morning', 5],
     ['staff_absent', '🚫 Staff not at work', 'Staff who did not start work by the time in Settings → Alerts', 5],
-    ['staff_idle', '⏳ Rep with no shop visit', 'A rep made no shop check-in and no order for the time in Settings → Alerts', 5]];
+    ['staff_idle', '⏳ Rep with no shop visit', 'A rep made no shop check-in and no order for the time in Settings → Alerts', 5],
+    ['field_behind', '📉 Rep behind daily target', 'At the time in HR → Field targets: reps under their shop visit / new shop target', 5]];
   const ALERT_GROUPS = ['Main alerts', 'Shops, expenses & leave', 'Money', 'Stock', 'Security', 'Shop checks & staff (every morning)'];
   const alertLabel = types => (types || []).map(t => (ALERTS.find(a => a[0] === t) || [t, t])[1]).join(', ');
   const alertPick = (sel, newOnly) => ALERT_GROUPS.map((g, gi) => { const l = ALERTS.filter(a => (a[3] || 0) === gi && (!newOnly || gi > 0)); return l.length ? `<div class="sec" style="margin:8px 0 4px">${g}</div><div class="card flush">${l.map(([k, t, d]) => `<label class="list-item" style="cursor:pointer"><div class="grow"><div class="tt" style="font-size:14px">${t}</div><div class="st">${d}</div></div><input type="checkbox" data-alert="${k}" ${(sel || []).includes(k) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--p)"></label>`).join('')}</div>` : ''; }).join('');
@@ -9127,7 +9231,7 @@ window.KT_ZH_PATTERNS.push(
         ${line('Finished', v.check_out_at ? esc(t(v.check_out_at)) + ' · ' + mins + ' min' : '<span class="pill">Still on site</span>')}
         ${line('Distance from shop', v.distance_m == null ? (v.lat == null ? 'No GPS' : 'Shop had no GPS yet') : far ? `<span style="color:${strong ? 'var(--rd)' : 'var(--or)'}">${strong ? '🚨' : '⚠️'} ${v.distance_m} m</span>` : v.distance_m + ' m')}
         ${far ? line('Reason', v.reason ? esc(v.reason) : '<span class="muted">No reason given</span>') : ''}
-        ${v.notes ? `<div style="padding-top:8px"><div class="muted small">Note</div><div>${esc(v.notes)}</div></div>` : ''}
+        ${v.notes ? `<div style="padding-top:8px"><div class="muted small">Customer feedback / report</div><div>${esc(v.notes)}</div></div>` : ''}
       </div>
       ${far ? `<div class="card small" style="background:${strong ? 'var(--rds)' : 'var(--ors)'};color:${strong ? 'var(--rd)' : 'var(--or)'}">${strong ? 'Checked in more than 300 m from the shop. The rep was probably not at the shop.' : 'Checked in far from the shop. It may be worth asking why.'}</div>` : ''}
       <div class="btns">${v.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps/search/?api=1&query=${v.lat},${v.lng}" target="_blank" rel="noopener">${icon('pin', 18)}Check-in on map</a>` : ''}
@@ -9144,7 +9248,7 @@ window.KT_ZH_PATTERNS.push(
     let html = '<div class="pad">';
     if (active) {
       html += `<div class="card" style="border-color:#BFE3CC"><div class="row"><div class="grow"><div class="small muted">You are checked in at</div><div class="tt" style="font-size:18px">${esc(active.customers.name)}</div><div class="st">Since ${hhmm(active.check_in_at)}</div></div><div style="text-align:right"><div class="big" style="color:var(--p)" id="timer">0:00</div><div class="small muted">on site</div></div></div>
-        <label class="f">Visit notes<textarea class="inp" id="vn" placeholder="What happened? What does the shop need?">${esc(active.notes || '')}</textarea></label>
+        <label class="f">Customer feedback / report${['sales', 'supervisor', 'agent'].includes(S.me.role) ? ' (required before check out)' : ''}<textarea class="inp" id="vn" placeholder="What did the customer say? What does the shop need? Prices, stock, problems…">${esc(active.notes || '')}</textarea></label>
         <div class="btns"><a class="btn ghost" href="#/orders/new?customer=${active.customer_id}">${icon('order', 20)}Take order</a><button class="btn" id="co">${icon('check', 20)}Check out</button></div></div>`;
     } else if (K.allow('visits.create')) html += `<a class="btn block" href="#/visit/new">${icon('pin', 20)} Start a shop visit</a>`;
     const today = visits.filter(v => K.sameDay(v.check_in_at, new Date()));
@@ -9154,7 +9258,8 @@ window.KT_ZH_PATTERNS.push(
     if (active) {
       const tick = () => { const el = $('#timer'); if (!el) return clearInterval(iv); const s = Math.floor((Date.now() - new Date(active.check_in_at)) / 1000); el.textContent = Math.floor(s / 3600) ? Math.floor(s / 3600) + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + 'h' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
       const iv = setInterval(tick, 1000); tick();
-      $('#co').onclick = async e => { const r = await busy(e.currentTarget, () => api.checkOut(active.id, $('#vn').value.trim())); forget('customers'); if (r && r.queued) K.savedOffline(); else toast('Checked out'); K.render(); };
+      $('#co').onclick = async e => { if (['sales', 'supervisor', 'agent'].includes(S.me.role) && $('#vn').value.trim().length < 5) { $('#vn').classList.add('bad'); $('#vn').focus(); return toast('Write the customer feedback / report before you check out'); }   // 24 Oct 2026
+        const r = await busy(e.currentTarget, () => api.checkOut(active.id, $('#vn').value.trim())); forget('customers'); if (r && r.queued) K.savedOffline(); else toast('Checked out'); K.render(); };
     }
   });
 
@@ -10355,6 +10460,52 @@ window.KT_ZH_PATTERNS.push(
       <button class="btn out" id="omsave">Save</button></div>`;
     $('#omsave', el).onclick = async e => { const o = { online_midday_time: $('#omt', el).value, online_hot_days: $('#ohd', el).value.trim() };
       await busy(e.currentTarget, () => api.onlineSettingsSave(o)); Object.assign(st, o); toast('Saved'); };
+  };
+})();
+
+// Field staff daily targets (24 Oct 2026, Mr. Lee): shop visits and new shops a day — the rep's Home card and the
+// admin "Field targets" card (the number for everyone, own numbers per person, every rep today, behind-target time).
+// Also the admin's own place in the STAFF ranking ("Me in staff ranking", display only). Both bundles.
+(function () {
+  const K = window.KT;
+  const { api, esc, $, $$, toast, busy } = K;
+  const meter = (v, t, label, href) => { const pct = t ? Math.min(100, Math.round(v / t * 100)) : 0, ok = t && v >= t;
+    return `<a class="stat" href="${href}" style="text-decoration:none;color:inherit"><b style="color:${ok ? 'var(--gr)' : 'inherit'}">${v} / ${t || '–'}${ok ? ' ✓' : ''}</b><span>${label}</span><div class="paybar" style="height:6px;margin-top:6px"><div style="width:${pct}%;background:${ok ? 'var(--gr)' : 'var(--p)'}"></div></div></a>`; };
+
+  // the rep's Home: today's shop visits and new shops
+  K.fieldHomeHtml = t => `<div class="stats" style="margin-bottom:12px">${meter(+t.visits, +t.target_visits, '🏪 Shop visits today', '#/visits')}${meter(+t.new_shops, +t.target_new, '🆕 New shops today', '#/customers')}</div>`;
+
+  // admin / HR: the targets and every field rep today
+  K.fieldTargetsCard = async el => {
+    const d = await api.fieldTeamToday().catch(e => { toast(e.message); return null; });
+    if (!d || !el.isConnected) return;
+    const ok = r => +r.visits >= +r.target_visits && +r.new_shops >= +r.target_new;
+    el.innerHTML = `<div class="card" style="gap:10px"><b>Field staff · daily targets</b>
+      <div class="small muted">Sales reps, supervisors and agents. Shown on their Home: "Shop visits today X / Y" (check-ins) and "New shops today X / Y" (shops they added). Empty = the number for everyone.</div>
+      <div class="btns"><label class="f">Shop visits a day (everyone)<input class="inp" id="ftv" type="number" min="0" max="1000" value="${esc(d.visits_per_day ?? '8')}"></label>
+        <label class="f">New shops a day (everyone)<input class="inp" id="ftn" type="number" min="0" max="1000" value="${esc(d.new_shops_per_day ?? '1')}"></label></div>
+      <label class="f">"Behind target" check time (empty = off): reps still under target get a bell, your group gets the names<input class="inp" id="ftb" type="time" value="${esc(d.behind_time || '')}"></label>
+      <div class="small muted">Per person: shop visits · new shops a day · today</div>
+      ${d.reps.map(r => `<div class="row" style="gap:6px"><span class="grow" style="font-weight:700;min-width:0">${esc(r.full_name)}<span class="small muted" style="font-weight:400"> · today ${r.visits}/${r.target_visits} · ${r.new_shops}/${r.target_new}${r.on_leave ? ' · on leave' : !r.at_work ? ' · not at work' : ''}</span>${r.at_work && ok(r) ? ' ✅' : ''}</span>
+        <input class="inp" data-fv="${esc(r.id)}" type="number" min="0" placeholder="${esc(d.visits_per_day ?? '')}" value="${r.own_visits ?? ''}" style="width:70px;text-align:right" aria-label="Shop visits a day">
+        <input class="inp" data-fn="${esc(r.id)}" type="number" min="0" placeholder="${esc(d.new_shops_per_day ?? '')}" value="${r.own_new ?? ''}" style="width:70px;text-align:right" aria-label="New shops a day"></div>`).join('') || '<div class="small muted">No field staff yet.</div>'}
+      <button class="btn out" id="ftsave">Save field targets</button></div>`;
+    $('#ftsave', el).onclick = async e => { await busy(e.currentTarget, async () => {
+      await api.fieldSettingsSave({ field_visits_per_day: $('#ftv', el).value.trim() || '0', field_new_shops_per_day: $('#ftn', el).value.trim() || '0', field_behind_time: $('#ftb', el).value.trim() });
+      for (const r of d.reps) { const a = $(`[data-fv="${r.id}"]`, el).value.trim(), b = $(`[data-fn="${r.id}"]`, el).value.trim();
+        if (a !== String(r.own_visits ?? '') || b !== String(r.own_new ?? '')) await api.fieldTargetSet(r.id, a === '' ? null : +a, b === '' ? null : +b); }
+    }); toast('Field targets saved'); K.fieldTargetsCard(el); };
+  };
+
+  // admin: put myself into the STAFF ranking at a place (this month; staff see a hidden line, the reps move down one place)
+  K.rankingMeSheet = async () => {
+    const cur = await api.rankingMeGet().catch(() => null);
+    const s = K.sheet('Me in the staff ranking', `<div class="small muted" style="line-height:1.5">Choose your place in the <b>staff</b> Team ranking this month. The reps keep their real order; from your place down they move one number lower. Staff see your line like any other rep (a bar, no name). Your own dashboard, sales and reports stay real. Next month it starts again without you.</div>
+      <label class="f">My place (1 = top)<input class="inp" id="rkp" type="number" min="1" max="100" inputmode="numeric" value="${cur ?? ''}" placeholder="not in the ranking"></label>
+      <button class="btn block" id="rkok">Save</button>${cur ? '<button class="btn out block" id="rkx">Remove me from the staff ranking</button>' : ''}`);
+    $('#rkok', s.el).onclick = async e => { const v = $('#rkp', s.el).value.trim(); if (!/^\d+$/.test(v) || +v < 1) return toast('Type your place: 1, 2, 3…');
+      await busy(e.currentTarget, () => api.rankingMeSet(+v)); s.close(); toast('Saved: you are #' + v + ' in the staff ranking this month'); };
+    if ($('#rkx', s.el)) $('#rkx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.rankingMeSet(null)); s.close(); toast('Removed'); };
   };
 })();
 
@@ -12402,7 +12553,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
             <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets are set on the Dashboard.</div></div>
-          <div id="otc" style="max-width:640px"></div>`;
+          <div id="otc" style="max-width:640px"></div><div id="ftc" style="max-width:640px;margin-top:14px"></div>`;
         S2.crep = rep;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
@@ -12472,6 +12623,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
       $$('[data-cm]').forEach(b => b.onclick = () => { cmonth = b.dataset.cm; draw(); });
       if ($('#otc')) K.onlineTargetsCard($('#otc'));
+      if ($('#ftc') && K.fieldTargetsCard) K.fieldTargetsCard($('#ftc'));
       $$('[data-cl]').forEach(a => a.onclick = () => K.commissionLinesSheet(cmonth, (S2.crep || []).find(r => r.user_id === a.dataset.cl) || {}));
       if ($('#offhere')) $('#offhere').onclick = e => { const b = e.currentTarget; if (!navigator.geolocation) return toast('This device cannot find its location');
         b.disabled = true; navigator.geolocation.getCurrentPosition(p => { b.disabled = false; $('[data-k="office_lat"]').value = p.coords.latitude.toFixed(6); $('[data-k="office_lng"]').value = p.coords.longitude.toFixed(6); toast('Location found (± ' + Math.round(p.coords.accuracy) + ' m). Tap Save office location.'); },
