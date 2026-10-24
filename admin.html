@@ -1344,6 +1344,12 @@ window.makeSupabaseApi = function (cfg) {
     partnerDashboard: (from, to) => q(sb.rpc('partner_dashboard', { p_from: from || null, p_to: to || null })),
     partnerDashboardAdmin: (pid, from, to) => q(sb.rpc('partner_dashboard_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerSetWarn: items => q(sb.rpc('partner_set_warn', { p_items: items || [] })),
+    partnerSetCosts: items => q(sb.rpc('partner_set_costs', { p_items: items || [] })),
+    partnerMyCosts: () => q(sb.rpc('partner_my_costs')),
+    partnerExpenseSave: x => q(sb.rpc('partner_expense_save', { p: x })),
+    partnerExpenseDelete: id => q(sb.rpc('partner_expense_delete', { p_id: id })),
+    partnerPnl: (from, to) => q(sb.rpc('partner_pnl', { p_from: from || null, p_to: to || null })),
+    partnerPnlAdmin: (pid, from, to) => q(sb.rpc('partner_pnl_admin', { p_partner: pid, p_from: from || null, p_to: to || null })),
     partnerGoodsMove: (pid, supplier, items, note) => q(sb.rpc('partner_goods_move', { p_partner: pid, p_supplier: supplier, p_items: items || [], p_note: note || null })),
     async uploadPartnerLogo(file) { return api.uploadPhoto(file, 'partners', true); },
     setStaffPassword: (id, password) => q(sb.rpc('admin_set_password', { p_id: id, p_password: password })),
@@ -2240,6 +2246,7 @@ window.makeDemoApi = function () {
   const myPartner = () => (me && me.active && me.role === 'partner' && partnersOf().some(p => p.id === me.partner_id && p.active) ? me.partner_id : null);
   const pStockRow = (pid, prod) => (partnersOf(), D.pStock = D.pStock || []).find(x => x.partner_id === pid && x.product_id === prod);
   const pStock = (pid, prod) => (pStockRow(pid, prod) || {}).qty || 0;
+  const pCost = (pid, prod) => { const x = (D.pCosts || []).find(y => y.partner_id === pid && y.product_id === prod); return x ? x.cost : null; };
   const pPrice = (pid, prod) => { partnersOf(); const x = (D.pPrices || []).find(y => y.partner_id === pid && y.product_id === prod); return x ? x.price : null; };
   const pMoves = pid => (D.pMoves || []).filter(m => m.partner_id === pid).slice().reverse().map(m => { const p = D.products.find(x => x.id === m.product_id) || {}; return Object.assign({ product: p.name, sku: p.sku, at: m.created_at }, m); });
   const staffNameD = id => (D.users.find(u => u.id === id) || {}).full_name || '';
@@ -2284,7 +2291,7 @@ window.makeDemoApi = function () {
     else if (pu.status === 'cancelled' && o.status !== 'cancelled') { o.items.forEach(l => pStockChange(o.partner_id, l.product_id, l.qty, 'cancel', 'K-TRONiCS cancelled ' + pu.purchase_no, o.order_no));
       Object.assign(o, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'K-TRONiCS cancelled the purchase ' + pu.purchase_no }); } };
   const pReqOrder = r => { let o = pOrds().find(x => x.request_id === r.id); if (o) return o; const c = pKtrCust(r.partner_id);
-    const seq = Math.max(0, ...pOrds().filter(x => x.partner_id === r.partner_id).map(x => x.seq)) + 1, lines = r.items.filter(i => i.qty_given > 0).map(i => ({ product_id: i.product_id, qty: i.qty_given, price: i.price }));
+    const seq = Math.max(0, ...pOrds().filter(x => x.partner_id === r.partner_id).map(x => x.seq)) + 1, lines = r.items.filter(i => i.qty_given > 0).map(i => ({ product_id: i.product_id, qty: i.qty_given, price: i.price, cost: pCost(r.partner_id, i.product_id) }));
     const waiting = r.flow === 'goods' ? !r.received_at : (D.purchases.find(x => x.id === r.purchase_id) || {}).status === 'ordered';
     o = { id: Math.max(0, ...pOrds().map(y => y.id)) + 1, partner_id: r.partner_id, seq, order_no: 'P' + r.partner_id + '-' + String(seq).padStart(4, '0'), customer_id: c.id, status: waiting ? 'open' : 'delivered', payment: 'credit', due_date: null,
       total: +lines.reduce((a, l) => a + l.qty * l.price, 0).toFixed(2), paid_amount: 0, notes: 'Stock request ' + r.request_no, created_by: r.answered_by, created_at: r.answered_at || now(), delivered_at: waiting ? null : r.answered_at || now(), items: lines, request_id: r.id };
@@ -2504,7 +2511,7 @@ window.makeDemoApi = function () {
       if (!['cash', 'credit'].includes(x.payment)) fail('Choose cash or credit'); if (!(x.items || []).length) fail('Add at least one product');
       const lines = x.items.map(it => { const prod = D.products.find(p => p.id === +it.product_id); if (!prod) fail('Product not found'); if (!(+it.qty > 0)) fail('Quantities must be more than 0');
         const pr = it.price === '' || it.price == null ? pPrice(pid, prod.id) : +it.price; if (pr == null) fail('Set your price for ' + prod.name + ' first (My prices), or type a price');
-        if (!(pr >= 0 && pr <= 1000000)) fail('Prices must be between 0 and 1,000,000'); return { product_id: prod.id, qty: Math.floor(+it.qty), price: Math.round(pr * 100) / 100 }; });
+        if (!(pr >= 0 && pr <= 1000000)) fail('Prices must be between 0 and 1,000,000'); return { product_id: prod.id, qty: Math.floor(+it.qty), price: Math.round(pr * 100) / 100, cost: pCost(pid, prod.id) }; });   // the cost of that day (P&L)
       const need = {}; lines.forEach(l => { need[l.product_id] = (need[l.product_id] || 0) + l.qty; });
       Object.entries(need).forEach(([prod, q]) => { if (pStock(pid, +prod) < q) fail('Not enough stock of ' + D.products.find(p => p.id === +prod).name + ': only ' + pStock(pid, +prod) + ' left'); });
       const seq = Math.max(0, ...pOrds().filter(o => o.partner_id === pid).map(o => o.seq)) + 1, ono = 'P' + pid + '-' + String(seq).padStart(4, '0');
@@ -2573,6 +2580,34 @@ window.makeDemoApi = function () {
         stock_in_waiting_me: (D.pIns || []).filter(x => x.partner_id === pid && x.status === 'waiting' && x.side === 'ktronics').length,
         stock_in_waiting_ktronics: (D.pIns || []).filter(x => x.partner_id === pid && x.status === 'waiting' && x.side === 'partner').length,
         requests_waiting: pReqs().filter(r => r.partner_id === pid && r.status === 'waiting').length, period: await api._pReportOf(pid, f, e) }); },
+    // cost per product, own expenses, profit & loss (24 Oct 2026) — same rules as partner_pnl_of
+    async partnerSetCosts(items) { const pid = myPartner(); if (!pid) fail('Not a partner account'); D.pCosts = D.pCosts || [];
+      (items || []).forEach(it => { const c = it.cost === '' || it.cost == null ? null : +it.cost; if (c != null && !(c >= 0 && c <= 1000000)) fail('Costs must be between 0 and 1,000,000');
+        if (!D.products.some(x => x.id === +it.product_id && (!x.partner_id || x.partner_id === pid))) fail('Product not found');
+        D.pCosts = D.pCosts.filter(x => !(x.partner_id === pid && x.product_id === +it.product_id)); if (c != null) D.pCosts.push({ partner_id: pid, product_id: +it.product_id, cost: Math.round(c * 100) / 100 }); });
+      save(); return wait((items || []).length); },
+    async partnerMyCosts() { const pid = myPartner(); if (!pid) fail('Not a partner account'); const o = {}; (D.pCosts || []).filter(x => x.partner_id === pid).forEach(x => { o[x.product_id] = x.cost; }); return wait(o); },
+    async partnerExpenseSave(x) { const pid = myPartner(); if (!pid) fail('Not a partner account'); D.pExp = D.pExp || [];
+      const cat = String(x.category || '').trim().slice(0, 60), amt = +x.amount, d = x.spent_on || localDay0(now()); if (!cat) fail('Choose what the expense is for'); if (!(amt > 0)) fail('Type the amount'); if (d > localDay0(now())) fail('The date cannot be in the future');
+      let e = x.id ? D.pExp.find(y => y.id === +x.id && y.partner_id === pid) : null; if (x.id && !e) fail('Expense not found');
+      if (!e) { e = { id: Math.max(0, ...D.pExp.map(y => y.id)) + 1, partner_id: pid }; D.pExp.push(e); }
+      Object.assign(e, { spent_on: d, category: cat, amount: Math.round(amt * 100) / 100, note: String(x.note || '').trim() || null }); save(); return wait(e.id); },
+    async partnerExpenseDelete(id) { const pid = myPartner(); if (!pid) fail('Not a partner account'); const n = (D.pExp || []).length; D.pExp = (D.pExp || []).filter(y => !(y.id === +id && y.partner_id === pid)); if (D.pExp.length === n) fail('Expense not found'); save(); return wait(null); },
+    async _pPnlOf(pid, from, to) { const t = localDay0(now()); let f = from || t, e = to || from || t; if (e < f) [f, e] = [e, f];
+      const o = pOrds().filter(x => x.partner_id === pid && x.status !== 'cancelled' && localDay0(x.created_at) >= f && localDay0(x.created_at) <= e);
+      const li = []; o.forEach(x => { (x.items || []).forEach(i => li.push({ product_id: i.product_id, qty: i.qty, price: i.price, cost: i.cost ?? pCost(pid, i.product_id) }));
+        (D.pReturns || []).filter(rt => rt.order_id === x.id).forEach(rt => { const it = (x.items || []).find(i => i.product_id === rt.product_id) || {}; li.push({ product_id: rt.product_id, qty: -rt.qty, price: rt.price, cost: it.cost ?? pCost(pid, rt.product_id) }); }); });
+      const ex = (D.pExp || []).filter(y => y.partner_id === pid && y.spent_on >= f && y.spent_on <= e), r2 = n => +n.toFixed(2);
+      const sales = r2(o.reduce((a, x) => a + x.total - (x.returned_amount || 0), 0)), cogs = r2(li.filter(l => l.cost != null).reduce((a, l) => a + l.qty * l.cost, 0)), exp = r2(ex.reduce((a, y) => a + y.amount, 0));
+      const cats = {}; ex.forEach(y => { cats[y.category] = (cats[y.category] || 0) + y.amount; });
+      const byP = {}; li.forEach(l => { const b = byP[l.product_id] = byP[l.product_id] || { pcs: 0, s: 0, c: 0, nc: false }; b.pcs += l.qty; b.s += l.qty * l.price; b.c += l.qty * (l.cost || 0); if (l.cost == null) b.nc = true; });
+      return wait({ from: f, to: e, sales, cogs, gross: r2(sales - cogs), expenses: exp, net: r2(sales - cogs - exp),
+        no_cost_pcs: li.filter(l => l.cost == null).reduce((a, l) => a + l.qty, 0), no_cost_sales: r2(li.filter(l => l.cost == null).reduce((a, l) => a + l.qty * l.price, 0)),
+        by_category: Object.entries(cats).map(([category, amount]) => ({ category, amount: r2(amount) })).sort((a, b) => b.amount - a.amount),
+        expense_list: ex.slice().sort((a, b) => b.spent_on.localeCompare(a.spent_on) || b.id - a.id).map(y => ({ id: y.id, spent_on: y.spent_on, category: y.category, amount: y.amount, note: y.note })),
+        by_product: Object.entries(byP).map(([id, b]) => ({ product: (D.products.find(p => p.id === +id) || {}).name, pcs: b.pcs, sales: r2(b.s), cost: r2(b.c), profit: r2(b.s - b.c), no_cost: b.nc })).sort((a, b) => b.profit - a.profit) }); },
+    async partnerPnl(from, to) { const pid = myPartner(); if (!pid) fail('Not a partner account'); return api._pPnlOf(pid, from, to); },
+    async partnerPnlAdmin(pid, from, to) { adminPartner(pid); return api._pPnlOf(+pid, from, to); },
     async partnerDashboard(from, to) { const pid = myPartner(); if (!pid) fail('Not a partner account'); return api._pDashOf(pid, from, to); },
     async partnerDashboardAdmin(pid, from, to) { adminPartner(pid); return api._pDashOf(+pid, from, to); },
     async partnerSetWarn(items) { const pid = myPartner(); if (!pid) fail('Not a partner account');
@@ -2661,13 +2696,16 @@ window.makeDemoApi = function () {
       if (!D.suppliers.some(x => x.id === +supplier)) fail('Choose a supplier');
       const lines = (items || []).filter(it => Math.floor(+it.qty || 0)).map(it => { const q = Math.floor(+it.qty); if (q < 0) fail('Pieces must be more than 0'); if (it.price === '' || it.price == null || +it.price < 0) fail('Write the price per piece for ' + api._pname(+it.product_id));
         const g = (D.pGoods || []).find(x => x.partner_id === +pid && x.product_id === +it.product_id); if (!g || g.qty < q) fail('Goods from partners: only ' + (g ? g.qty : 0) + ' of ' + api._pname(+it.product_id) + ' left');
-        return { product_id: +it.product_id, qty: q, unit_cost: +it.price }; });
+        let to = +it.to_product_id || +it.product_id;
+        if (to !== +it.product_id && !D.products.some(x => x.id === to && !x.partner_id && x.active)) fail('Choose one of your own products for ' + api._pname(+it.product_id));
+        return { product_id: +it.product_id, to, qty: q, unit_cost: +it.price }; });
       if (!lines.length) fail('Type how many pieces to move');
-      lines.forEach(l => { const pr = D.products.find(x => x.id === l.product_id); if (pr && pr.partner_id) Object.assign(pr, { partner_id: null, active: true }); });   // a partner-made product joins the K-TRONiCS list
+      lines.forEach(l => { const pr = D.products.find(x => x.id === l.product_id); if (l.to === l.product_id && pr && pr.partner_id) Object.assign(pr, { partner_id: null, active: true }); });   // a partner-made product joins the K-TRONiCS list (only under its own name)
+      const maps = lines.filter(l => l.to !== l.product_id).map(l => ' · ' + api._pname(l.product_id) + ' → ' + api._pname(l.to)).join('');
       const wh = Math.min(...D.warehouses.filter(w => !w.rep_id && !w.deleted_at).map(w => w.id));
-      const poId = await api.createPurchase({ supplier_id: +supplier, warehouse_id: wh, currency: 'USD', rate: 1, extra_cost: 0, note: (note || '').trim() || 'From partner goods · ' + ((partnersOf().find(x => x.id === +pid) || {}).name || ''), items: lines, receive: true });
+      const poId = await api.createPurchase({ supplier_id: +supplier, warehouse_id: wh, currency: 'USD', rate: 1, extra_cost: 0, note: ((note || '').trim() || 'From partner goods · ' + ((partnersOf().find(x => x.id === +pid) || {}).name || '')) + maps, items: lines.map(l => ({ product_id: l.to, qty: l.qty, unit_cost: l.unit_cost })), receive: true });
       const po = D.purchases.find(x => x.id === poId);
-      lines.forEach(l => api._pgChange(+pid, l.product_id, -l.qty, 'moved', po.purchase_no, note, null)); save(); return wait({ purchase_id: poId, purchase_no: po.purchase_no }); },
+      lines.forEach(l => api._pgChange(+pid, l.product_id, -l.qty, 'moved', po.purchase_no, l.to !== l.product_id ? [String(note || '').trim(), '→ ' + api._pname(l.to)].filter(Boolean).join(' · ') : note, null)); save(); return wait({ purchase_id: poId, purchase_no: po.purchase_no }); },
     async partnerGoodsList(pid) { if (!api._pgCan()) fail('You are not allowed to see partner goods'); const pn = id => (partnersOf().find(x => x.id === id) || {}).name;
       const reqs = pReqs().filter(r => r.flow === 'goods' && (!pid || r.partner_id === +pid));
       return wait({ waiting: reqs.filter(r => ['approved', 'part'].includes(r.status) && !r.received_at).map(r => pReqJson(r, false)),
@@ -4639,9 +4677,10 @@ window.makeDemoApi = function () {
 
   // ---------- layout ----------
   const TABS = [['home', 'Home', '#/home'], ['chat', 'Chat', '#/chat'], ['order', 'Orders', '#/orders'], ['box', 'Stock', '#/stock'], ['more', 'More', '#/more']];
+  const PTABS = [['home', 'Home', '#/partner'], ['order', 'Orders', '#/partner/orders'], ['box', 'Stock', '#/partner/stock'], ['more', 'More', '#/partner/more']];   // partner app (24 Oct 2026)
   function tabbar(active) {
     const isG = S.me && S.me.role === 'guest';
-    return `<nav class="tabs" aria-label="Main">${TABS.filter(t => !isG || t[0] === 'chat' || t[0] === 'more').map(([ic, label, href]) => `<a href="${href}" class="${active === ic ? 'on' : ''}">${icon(ic, 23, active === ic ? 2.2 : 1.8)}<span>${label}</span>${ic === 'chat' && S.unread ? `<span class="badge" data-unread>${S.unread > 99 ? '99+' : S.unread}</span>` : ''}</a>`).join('')}</nav>`;
+    return `<nav class="tabs" aria-label="Main">${(S.me && S.me.role === 'partner' ? PTABS : TABS).filter(t => !isG || t[0] === 'chat' || t[0] === 'more').map(([ic, label, href]) => `<a href="${href}" class="${active === ic ? 'on' : ''}">${icon(ic, 23, active === ic ? 2.2 : 1.8)}<span>${label}</span>${ic === 'chat' && S.unread ? `<span class="badge" data-unread>${S.unread > 99 ? '99+' : S.unread}</span>` : ''}</a>`).join('')}</nav>`;
   }
   function header({ title, sub, back, right = '' }) {
     return `<header class="hdr ${back ? 'back' : ''}">${back ? `<a class="ib" href="${back}" aria-label="Back">${icon('back')}</a>` : ''}<div class="t"><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>${right}</header>`;
@@ -5531,6 +5570,50 @@ Object.assign(window.KT_KM, {
 });
 window.KT_KM_PATTERNS.push(
   [/^(\d+) payment\(s\)$/, 'ការបង់ប្រាក់ $1']
+);
+
+// Partners: cost, profit & loss, new partner app layout (24 Oct 2026)
+Object.assign(window.KT_KM, {
+  'Prices': 'តម្លៃ',
+  'Profit & loss': 'ចំណេញ និងខាត',
+  'Sales, cost, expenses, profit': 'ការលក់ ថ្លៃដើម ចំណាយ ចំណេញ',
+  'Cost and selling price': 'ថ្លៃដើម និងតម្លៃលក់',
+  'Cost = what one piece costs you. Profit = selling price − cost.': 'ថ្លៃដើម = តម្លៃមួយគ្រឿងដែលអ្នកចំណាយ។ ចំណេញ = តម្លៃលក់ − ថ្លៃដើម។',
+  'Cost': 'ថ្លៃដើម',
+  'Price': 'តម្លៃ',
+  'Use 0 or more': 'ប្រើ 0 ឬច្រើនជាង',
+  'Your own numbers': 'លេខរបស់អ្នកផ្ទាល់',
+  'Profit (after expenses)': 'ចំណេញ (ក្រោយចំណាយ)',
+  '− Cost of goods sold': '− ថ្លៃដើមទំនិញបានលក់',
+  '= Gross profit': '= ចំណេញដុល',
+  '− Expenses': '− ចំណាយ',
+  '= Net profit': '= ចំណេញសុទ្ធ',
+  'Edit expense': 'កែចំណាយ',
+  'Profit by product': 'ចំណេញតាមទំនិញ',
+  'What for': 'សម្រាប់អ្វី',
+  'Salary': 'ប្រាក់ខែ',
+  'Electricity & water': 'ភ្លើង និងទឹក',
+  'Phone & internet': 'ទូរស័ព្ទ និងអ៊ីនធឺណិត',
+  'Marketing': 'ផ្សព្វផ្សាយ',
+  'Delete this expense?': 'លុបចំណាយនេះ?',
+  'Set the cost in My prices.': 'កំណត់ថ្លៃដើមក្នុង តម្លៃរបស់ខ្ញុំ។',
+  'The partner has not set its cost for them.': 'ដៃគូមិនទាន់កំណត់ថ្លៃដើមសម្រាប់វាទេ។',
+  'Choose what the expense is for': 'ជ្រើសថាចំណាយសម្រាប់អ្វី',
+  'Type the amount': 'វាយចំនួនទឹកប្រាក់',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Profit (\$[\d,.]+) each$/, 'ចំណេញ $1 ក្នុងមួយ'],
+  [/^(\d+) pcs sold without a cost$/, 'លក់ $1 គ្រឿងគ្មានថ្លៃដើម']
+);
+Object.assign(window.KT_KM, {
+  'Put into my product': 'ដាក់ចូលទំនិញរបស់ខ្ញុំ',
+  '(empty = same product)': '(ទទេ = ទំនិញដដែល)',
+  'Search your product or SKU': 'ស្វែងរកទំនិញ ឬ SKU របស់អ្នក',
+  'Choose one of your own products from the list': 'ជ្រើសទំនិញរបស់អ្នកពីបញ្ជី',
+  'Moved to my stock · last 10': 'បានផ្ទេរចូលស្តុកខ្ញុំ · ១០ ចុងក្រោយ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Choose one of your own products for (.+)$/, 'ជ្រើសទំនិញរបស់អ្នកសម្រាប់ $1']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -6856,6 +6939,50 @@ Object.assign(window.KT_ZH, {
 });
 window.KT_ZH_PATTERNS.push(
   [/^(\d+) payment\(s\)$/, '$1 笔付款']
+);
+
+// Partners: cost, profit & loss, new partner app layout (24 Oct 2026)
+Object.assign(window.KT_ZH, {
+  'Prices': '价格',
+  'Profit & loss': '损益',
+  'Sales, cost, expenses, profit': '销售、成本、费用、利润',
+  'Cost and selling price': '成本和售价',
+  'Cost = what one piece costs you. Profit = selling price − cost.': '成本 = 每件花费。利润 = 售价 − 成本。',
+  'Cost': '成本',
+  'Price': '价格',
+  'Use 0 or more': '请填 0 或以上',
+  'Your own numbers': '您自己的数字',
+  'Profit (after expenses)': '利润（扣除费用后）',
+  '− Cost of goods sold': '− 销售成本',
+  '= Gross profit': '= 毛利',
+  '− Expenses': '− 费用',
+  '= Net profit': '= 净利',
+  'Edit expense': '编辑费用',
+  'Profit by product': '按产品利润',
+  'What for': '用途',
+  'Salary': '工资',
+  'Electricity & water': '水电',
+  'Phone & internet': '电话和网络',
+  'Marketing': '营销',
+  'Delete this expense?': '删除这笔费用？',
+  'Set the cost in My prices.': '请在"我的价格"中设置成本。',
+  'The partner has not set its cost for them.': '合作伙伴还没有设置它们的成本。',
+  'Choose what the expense is for': '请选择费用用途',
+  'Type the amount': '请输入金额',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Profit (\$[\d,.]+) each$/, '每件利润 $1'],
+  [/^(\d+) pcs sold without a cost$/, '$1 件没有成本']
+);
+Object.assign(window.KT_ZH, {
+  'Put into my product': '放入我的产品',
+  '(empty = same product)': '(空 = 同一产品)',
+  'Search your product or SKU': '搜索您的产品或SKU',
+  'Choose one of your own products from the list': '请从列表中选择您自己的产品',
+  'Moved to my stock · last 10': '已转入我的库存 · 最近10条',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Choose one of your own products for (.+)$/, '请为 $1 选择您自己的产品']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -13185,7 +13312,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return `<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
       ${waitMe && partnerApp ? `<a class="card" href="#/partner/approve" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;text-decoration:none;color:inherit"><div class="grow"><b>To approve: ${waitMe}</b><div class="small">Stock or money from K-TRONiCS waits for you</div></div></a>` : ''}
       ${grid(tile(m(d.sales), 'Sales', d.orders + ' order(s)' + (diff != null ? ` · <b style="color:${diff >= 0 ? 'var(--gr)' : 'var(--rd)'}">${diff >= 0 ? '+' : ''}${diff}%</b> vs before` : ''), null, partnerApp ? '#/partner/orders' : null)
-        + tile(m(d.collected), 'Money collected', d.payments + ' payment(s)', +d.collected > 0 ? 'var(--gr)' : null))}
+        + tile(m(d.collected), 'Money collected', d.payments + ' payment(s)', +d.collected > 0 ? 'var(--gr)' : null)
+        + (d.pnl ? tile(m(d.pnl.net), 'Profit (after expenses)', 'gross ' + m(d.pnl.gross) + ' · expenses ' + m(d.pnl.expenses), +d.pnl.net < 0 ? 'var(--rd)' : 'var(--gr)', partnerApp ? '#/partner/pnl' : null) : ''))}
       <div class="sec" style="margin:0">Owed now</div>
       ${grid(tile(m(d.customers_owe), 'Customers owe', d.customers_owing + ' customer(s)', +d.customers_owe > 0 ? 'var(--or)' : null, partnerApp ? '#/partner/customers' : null)
         + tile(m(d.ktronics_owes), 'K-TRONiCS owes', +d.ktronics_pay_waiting > 0 ? m(d.ktronics_pay_waiting) + ' waiting for confirmation' : '', null, partnerApp && +d.ktronics_pay_waiting > 0 ? '#/partner/approve' : null))}
@@ -13197,6 +13325,49 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       ${grid(`<div class="card flush"><div class="list-item"><b class="grow">Best products</b></div>${(M.by_product || []).slice(0, 5).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.product)}</div><div class="st">${x.pcs} pcs</div></div><b>${m(x.sales)}</b></div>`).join('') || '<div class="empty">No sales in these dates</div>'}</div>`
         + `<div class="card flush"><div class="list-item"><b class="grow">Best customers</b></div>${(M.by_customer || []).slice(0, 5).map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.customer)}</div><div class="st">${x.orders} order(s)</div></div><b>${m(x.sales)}</b></div>`).join('') || '<div class="empty">No sales in these dates</div>'}</div>`)}
     </div>`;
+  };
+
+  // profit & loss of a partner (24 Oct 2026): partner app (can add expenses) and admin partner page (read only)
+  const EXP_CATS = ['Rent', 'Salary', 'Transport', 'Electricity & water', 'Phone & internet', 'Marketing', 'Other'];
+  K.partnerPnlBox = async function (el, load, editable, st) {
+    st = st || { p: 'month' };
+    const m = K.money;
+    const draw = async () => {
+      const [f, t] = K.partnerDashPeriod(st);
+      el.innerHTML = K.loading;
+      const r = await load(f, t).catch(e => { toast(e.message); return null; });
+      if (!r || !el.isConnected) return;
+      const row = (l, v, strong, color) => `<div class="list-item"><span class="grow" style="${strong ? 'font-weight:800' : ''}">${l}</span><b style="${color ? 'color:' + color : ''}${strong ? ';font-size:17px' : ''}">${v}</b></div>`;
+      el.innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${st.p === k ? 'on' : ''}" data-pp="${k}">${l}</button>`).join('')}</div>
+        ${st.p === 'custom' ? `<div class="btns"><label class="f">From<input class="inp" type="date" id="ppf" value="${esc(f)}"></label><label class="f">To<input class="inp" type="date" id="ppt" value="${esc(t)}"></label></div>` : ''}
+        <div class="card flush" style="margin-top:10px">
+          ${row('Sales', m(r.sales))}${row('− Cost of goods sold', m(r.cogs))}${row('= Gross profit', m(r.gross), true, +r.gross < 0 ? 'var(--rd)' : 'var(--gr)')}
+          ${row('− Expenses', m(r.expenses))}${row('= Net profit', m(r.net), true, +r.net < 0 ? 'var(--rd)' : 'var(--gr)')}</div>
+        ${+r.no_cost_pcs ? `<div class="card" style="background:var(--ors);gap:4px"><b>${r.no_cost_pcs} pcs sold without a cost</b><div class="small">${m(r.no_cost_sales)} of sales count as full profit. ${editable ? 'Set the cost in My prices.' : 'The partner has not set its cost for them.'}</div></div>` : ''}
+        ${editable ? `<button class="btn block" id="pxadd" style="margin-top:10px">${icon('plus', 18)}Add expense</button>` : ''}
+        ${r.by_category.length ? `<div class="sec">Expenses</div><div class="card flush">${r.by_category.map(c => row(esc(c.category), m(c.amount))).join('')}</div>` : ''}
+        ${r.expense_list.length ? `<div class="card flush" style="margin-top:8px">${r.expense_list.map(x => `<${editable ? `button data-px="${x.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit"` : 'div'} class="list-item"><div class="grow"><div class="tt">${esc(x.category)}</div><div class="st">${esc(new Date(x.spent_on + 'T12:00:00').toLocaleDateString([], { day: 'numeric', month: 'short' }))}${x.note ? ' · ' + esc(x.note) : ''}</div></div><b>${m(x.amount)}</b></${editable ? 'button' : 'div'}>`).join('')}</div>` : ''}
+        <div class="sec">Profit by product</div>
+        <div class="card flush">${r.by_product.map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.product)}</div><div class="st">${x.pcs} pcs · sales ${m(x.sales)} · cost ${x.no_cost ? '?' : m(x.cost)}</div></div><b style="color:${+x.profit < 0 ? 'var(--rd)' : 'var(--gr)'}">${m(x.profit)}</b></div>`).join('') || '<div class="empty">No sales in these dates</div>'}</div>`;
+      K.$$('[data-pp]', el).forEach(b => b.onclick = () => { st.p = b.dataset.pp; if (st.p === 'custom' && !st.from) { st.from = f; st.to = t; } draw(); });
+      if (K.$('#ppf', el)) { K.$('#ppf', el).onchange = e => { st.from = e.target.value || st.from; draw(); }; K.$('#ppt', el).onchange = e => { st.to = e.target.value || st.to; draw(); }; }
+      if (editable) {
+        K.$('#pxadd', el).onclick = () => expenseSheet(null, draw);
+        K.$$('[data-px]', el).forEach(b => b.onclick = () => expenseSheet(r.expense_list.find(x => x.id === +b.dataset.px), draw));
+      }
+    };
+    const expenseSheet = (x, onDone) => {
+      x = x || {}; let cat = x.category || 'Transport';
+      const s = K.sheet(x.id ? 'Edit expense' : 'Add expense', `<div class="f"><span>What for</span><div class="seg" style="flex-wrap:wrap">${EXP_CATS.map(c => `<button type="button" data-xc="${esc(c)}" class="${c === cat ? 'on' : ''}">${esc(c)}</button>`).join('')}</div></div>
+        <div class="btns"><label class="f">Amount ($)<input class="inp" id="xa" type="number" min="0" step="0.01" inputmode="decimal" value="${x.amount ?? ''}"></label><label class="f">Date<input class="inp" id="xd" type="date" value="${esc(x.spent_on || K.period.today())}"></label></div>
+        <label class="f">Note (optional)<input class="inp" id="xn" value="${esc(x.note || '')}"></label>
+        <button class="btn block" id="xok">Save</button>${x.id ? '<button class="btn out red block" id="xdel">Delete</button>' : ''}`);
+      if (!EXP_CATS.includes(cat)) cat = 'Other';
+      K.$$('[data-xc]', s.el).forEach(b => b.onclick = () => { cat = b.dataset.xc; K.$$('[data-xc]', s.el).forEach(y => y.classList.toggle('on', y === b)); });
+      K.$('#xok', s.el).onclick = async e => { await busy(e.currentTarget, () => api.partnerExpenseSave({ id: x.id || null, category: cat, amount: K.$('#xa', s.el).value, spent_on: K.$('#xd', s.el).value, note: K.$('#xn', s.el).value.trim() })); s.close(); toast('Saved'); onDone(); };
+      if (K.$('#xdel', s.el)) K.$('#xdel', s.el).onclick = async e => { if (!(await K.confirmSheet('Delete this expense?', '', 'Delete', true))) return; await busy(e.currentTarget, () => api.partnerExpenseDelete(x.id)); s.close(); toast('Deleted'); onDone(); };
+    };
+    await draw();
   };
 })();
 
@@ -13354,6 +13525,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${Object.entries(byPartner).map(([ppid, g]) => `<div class="card flush"><div class="list-item"><b class="grow">${esc(g.name)}</b>${mgr ? `<button class="btn sm" data-gmv="${ppid}">${icon('box', 16)}Move to my stock</button>` : ''}</div>
             ${g.rows.map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')} · ${K.money(x.unit_cost)} each</div></div><div style="text-align:right"><b>${x.qty}</b><div class="small muted">${K.money(x.value)}</div></div></div>`).join('')}</div>`).join('')
           || '<div class="card small muted">Nothing here. Goods come here when you tap Received.</div>'}
+        ${(d.moves || []).some(m => m.kind === 'moved') ? `<div class="sec" style="margin:0">Moved to my stock · last 10</div><div class="card flush">${d.moves.filter(m => m.kind === 'moved').slice(0, 10).map(m => `<div class="list-item"><div class="grow"><div class="tt">${esc(m.name)}</div><div class="st">${esc(m.partner)} · ${esc(m.ref || '')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(K.when(m.created_at))}</div></div><b>${-m.change}</b></div>`).join('')}</div>` : ''}
         ${d.orders.length ? `<div class="sec" style="margin:0">Received goods · money</div>${d.orders.map(o => `<div class="card" style="gap:6px;padding:12px">
             <div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">${esc(o.request_no)} · ${esc(o.partner)}</b>${o.received_at ? '' : '<span class="pill or">Not received yet</span>'}${+o.waiting_pay > 0.004 ? `<span class="pill or">${K.money(o.waiting_pay)} waiting for partner</span>` : ''}${+o.owed - (+o.waiting_pay || 0) > 0.004 ? `<span class="pill rd">${K.money(+o.owed - (+o.waiting_pay || 0))} to pay</span>` : +o.owed < -0.004 ? `<span class="pill bl">Partner owes ${K.money(-o.owed)}</span>` : '<span class="pill gr">Paid</span>'}</div>
             <div class="small muted">${K.money(o.total)}${+o.returned ? ' · given back ' + K.money(o.returned) : ''} · paid ${K.money(o.paid)}${o.received_at ? ' · received ' + esc(K.when(o.received_at)) : ''}</div>
@@ -13431,18 +13603,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       await busy(e.currentTarget, () => api.partnerGoodsReturn(o.request_id, items, $('#gbn', s.el).value.trim())); s.close(); toast('Given back'); onDone(); };
   }
   async function moveSheet(ppid, rows, onDone) {
-    const sups = (await api.listSuppliers()).filter(x => !x.partner_id && x.active !== false);
+    const [sups0, mine0] = await Promise.all([api.listSuppliers(), api.listProducts()]);
+    const sups = sups0.filter(x => !x.partner_id && x.active !== false);
     if (!sups.length) return toast('Add a supplier in Purchasing first');
+    const mine = mine0.filter(p => !p.partner_id), lbl = p => (p.sku ? p.sku + ' · ' : '') + p.name;
+    const dest = v => { v = String(v || '').trim(); return v ? mine.find(p => lbl(p) === v) : null; };
     const s = K.sheet('Move to my stock', `<div class="small muted">Makes a normal purchase in Purchasing (received at once): the pieces go into the Main warehouse and leave Goods from partners. You pay that supplier in Purchasing.</div>
       <label class="f">Supplier<select class="inp" id="mvs"><option value="">Choose…</option>${sups.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
       ${rows.map(g => `<div class="card" style="gap:6px;padding:10px"><div class="row"><b class="grow">${esc(g.name)}</b><span class="small muted">have ${g.qty}</span></div>
-        <div class="btns" style="margin:0"><label class="f">Pieces<input class="inp" data-mq="${g.product_id}" type="number" min="0" max="${g.qty}" inputmode="numeric" placeholder="0"></label><label class="f">Price per piece ($)<input class="inp" data-mp="${g.product_id}" type="number" min="0" step="0.01" inputmode="decimal" value="${(+g.unit_cost).toFixed(2)}"></label></div></div>`).join('')}
+        <div class="btns" style="margin:0"><label class="f">Pieces<input class="inp" data-mq="${g.product_id}" type="number" min="0" max="${g.qty}" inputmode="numeric" placeholder="0"></label><label class="f">Price per piece ($)<input class="inp" data-mp="${g.product_id}" type="number" min="0" step="0.01" inputmode="decimal" value="${(+g.unit_cost).toFixed(2)}"></label></div>
+        <label class="f">Put into my product <span class="muted">(empty = same product)</span><input class="inp" data-md="${g.product_id}" list="mvpl" placeholder="Search your product or SKU" autocomplete="off"></label></div>`).join('')}
+      <datalist id="mvpl">${mine.map(p => `<option value="${esc(lbl(p))}"></option>`).join('')}</datalist>
       <label class="f">Note (optional)<input class="inp" id="mvn"></label><div class="small" id="mvt"></div><button class="btn block" id="mvok">${icon('box', 18)} Move to my stock</button>`);
     const sum = () => { let n = 0, v = 0; $$('[data-mq]', s.el).forEach(x => { const q = Math.floor(+x.value || 0); n += q; v += q * (+$(`[data-mp="${x.dataset.mq}"]`, s.el).value || 0); }); $('#mvt', s.el).textContent = n ? n + ' pcs · ' + K.money(v) : ''; };
     $$('[data-mq],[data-mp]', s.el).forEach(x => x.oninput = sum);
     $('#mvok', s.el).onclick = async e => {
       const sup = +$('#mvs', s.el).value; if (!sup) return toast('Choose a supplier');
-      const items = $$('[data-mq]', s.el).map(x => ({ product_id: +x.dataset.mq, qty: Math.floor(+x.value || 0), price: +$(`[data-mp="${x.dataset.mq}"]`, s.el).value })).filter(x => x.qty);
+      const items = [];
+      for (const x of $$('[data-mq]', s.el)) { const q = Math.floor(+x.value || 0); if (!q) continue;
+        const it = { product_id: +x.dataset.mq, qty: q, price: +$(`[data-mp="${x.dataset.mq}"]`, s.el).value }, dv = $(`[data-md="${x.dataset.mq}"]`, s.el).value;
+        if (String(dv).trim()) { const d = dest(dv); if (!d) return toast('Choose one of your own products from the list'); it.to_product_id = d.id; }
+        items.push(it); }
       if (!items.length) return toast('Type how many pieces to move');
       const r = await busy(e.currentTarget, () => api.partnerGoodsMove(ppid, sup, items, $('#mvn', s.el).value.trim()));
       s.close(); toast(r.purchase_no + ' made in Purchasing (received)'); onDone();
@@ -13551,7 +13732,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const t0 = K.period.today(), addD = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return K.period.dstr(x); };
     const mon = (() => { const x = new Date(t0 + 'T12:00:00'); return addD(t0, -((x.getDay() + 6) % 7)); })();
     const PER = { today: [t0, t0], week: [mon, t0], month: [t0.slice(0, 8) + '01', t0] };
-    let tab = ['dash', 'report', 'orders', 'customers', 'bought', 'products'].includes(q.t) ? q.t : 'dash', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
+    let tab = ['dash', 'pnl', 'report', 'orders', 'customers', 'bought', 'products'].includes(q.t) ? q.t : 'dash', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     const body = $('#body', main);
     const dates = () => `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${per === k ? 'on' : ''}" data-per="${k}">${l}</button>`).join('')}</div>
@@ -13561,7 +13742,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#rf', body)) { $('#rf', body).onchange = e => { from = e.target.value || from; draw(); }; $('#rt', body).onchange = e => { to = e.target.value || to; draw(); }; }
     };
     const draw = async () => {
-      $('#tabs', main).innerHTML = [['dash', 'Dashboard'], ['report', 'Sales report'], ['orders', 'Orders'], ['customers', 'Customers']].concat(canBuyView() ? [['bought', 'Bought by K-TRONiCS']] : []).concat([['products', 'Their products']]).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')
+      $('#tabs', main).innerHTML = [['dash', 'Dashboard'], ['pnl', 'Profit & loss'], ['report', 'Sales report'], ['orders', 'Orders'], ['customers', 'Customers']].concat(canBuyView() ? [['bought', 'Bought by K-TRONiCS']] : []).concat([['products', 'Their products']]).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')
         + `<button class="chip" id="pstk">${icon('box', 14)} Stock</button>`;
       $$('[data-t]', main).forEach(b => b.onclick = () => { tab = b.dataset.t; if (tab !== 'orders') cust = null; draw(); });
       $('#pstk', main).onclick = () => stockSheet(p);
@@ -13569,7 +13750,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (tab === 'bought') { body.innerHTML = '<div id="papv" style="margin-bottom:12px"></div><div id="pbuy"></div>'; approvalsBox($('#papv', body), p.id, () => A.refreshCounts()); await buyingBox($('#pbuy', body), p.id, () => A.refreshCounts()); return; }
       if (tab === 'dash') {
         body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)} sees this same dashboard in its app. Its own numbers and prices · not counted in yours.</div><div id="pdash"></div>`;
-        await K.partnerDashBox($('#pdash', body), (f, t) => api.partnerDashboardAdmin(p.id, f, t), false, K.S.pDashA = K.S.pDashA || { p: 'today' });
+        await K.partnerDashBox($('#pdash', body), (f, t) => Promise.all([api.partnerDashboardAdmin(p.id, f, t), api.partnerPnlAdmin ? api.partnerPnlAdmin(p.id, f, t).catch(() => null) : null]).then(([d, pl]) => Object.assign(d, { pnl: pl })), false, K.S.pDashA = K.S.pDashA || { p: 'today' });
+        return;
+      }
+      if (tab === 'pnl') {
+        body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)}'s own profit & loss (its own costs, prices and expenses) · not counted in yours.</div><div id="ppnl"></div>`;
+        await K.partnerPnlBox($('#ppnl', body), (f, t) => api.partnerPnlAdmin(p.id, f, t), false, K.S.pPnlA = K.S.pPnlA || { p: 'month' });
         return;
       }
       if (tab === 'products') {
