@@ -6220,6 +6220,17 @@ Object.assign(window.KT_KM, {
 window.KT_KM_PATTERNS.push(
   [/^Saved: you are #(\d+) in the staff ranking this month$/, 'បានរក្សាទុក៖ អ្នកជាលេខ $1 ក្នុងចំណាត់ថ្នាក់បុគ្គលិកខែនេះ']
 );
+Object.assign(window.KT_KM, {
+  'Field staff · today': 'បុគ្គលិកចុះមូលដ្ឋាន · ថ្ងៃនេះ',
+  'Change targets': 'ប្តូរគោលដៅ',
+  '🏪 Shop visits': '🏪 ការចុះហាង',
+  '🆕 New shops': '🆕 ហាងថ្មី',
+  'on leave': 'ឈប់សម្រាក',
+  'not at work': 'មិននៅធ្វើការ',
+});
+window.KT_KM_PATTERNS.push(
+
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7790,6 +7801,17 @@ Object.assign(window.KT_ZH, {
 window.KT_ZH_PATTERNS.push(
   [/^Saved: you are #(\d+) in the staff ranking this month$/, '已保存：您本月在员工排名中第 $1 名']
 );
+Object.assign(window.KT_ZH, {
+  'Field staff · today': '外勤人员 · 今天',
+  'Change targets': '更改目标',
+  '🏪 Shop visits': '🏪 拜访店铺',
+  '🆕 New shops': '🆕 新店铺',
+  'on leave': '休假',
+  'not at work': '未上班',
+});
+window.KT_ZH_PATTERNS.push(
+
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -8185,10 +8207,11 @@ window.KT_ZH_PATTERNS.push(
       <div class="card"><div class="row"><b class="grow">Sales, last 7 days</b></div>
         <div style="display:flex;align-items:flex-end;gap:10px;height:150px;border-bottom:1px solid var(--line)">${d.last7.map((x, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="${money(x.total)}"><div style="font-size:10px;color:var(--mu);margin-bottom:3px">${+x.total ? Math.round(x.total) : ''}</div><div style="width:100%;max-width:34px;height:${Math.max(2, (+x.total / max) * 120)}px;border-radius:6px 6px 0 0;background:${i === 6 ? 'var(--p)' : 'var(--bar)'}"></div></div>`).join('')}</div>
         <div style="display:flex;gap:10px">${d.last7.map((x, i) => `<div style="flex:1;text-align:center;font-size:11px;color:var(--mu);font-weight:${i === 6 ? 800 : 600}">${new Date(x.day + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })}</div>`).join('')}</div></div>
-      <div class="card"><div class="row"><b class="grow">Sales targets · this month</b><button class="btn sm out" id="tg">Set targets</button></div>${K.rankingHtml((d.team || []).map(r => ({ id: r.user_id, name: r.full_name, total: r.total, target: r.target })), null, { targets: true })}</div>
+      <div class="card"><div class="row"><b class="grow">Sales targets · this month</b><button class="btn sm out" id="tg">Set targets</button></div>${K.rankingHtml((d.team || []).map(r => ({ id: r.user_id, name: r.full_name, total: r.total, target: r.target })), null, { targets: true })}<div id="ftd"></div></div>
       <div class="card"><b>Top sales staff (30 days)</b>${d.top_staff.length ? d.top_staff.map(t => `<div class="row">${avatar(t.name, 'sm')}<div class="grow tt" style="font-size:14px">${esc(t.name)}</div><b>${money(t.total)}</b></div>`).join('') : '<div class="muted small">No sales yet</div>'}</div>
       <a class="card" href="#/staff" style="text-decoration:none;color:inherit"><div class="row"><div class="ic-av sq">${icon('users', 20)}</div><div class="grow"><div class="tt">${d.staff_active} active staff</div><div class="st">${d.staff_pending ? d.staff_pending + ' waiting for approval' : 'No one waiting'}</div></div>${icon('right', 18)}</div></a></div>`;
     $('#tg').onclick = () => K.targetsSheet(() => K.render());
+    if (K.fieldTeamBox) K.fieldTeamBox($('#ftd'));
     if ($('#cashbox') && cash) $('#cashbox').onclick = () => K.cashSheet(cash, () => K.render());
   });
 })();
@@ -10495,6 +10518,20 @@ window.KT_ZH_PATTERNS.push(
       for (const r of d.reps) { const a = $(`[data-fv="${r.id}"]`, el).value.trim(), b = $(`[data-fn="${r.id}"]`, el).value.trim();
         if (a !== String(r.own_visits ?? '') || b !== String(r.own_new ?? '')) await api.fieldTargetSet(r.id, a === '' ? null : +a, b === '' ? null : +b); }
     }); toast('Field targets saved'); K.fieldTargetsCard(el); };
+  };
+
+  // admin / managers: today's field targets inside the Dashboard "Sales targets" card (read only, 25 Oct 2026)
+  K.fieldTeamBox = async el => {
+    if (!el) return;
+    const d = await api.fieldTeamToday().catch(() => null);
+    if (!d || !el.isConnected || !d.reps.length) return;
+    const work = d.reps.filter(r => r.at_work), sum = k => work.reduce((a, r) => a + (+r[k] || 0), 0);
+    const ok = r => +r.visits >= +r.target_visits && +r.new_shops >= +r.target_new;
+    el.innerHTML = `<div style="border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px">
+      <div class="row"><b class="grow">Field staff · today</b>${(window.KT_CONFIG || {}).ADMIN ? '<a class="small" href="#/hr?t=commission" style="font-weight:700;text-decoration:none">Change targets</a>' : ''}</div>
+      <div class="row small" style="gap:12px"><span>🏪 Shop visits <b>${sum('visits')} / ${sum('target_visits')}</b></span><span>🆕 New shops <b>${sum('new_shops')} / ${sum('target_new')}</b></span></div>
+      ${d.reps.map(r => `<div class="row small" style="gap:6px;${r.at_work ? '' : 'color:var(--mu)'}"><span class="grow" style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.full_name)}</span>
+        ${r.at_work ? `<span>🏪 ${r.visits}/${r.target_visits}</span><span>🆕 ${r.new_shops}/${r.target_new}</span><span style="width:18px;text-align:right">${ok(r) ? '✅' : ''}</span>` : `<span>${r.on_leave ? 'on leave' : 'not at work'}</span>`}</div>`).join('')}</div>`;
   };
 
   // admin: put myself into the STAFF ranking at a place (this month; staff see a hidden line, the reps move down one place)
