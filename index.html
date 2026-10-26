@@ -1490,6 +1490,15 @@ window.makeSupabaseApi = function (cfg) {
     // exchange a product with a problem (21 Oct 2026)
     exchangeOrder: (id, out, inn, wh, reason, method) => q(sb.rpc('exchange_order', { p_order: id, p_out: out, p_in: inn, p_warehouse: wh, p_reason: reason, p_refund_method: method || null })),
     backupTables: () => q(sb.rpc('backup_tables')),
+    oldPhotosList: () => q(sb.rpc('old_photos_list')),
+    async oldPhotosDelete(paths, onProgress) {      // files first (100 at a time), then the links in the database
+      for (let i = 0; i < paths.length; i += 100) {
+        const { error } = await sb.storage.from('files').remove(paths.slice(i, i + 100));
+        if (error) throw new Error(error.message);
+        if (onProgress) onProgress(Math.min(i + 100, paths.length), paths.length);
+      }
+      return q(sb.rpc('old_photos_done', { p_paths: paths }));
+    },
     backupRows: (t, off, lim) => q(sb.rpc('backup_rows', { p_table: t, p_offset: off || 0, p_limit: lim || 2000 })),
     exchangeDecide: (id, ok, note, method) => q(sb.rpc('exchange_decide', { p_id: id, p_approve: !!ok, p_note: note || null, p_refund_method: method || null })),
     waitingExchanges: () => sb.from('order_exchanges').select('*, profiles!order_exchanges_created_by_fkey(full_name), orders(order_no, customers(name))').eq('status', 'waiting').order('id').then(r => r.data || []),
@@ -2105,6 +2114,8 @@ window.makeDemoApi = function () {
     D.visits.push({ id: ++D.seq.visit, customer_id: 1, staff_id: 'u-kimlong', check_in_at: ago(290), check_out_at: ago(262), lat: 11.5627, lng: 104.9168, distance_m: 12, photo_url: null, notes: 'Took an order for chargers.' });
     D.visits.push({ id: ++D.seq.visit, customer_id: 4, staff_id: 'u-kimlong', check_in_at: ago(150), check_out_at: ago(128), lat: 11.5790, lng: 104.9020, distance_m: 410, photo_url: null, notes: '' });
     D.visits.push({ id: ++D.seq.visit, customer_id: 2, staff_id: 'u-sokha', check_in_at: ago(240), check_out_at: ago(221), lat: 11.5633, lng: 104.9174, distance_m: 8, photo_url: null, notes: '' });
+    // an old visit with a photo (4 months ago), for "Delete old photos"
+    D.visits.push({ id: ++D.seq.visit, customer_id: 2, staff_id: 'u-sokha', check_in_at: ago(175000), check_out_at: ago(174980), lat: 11.5633, lng: 104.9174, distance_m: 9, photo_url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#ddd"/><text x="160" y="125" font-size="20" text-anchor="middle" fill="#777">Old shop photo</text></svg>'), notes: 'Old visit' });
     D.visits.push({ id: ++D.seq.visit, customer_id: 6, staff_id: 'u-sokha', check_in_at: ago(120), check_out_at: null, lat: 11.4836, lng: 104.9503, distance_m: 35, photo_url: null, notes: 'Waiting for the owner.' });
     D.visits.push({ id: ++D.seq.visit, customer_id: 2, staff_id: 'u-sokha', check_in_at: ago(1600), check_out_at: ago(1580), lat: 11.5652, lng: 104.9110, distance_m: 22, photo_url: null, notes: '' });
     return D;
@@ -3412,6 +3423,21 @@ window.makeDemoApi = function () {
       alert('🔁 ' + o.order_no + ' · ' + D.customers.find(y => y.id === o.customer_id).name + ' · ' + n + ' · approved by ' + me.full_name, { order_id: id }, 'orders');
       if (x.created_by !== me.id) notify(x.created_by, 'Exchange approved · ' + o.order_no, n, '#/orders/' + id);
       notifyOrder(o);
+    },
+    // Delete old photos (26 Oct 2026): shop visit + start work photos older than 3 months
+    async oldPhotosList() {
+      if (!me || me.role !== 'admin') fail('Only the admin can delete old photos');
+      const b = new Date(); b.setMonth(b.getMonth() - 3); const before = localDay0(b);
+      const v = D.visits.filter(x => x.photo_url && localDay0(new Date(x.check_in_at)) < before), a = (D.attendance || []).filter(x => x.photo_url && x.work_date < before);
+      return wait({ before, visits: v.length, attendance: a.length, paths: v.map(x => 'visits/' + x.id).concat(a.map(x => 'attendance/' + x.id)) });
+    },
+    async oldPhotosDelete(paths, onProgress) {
+      if (!me || me.role !== 'admin') fail('Only the admin can delete old photos');
+      let nv = 0, na = 0;
+      paths.forEach(p => { const [f, id] = p.split('/'), x = (f === 'visits' ? D.visits : D.attendance || []).find(r => String(r.id) === id);
+        if (x && x.photo_url) { x.photo_url = null; if (f === 'visits') nv++; else na++; } });
+      if (onProgress) onProgress(paths.length, paths.length);
+      return wait({ visits: nv, attendance: na });
     },
     // Export everything: in the demo, every list of the demo data
     async backupTables() {
@@ -6231,6 +6257,19 @@ Object.assign(window.KT_KM, {
 window.KT_KM_PATTERNS.push(
 
 );
+Object.assign(window.KT_KM, {
+  '🗑 Delete old photos': '🗑 លុបរូបថតចាស់',
+  '🏪 Shop visit photos:': '🏪 រូបថតចុះហាង៖',
+  '🕗 Start work photos:': '🕗 រូបថតចូលធ្វើការ៖',
+  'No photos older than 3 months.': 'គ្មានរូបថតចាស់ជាង ៣ ខែទេ។',
+});
+window.KT_KM_PATTERNS.push(
+  [/^Shop visit check-in photos and start work photos older than 3 months \(before (.+)\)\. The visits and attendance stay \(times, GPS, feedback\); only the photo is gone\. Deleted photos cannot come back\.$/, 'រូបថតចុះហាង និងរូបថតចូលធ្វើការ ដែលចាស់ជាង ៣ ខែ (មុន $1)។ ការចុះហាង និងវត្តមាននៅដដែល (ម៉ោង GPS មតិ) មានតែរូបថតប៉ុណ្ណោះដែលបាត់។ រូបថតដែលលុបហើយ មិនអាចយកមកវិញបានទេ។'],
+  [/^🗑 Delete (\d+) old photos?$/, '🗑 លុបរូបថតចាស់ $1'],
+  [/^Delete (\d+) old photos?\?$/, 'លុបរូបថតចាស់ $1?'],
+  [/^Shop visit and start work photos from before (.+) are deleted for ever\. The visits and attendance records stay\.$/, 'រូបថតចុះហាង និងចូលធ្វើការ មុន $1 នឹងត្រូវលុបជារៀងរហូត។ កំណត់ត្រាការចុះហាង និងវត្តមាននៅដដែល។'],
+  [/^(\d+) photos? deleted$/, 'បានលុបរូបថត $1']
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7811,6 +7850,19 @@ Object.assign(window.KT_ZH, {
 });
 window.KT_ZH_PATTERNS.push(
 
+);
+Object.assign(window.KT_ZH, {
+  '🗑 Delete old photos': '🗑 删除旧照片',
+  '🏪 Shop visit photos:': '🏪 拜访店铺照片：',
+  '🕗 Start work photos:': '🕗 上班照片：',
+  'No photos older than 3 months.': '没有超过 3 个月的照片。',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Shop visit check-in photos and start work photos older than 3 months \(before (.+)\)\. The visits and attendance stay \(times, GPS, feedback\); only the photo is gone\. Deleted photos cannot come back\.$/, '超过 3 个月（$1 之前）的拜访店铺照片和上班照片。拜访和考勤记录保留（时间、GPS、反馈），只删除照片。删除的照片无法恢复。'],
+  [/^🗑 Delete (\d+) old photos?$/, '🗑 删除 $1 张旧照片'],
+  [/^Delete (\d+) old photos?\?$/, '删除 $1 张旧照片？'],
+  [/^Shop visit and start work photos from before (.+) are deleted for ever\. The visits and attendance records stay\.$/, '$1 之前的拜访店铺和上班照片将被永久删除。拜访和考勤记录保留。'],
+  [/^(\d+) photos? deleted$/, '已删除 $1 张照片']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
