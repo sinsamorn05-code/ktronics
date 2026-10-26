@@ -1131,6 +1131,8 @@ window.KT_PERMS = [
     ['orders.view_all', 'See everyone\'s orders', 'Off = only their own orders'],
     ['orders.approve', 'Approve orders'],
     ['orders.deliver', 'Mark orders delivered'],
+    ['orders.assign', 'Give orders to drivers and mark Packed', 'Warehouse / managers. A driver then sees only his own orders'],
+    ['orders.see_money', 'See order amounts and prices', 'Off = only orders to deliver, without any money (drivers, warehouse)'],
     ['orders.paid', 'Mark orders paid'],
     ['orders.cancel', 'Cancel approved orders', 'Goods go back into stock'],
     ['orders.edit_any', 'Edit or delete other people\'s waiting orders']] },
@@ -1178,19 +1180,19 @@ window.KT_PERMS = [
 ];
 window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
-  manager: ['orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
+  manager: ['orders.assign', 'orders.see_money', 'orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others', 'expenses.office',
     'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main', 'stock.adjust_approve'],
-  supervisor: ['orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
-  sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
-  online_sales: ['orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
-  agent: ['orders.create', 'orders.catalog', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
-  accountant: ['dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
+  supervisor: ['orders.see_money', 'orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
+  sales: ['orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  online_sales: ['orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  agent: ['orders.see_money', 'orders.create', 'orders.catalog', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  accountant: ['orders.see_money', 'dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
     'expenses.record_others', 'expenses.office', 'purchases.manage', 'chat.create_group'],
-  cashier: ['orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'chat.create_group'],
-  hr: ['hr.manage', 'attendance.view', 'expenses.create', 'chat.announce', 'chat.create_group'],
-  purchasing: ['purchases.manage', 'purchases.receive', 'stock.view_main', 'expenses.create', 'chat.create_group'],
-  warehouse: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
+  cashier: ['orders.see_money', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'chat.create_group'],
+  hr: ['orders.see_money', 'hr.manage', 'attendance.view', 'expenses.create', 'chat.announce', 'chat.create_group'],
+  purchasing: ['orders.see_money', 'purchases.manage', 'purchases.receive', 'stock.view_main', 'expenses.create', 'chat.create_group'],
+  warehouse: ['orders.assign', 'orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
   driver: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'expenses.create', 'chat.create_group']
 };
 
@@ -1514,7 +1516,7 @@ window.makeSupabaseApi = function (cfg) {
     listOrderItems: () => all(() => sb.from('order_items').select('order_id, product_id, qty, price, cost, products(name, sku)').order('id', { ascending: false }), 20000),
     async getOrder(id) {
       const [order, items, events, conv, payments, exchanges] = await Promise.all([
-        q(sb.from('orders').select('*, customers(*), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name)').eq('id', id).single()),
+        q(sb.from('orders').select('*, customers(*), creator:profiles!orders_created_by_fkey(full_name), rep:profiles!orders_sales_rep_id_fkey(full_name), driver:profiles!orders_driver_id_fkey(full_name)').eq('id', id).single()),
         q(sb.from('order_items').select('*, products(name, sku, price)').eq('order_id', id).order('id')),
         q(sb.from('order_events').select('*, profiles(full_name)').eq('order_id', id).order('id')),
         q(sb.from('conversations').select('id').eq('order_id', id).maybeSingle()),
@@ -1525,6 +1527,14 @@ window.makeSupabaseApi = function (cfg) {
     },
     createOrder: o => q(sb.rpc('create_order', { p_customer: o.customer_id, p_warehouse: o.warehouse_id, p_payment: o.payment_method, p_notes: o.notes || null, p_items: o.items })),
     setOrderStatus: (id, status, note) => q(sb.rpc('set_order_status', { p_order: id, p_status: status, p_note: note || null })),
+    // delivery people without "See order amounts and prices": orders to deliver, no money (26 Oct 2026)
+    deliveryList: () => q(sb.rpc('delivery_list')),
+    deliveryGet: id => q(sb.rpc('delivery_get', { p_order: id })),
+    deliveryDrivers: () => q(sb.rpc('delivery_drivers')),
+    setSellsOnline: (id, on) => q(sb.rpc('set_sells_online', { p_user: id, p_on: !!on })),
+    assignDriver: (id, driver) => q(sb.rpc('order_assign_driver', { p_order: id, p_driver: driver || null })),
+    orderDeliver: (id, x) => q(sb.rpc('order_deliver', { p_order: id, p_photo: x.photo, p_sign: x.sign, p_receiver: x.receiver, p_lat: x.lat, p_lng: x.lng, p_acc: x.acc || null, p_cash: x.cash || null })),
+    reportDeliveries: (from, to) => q(sb.rpc('report_deliveries', { p_from: from, p_to: to })),
 
     // visits
     getVisit: id => q(sb.from('visits').select('*, customers(name, area, phone, lat, lng), profiles(full_name)').eq('id', id).maybeSingle()),
@@ -2137,6 +2147,7 @@ window.makeDemoApi = function () {
       O('Bopha Online Store', '088 505 606', '@bophastore', 'telegram_group', 'contacted', 8, dd(2)));
     D.followups = D.followups || [];
   }
+  if (D && D.users && !D.sellsOnlineDone) { D.users.forEach(u => { if (u.role === 'online_sales') { u.role = 'sales'; u.sells_online = true; } }); D.sellsOnlineDone = 1; }   // 26 Oct 2026: one Sales role
   if (D && D.users && D.users.some(u => u.id === 'u-sreyleak') && !D.nopSales) {
     const c = D.customers.filter(x => x.assigned_to === 'u-sreyleak' && x.source), dd = n => { const d = new Date(Date.now() - n * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
     D.nopSales = c.length ? [{ id: 1, sale_no: 'NP-00001', customer_id: c[0].id, sales_rep_id: 'u-sreyleak', amount: 85, invoice_no: 'INV-2101', sale_date: dd(1), products: 'Phone holder (bike) ×5, Ring light', note: 'Paid by ABA', commission_rate: null, created_by: 'u-sreyleak', created_at: new Date(Date.now() - 864e5).toISOString() },
@@ -2186,12 +2197,23 @@ window.makeDemoApi = function () {
   const publicUser = u => { ensureDepts(); const x = clone(u); delete x.password; if (me && u.id === me.id) { x.perms = permsOf(); x.heads = headsOf(u.id); x.access = (D.stockAccess || []).filter(a => a.user_id === u.id).map(a => a.warehouse_id); } return x; };
   const role = () => (me && me.active ? me.role : null);
   const hasRole = (...r) => r.includes(role());
-  const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; } };
+  const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; D.seeMoneyDone = 1; }
+    if (!D.assignDone) { ['manager', 'warehouse'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['orders.assign'] = true; }); D.assignDone = 1; }
+    if (!D.seeMoneyDone) { Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { if (list.includes('orders.see_money')) (D.rolePerms[r] = D.rolePerms[r] || {})['orders.see_money'] = true; }); D.seeMoneyDone = 1; } };
+  const seeMoney = () => allow('orders.see_money');
   const allow = p => {
     ensurePerms(); if (!role()) return false; if (role() === 'admin') return true;
     const u = (D.userPerms[me.id] || {})[p]; if (u !== undefined) return u;
     return !!(D.rolePerms[role()] || {})[p];
   };
+  const deliveryJson = o => { const c = D.customers.find(x => x.id === o.customer_id) || {}, its = D.items.filter(i => i.order_id === o.id).sort((a, b) => a.id - b.id);
+    const collect = o.payment_method !== 'credit' && (o.driver_id === me.id || allow('orders.see_money')) ? Math.max(0, +(o.total - (o.paid_amount || 0) - D.payments.filter(p => p.order_id === o.id && p.status === 'pending').reduce((a, p) => a + p.amount_usd, 0)).toFixed(2)) : null;
+    return clone({ id: o.id, order_no: o.order_no, status: o.status, created_at: o.created_at, notes: o.notes || null, rep_name: (user(o.sales_rep_id || o.created_by) || {}).full_name,
+      driver_id: o.driver_id || null, driver_name: o.driver_id ? (user(o.driver_id) || {}).full_name : null, assigned_at: o.assigned_at || null, packed_at: o.packed_at || null, picked_at: o.picked_at || null, collect,
+      warehouse: ((D.warehouses || []).find(w => w.id === o.warehouse_id) || {}).name || null,
+      customer: (({ id, name, owner_name, phone, telegram, address, area, province, district, commune, village, lat, lng, map_url }) => ({ id, name, owner_name, phone, telegram, address, area, province, district, commune, village, lat, lng, map_url }))(c),
+      items: its.map(i => ({ name: (D.products.find(p => p.id === i.product_id) || {}).name, sku: (D.products.find(p => p.id === i.product_id) || {}).sku, qty: i.qty })),
+      pieces: its.reduce((a, i) => a + +i.qty, 0) }); };
   const permsOf = () => role() === 'admin' ? window.KT_PERM_KEYS.slice() : window.KT_PERM_KEYS.filter(allow);
   // Pending, or Credit with a due date (today + the shop's credit days when none is chosen). Old 'cash' / 'bank' become Pending.
   const demoPay = (o, cid) => {
@@ -3043,12 +3065,13 @@ window.makeDemoApi = function () {
       if (!role()) return [];
       return wait(D.customers.filter(c => canSeeShop(c)).map(c => Object.assign(clone(c), {
         rep_name: c.assigned_to ? (user(c.assigned_to) || {}).full_name : null,
-        owed: +D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered').reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2),
-        oldest_unpaid_at: D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered' && o.total > (o.paid_amount || 0)).map(o => o.delivered_at || o.updated_at).sort()[0] || null,
+        owed: seeMoney() ? +D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered').reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2) : null,
+        oldest_unpaid_at: !seeMoney() ? null : D.orders.filter(o => o.customer_id === c.id && o.status === 'delivered' && o.total > (o.paid_amount || 0)).map(o => o.delivered_at || o.updated_at).sort()[0] || null,
         order_count: D.orders.filter(o => o.customer_id === c.id && !['cancelled', 'returned'].includes(o.status)).length,
         last_visit_at: D.visits.filter(v => v.customer_id === c.id).map(v => v.check_in_at).sort().pop() || null,
         last_followup_at: (D.followups || []).filter(f => f.customer_id === c.id).map(f => f.created_at).sort().pop() || null, followups: (D.followups || []).filter(f => f.customer_id === c.id).length,
-        ...(od => ({ overdue_count: od.length, overdue_amount: +od.reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2) }))(D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < new Date().toISOString().slice(0, 10) && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0)))
+        ...(od => ({ overdue_count: od.length, overdue_amount: +od.reduce((s, o) => s + o.total - (o.paid_amount || 0), 0).toFixed(2) }))(D.orders.filter(o => o.customer_id === c.id && o.payment_method === 'credit' && o.due_date && o.due_date < new Date().toISOString().slice(0, 10) && ['approved', 'delivered'].includes(o.status) && o.total > (o.paid_amount || 0))),
+        ...(seeMoney() ? {} : { credit_limit: null, overdue_count: null, overdue_amount: null }),
       })).sort((a, b) => a.name.localeCompare(b.name)));
     },
     async setOpeningBalances(rows) {
@@ -3168,7 +3191,6 @@ window.makeDemoApi = function () {
       const boss = allow('customers.manage'), autoOk = allow('customers.approve');
       if (!c.id && !allow('customers.create')) fail('You are not allowed to add shops');
       const prevC = c.id && D.customers.find(x => x.id === c.id), src = c.source !== undefined ? (c.source || null) : prevC ? prevC.source || null : null;
-      if (!c.id && !src && role() === 'online_sales') fail('Choose where the customer came from (Facebook, TikTok, …)');
       if (!c.id && !src && ['sales', 'supervisor', 'agent'].includes(role()) && !api._shopCk) fail('Check in at the shop first (GPS + photo), then save the new shop');   // 24 Oct 2026
       if (src) { if (![...'facebook tiktok telegram_group referral walk_in other'.split(' ')].includes(src)) fail('Unknown source');
         if (!row.name || !row.phone || !row.telegram) fail('Please fill in: name, phone and Telegram'); row.source = src; }
@@ -3274,18 +3296,88 @@ window.makeDemoApi = function () {
       const r = rate === '' || rate == null ? null : +rate; if (r != null && !(r >= 0 && r <= 100)) fail('Commission % must be 0–100');
       const o = D.orders.find(x => x.id === id); if (!o) fail('Order not found'); o.commission_rate = r; save(); return wait(null); },
     async listOrders() {
+      if (!seeMoney()) return wait([]);
       return wait(D.orders.filter(canSeeOrder).sort((a, b) => b.id - a.id).map(o => Object.assign(clone(o), {
         customers: (({ name, area }) => ({ name, area }))(D.customers.find(c => c.id === o.customer_id)),
         creator: { full_name: user(o.created_by).full_name }, rep: { full_name: (user(o.sales_rep_id || o.created_by) || {}).full_name } })));
     },
     async listOrderItems() {
+      if (!seeMoney()) return wait([]);
       return wait(D.items.filter(i => canSeeOrder(D.orders.find(o => o.id === i.order_id))).map(i => Object.assign(clone(i), { products: (({ name, sku }) => ({ name, sku }))(D.products.find(p => p.id === i.product_id)) })));
+    },
+    // delivery people without "See order amounts and prices": only orders to deliver, no money (26 Oct 2026)
+    async deliveryList() {
+      if (!allow('orders.deliver') && !allow('orders.assign')) fail('You are not allowed to deliver orders');
+      return wait(D.orders.filter(o => ['approved', 'packed', 'delivering'].includes(o.status) && canSeeOrder(o) && (allow('orders.assign') || o.driver_id === me.id)).sort((a, b) => a.id - b.id).map(deliveryJson));
+    },
+    async deliveryGet(id) {
+      if (!allow('orders.deliver') && !allow('orders.assign')) fail('You are not allowed to deliver orders');
+      const o = D.orders.find(x => x.id === id);
+      if (!o || !['approved', 'packed', 'delivering'].includes(o.status) || !canSeeOrder(o) || !(allow('orders.assign') || o.driver_id === me.id)) fail('Order not found or already delivered');
+      return wait(deliveryJson(o));
+    },
+    async setSellsOnline(id, on) {
+      if (!(role() === 'admin' || allow('hr.manage'))) fail('Only the admin or HR can change this');
+      const u = user(id); if (!u) fail('Staff not found'); u.sells_online = !!on; save(); return wait(null);
+    },
+    async deliveryDrivers() {
+      if (!allow('orders.assign')) fail('Only warehouse or managers can give orders to drivers');
+      const canDel = u => u.role !== 'admin' && u.role !== 'partner' && u.active && (((D.userPerms[u.id] || {})['orders.deliver']) ?? !!(D.rolePerms[u.role] || {})['orders.deliver']);
+      return wait(D.users.filter(canDel).map(u => ({ id: u.id, full_name: u.full_name, role: u.role, open: D.orders.filter(o => o.driver_id === u.id && ['approved', 'packed', 'delivering'].includes(o.status)).length }))
+        .sort((a, b) => (a.role !== 'driver') - (b.role !== 'driver') || a.full_name.localeCompare(b.full_name)));
+    },
+    async assignDriver(id, driver) {
+      if (!allow('orders.assign')) fail('Only warehouse or managers can give orders to drivers');
+      const o = D.orders.find(x => x.id === id); if (!o || !canSeeOrder(o)) fail('Order not found');
+      if (!['approved', 'packed'].includes(o.status)) fail('Only approved or packed orders can be given to a driver');
+      const old = o.driver_id || null; if (old === (driver || null)) return wait(null);
+      o.driver_id = driver || null; o.assigned_at = driver ? now() : null; o.assigned_by = driver ? me.id : null;
+      D.events.push({ id: ++D.seq.event, order_id: id, status: o.status, note: 'Driver: ' + (driver ? user(driver).full_name : 'nobody'), created_by: me.id, created_at: now() });
+      if (driver) notify(driver, 'Order to deliver', o.order_no + ' · ' + D.customers.find(c => c.id === o.customer_id).name, '#/orders/' + id);
+      save(); notifyOrder(o); return wait(null);
+    },
+    async orderDeliver(id, x) {
+      const o = D.orders.find(y => y.id === id); if (!o || !canSeeOrder(o)) fail('Order not found');
+      if (!(o.driver_id === me.id || allow('orders.assign'))) fail('This order was not given to you');
+      if (!['approved', 'packed', 'delivering'].includes(o.status)) fail('This order is already ' + o.status);
+      if (o.status !== 'delivering' && !allow('orders.assign')) fail('Tap On the way first');
+      if (!x.photo) fail('Take a photo of the delivery'); if (!x.sign) fail('The shop must sign');
+      if ((x.receiver || '').trim().length < 2) fail('Type the name of the person who received the goods'); if (x.lat == null) fail('Turn on GPS: the location is needed');
+      const c = D.customers.find(y => y.id === o.customer_id), d = c.lat != null ? Math.round(geoM(x.lat, x.lng, c.lat, c.lng)) : null;
+      if (x.cash && +x.cash.amount > 0) {
+        if (o.payment_method === 'credit') fail('Credit order: there is no money to collect');
+        const usd = x.cash.currency === 'KHR' ? +(x.cash.amount / (+D.settings.khr_per_usd || 4100)).toFixed(2) : +x.cash.amount;
+        const pend = D.payments.filter(p => p.order_id === id && p.status === 'pending').reduce((a, p) => a + p.amount_usd, 0);
+        if (usd > o.total - (o.paid_amount || 0) - pend + 0.01) fail('That is more than the amount to collect');
+        D.payments.push({ id: ++D.seq.payment, order_id: id, customer_id: o.customer_id, amount: +x.cash.amount, currency: x.cash.currency || 'USD', amount_usd: usd, method: x.cash.method || 'cash', note: 'Collected at delivery', photo_url: null,
+          status: 'pending', received_by: me.id, received_at: now(), confirmed_by: null, confirmed_at: null });
+      }
+      Object.assign(o, { delivery_photo: x.photo, delivery_sign: x.sign, delivery_receiver: x.receiver.trim(), delivery_lat: x.lat, delivery_lng: x.lng, delivery_acc: x.acc || null, delivery_distance_m: d });
+      D._deliverOk = true; try { await api.setOrderStatus(id, 'delivered', 'Received by ' + x.receiver.trim() + (d > 300 ? ' · ⚠️ ' + d + ' m from the shop' : '')); } finally { D._deliverOk = false; }
+      return wait({ distance_m: d, far: d != null && d > 300 });
+    },
+    async reportDeliveries(from, to) {
+      if (!allow('reports.view')) fail('You cannot see reports');
+      const day = t => localDay0(new Date(t)), inR = t => t && day(t) >= from && day(t) <= to;
+      const done = D.orders.filter(o => ['delivered', 'paid'].includes(o.status) && o.delivered_by && inR(o.delivered_at));
+      const pcs = o => D.items.filter(i => i.order_id === o.id).reduce((a, i) => a + i.qty, 0);
+      const avg = a => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
+      const by = {}; done.forEach(o => { (by[o.delivered_by] = by[o.delivered_by] || []).push(o); });
+      const cash = (u, st) => +D.payments.filter(p => p.received_by === u && p.note === 'Collected at delivery' && p.status === st && inR(p.received_at)).reduce((a, p) => a + p.amount_usd, 0).toFixed(2);
+      return wait({ drivers: Object.entries(by).map(([u, os]) => ({ id: u, name: (user(u) || {}).full_name, delivered: os.length, pieces: os.reduce((a, o) => a + pcs(o), 0),
+          avg_min: avg(os.map(o => { const e = D.events.find(e => e.order_id === o.id && e.status === 'approved'); return (new Date(o.delivered_at) - new Date(e ? e.created_at : o.created_at)) / 60000; })),
+          avg_road_min: avg(os.filter(o => o.picked_at).map(o => (new Date(o.delivered_at) - new Date(o.picked_at)) / 60000)),
+          far: os.filter(o => o.delivery_distance_m > 300).length, no_proof: os.filter(o => !o.delivery_photo).length, cash_waiting: cash(u, 'pending'), cash_confirmed: cash(u, 'confirmed') })).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+        list: done.sort((a, b) => b.delivered_at.localeCompare(a.delivered_at)).map(o => ({ id: o.id, order_no: o.order_no, shop: D.customers.find(c => c.id === o.customer_id).name, driver: (user(o.delivered_by) || {}).full_name,
+          assigned_at: o.assigned_at || null, packed_at: o.packed_at || null, picked_at: o.picked_at || null, delivered_at: o.delivered_at, receiver: o.delivery_receiver || null, photo: o.delivery_photo || null, sign: o.delivery_sign || null,
+          distance_m: o.delivery_distance_m ?? null, lat: o.delivery_lat ?? null, lng: o.delivery_lng ?? null, pieces: pcs(o), total: o.total })) });
     },
     async getOrder(id) {
       const o = D.orders.find(x => x.id === id);
-      if (!canSeeOrder(o)) fail('Order not found');
+      if (!canSeeOrder(o) || !seeMoney()) fail('Order not found');
       return wait(Object.assign(clone(o), {
         customers: clone(D.customers.find(c => c.id === o.customer_id)), creator: { full_name: user(o.created_by).full_name }, rep: { full_name: (user(o.sales_rep_id || o.created_by) || {}).full_name },
+        driver: o.driver_id ? { full_name: (user(o.driver_id) || {}).full_name } : null,
         items: D.items.filter(i => i.order_id === id).sort((a, b) => a.id - b.id).map(i => Object.assign(clone(i), { products: (({ name, sku, price }) => ({ name, sku, price }))(D.products.find(p => p.id === i.product_id)) })),
         events: D.events.filter(e => e.order_id === id).map(e => Object.assign(clone(e), { profiles: { full_name: (user(e.created_by) || {}).full_name } })),
         payments: D.payments.filter(p => p.order_id === id).sort((a, b) => a.id - b.id).map(payOut),
@@ -3519,9 +3611,12 @@ window.makeDemoApi = function () {
       if (!canSeeOrder(o)) fail('Order not found');
       const ok = (o.status === 'pending' && status === 'approved' && allow('orders.approve'))
         || (o.status === 'pending' && status === 'cancelled' && (allow('orders.edit_any') || o.created_by === me.id))
-        || (o.status === 'approved' && status === 'delivered' && (allow('orders.deliver') || (o.created_by === me.id && D.warehouses.some(w => w.id === o.warehouse_id && w.rep_id === me.id))))
+        || (['approved', 'packed', 'delivering'].includes(o.status) && status === 'delivered' && (allow('orders.deliver') || (o.created_by === me.id && D.warehouses.some(w => w.id === o.warehouse_id && w.rep_id === me.id))))
         || (o.status === 'delivered' && status === 'paid' && allow('orders.paid'))
-        || (o.status === 'approved' && status === 'cancelled' && allow('orders.cancel'));
+        || (o.status === 'approved' && status === 'packed' && allow('orders.assign'))
+        || (o.status === 'packed' && status === 'delivering' && (o.driver_id === me.id || allow('orders.assign')))
+        || (['approved', 'packed', 'delivering'].includes(o.status) && status === 'cancelled' && allow('orders.cancel'));
+      if (status === 'delivered' && !allow('orders.assign') && !D._deliverOk && !(o.created_by === me.id && D.warehouses.some(w => w.id === o.warehouse_id && w.rep_id === me.id))) fail('Use Mark delivered with photo, GPS, signature and receiver name');
       if (!ok) fail('You cannot change this order from ' + o.status + ' to ' + status);
       if (status === 'cancelled' && ((o.paid_amount || 0) > 0 || D.payments.some(p => p.order_id === id && p.status === 'pending'))) fail('This order already has payments. Reject those payments first, then cancel.');
       const lines = {}; D.items.filter(i => i.order_id === id).forEach(i => { lines[i.product_id] = (lines[i.product_id] || 0) + i.qty; });
@@ -3531,7 +3626,7 @@ window.makeDemoApi = function () {
           D.moves.push({ id: ++D.seq.move, product_id: +pid, warehouse_id: o.warehouse_id, qty_change: -lines[pid], reason: 'order', ref: o.order_no, created_by: me.id, created_at: now() });
           checkLow(+pid, b, b - lines[pid]); });
         o.approved_by = me.id;
-      } else if (status === 'cancelled' && o.status === 'approved') {
+      } else if (status === 'cancelled' && ['approved', 'packed', 'delivering'].includes(o.status)) {
         Object.keys(lines).forEach(pid => { setQty(+pid, o.warehouse_id, qty(+pid, o.warehouse_id) + lines[pid]);
           D.moves.push({ id: ++D.seq.move, product_id: +pid, warehouse_id: o.warehouse_id, qty_change: lines[pid], reason: 'cancel', ref: o.order_no, created_by: me.id, created_at: now() }); });
       }
@@ -3542,7 +3637,8 @@ window.makeDemoApi = function () {
           status: 'confirmed', received_by: me.id, received_at: now(), confirmed_by: me.id, confirmed_at: now() });
         o.paid_amount = o.total;
       }
-      o.status = status; o.updated_at = now(); if (status === 'delivered') o.delivered_at = now();
+      o.status = status; o.updated_at = now(); if (status === 'delivered') { o.delivered_at = now(); o.delivered_by = me.id; }
+      if (status === 'packed') { o.packed_at = now(); o.packed_by = me.id; } if (status === 'delivering') o.picked_at = now();
       D.events.push({ id: ++D.seq.event, order_id: id, status, note: note || null, created_by: me.id, created_at: now() });
       const c = D.convs.find(x => x.order_id === id);
       if (!isMember(c.id, me.id)) D.members.push({ conversation_id: c.id, user_id: me.id, last_read_at: now() });
@@ -3552,7 +3648,7 @@ window.makeDemoApi = function () {
       { const shop = D.customers.find(x => x.id === o.customer_id).name, l = '#/orders/' + id;
         notify(o.sales_rep_id, o.order_no + ' ' + (status === 'paid' ? 'fully paid' : status), shop, l);
         if (o.created_by !== o.sales_rep_id) notify(o.created_by, o.order_no + ' ' + status, shop, l);
-        if (status === 'approved') notifyPerm('orders.deliver', 'Order to deliver', o.order_no + ' · ' + shop, l); }
+        if (status === 'approved') notifyPerm('orders.assign', 'Order to deliver', o.order_no + ' · ' + shop, l); }
       save(); notifyOrder(o); return wait(null);
     },
 
@@ -3979,6 +4075,7 @@ window.makeDemoApi = function () {
 
     async listPayments() {
       if (!role()) return [];
+      if (!seeMoney()) return wait([]);
       return wait(D.payments.filter(p => allow('payments.confirm') || p.received_by === me.id || canSeeOrder(D.orders.find(o => o.id === p.order_id)))
         .sort((a, b) => b.id - a.id).map(payOut));
     },
@@ -4071,7 +4168,7 @@ window.makeDemoApi = function () {
       const days = []; for (let d = new Date(a + 'T00:00:00'); localDay0(d) <= (b < t ? b : t); d.setDate(d.getDate() + 1)) days.push(localDay0(d));
       const work = days.filter(d => new Date(d + 'T00:00:00').getDay() !== 0 && !(D.holidays || []).some(h => h.day === d));
       const counts = async (u, d) => api._onlineCounts(u, d);
-      const ppl = D.users.filter(u => u.active && (u.role === 'online_sales' || oc.some(c => c.assigned_to === u.id)));
+      const ppl = D.users.filter(u => u.active && (u.sells_online || u.role === 'online_sales' || oc.some(c => c.assigned_to === u.id)));
       const people = []; for (const u of ppl) { const mine = oc.filter(c => c.assigned_to === u.id), lastOf = id => all.filter(x => x.customer_id === id).map(x => x.d).sort();
         const st = {}; mine.forEach(c => { st[c.sales_status || 'new'] = (st[c.sales_status || 'new'] || 0) + 1; });
         let dn = 0, dok = 0; for (const d of work) { const c = await counts(u.id, d); if (c.new_today >= Math.max(1, c.target_new)) dn++; if (c.stock_orders_today >= Math.max(1, c.target_orders)) dok++; }
@@ -6012,6 +6109,117 @@ window.KT_KM_PATTERNS.push(
   [/^Shop visit and start work photos from before (.+) are deleted for ever\. The visits and attendance records stay\.$/, 'រូបថតចុះហាង និងចូលធ្វើការ មុន $1 នឹងត្រូវលុបជារៀងរហូត។ កំណត់ត្រាការចុះហាង និងវត្តមាននៅដដែល។'],
   [/^(\d+) photos? deleted$/, 'បានលុបរូបថត $1']
 );
+Object.assign(window.KT_KM, {
+  'See order amounts and prices': 'មើលចំនួនទឹកប្រាក់ និងតម្លៃនៃការបញ្ជាទិញ',
+  'Off = only orders to deliver, without any money (drivers, warehouse)': 'បិទ = មើលតែការបញ្ជាទិញដែលត្រូវដឹកជញ្ជូន គ្មានទឹកប្រាក់ (អ្នកបើកបរ ឃ្លាំង)',
+  'Orders waiting for delivery': 'ការបញ្ជាទិញរង់ចាំដឹកជញ្ជូន',
+  'Search shop, order number or area': 'ស្វែងរកហាង លេខបញ្ជាទិញ ឬតំបន់',
+  'After you tap Delivered, the order leaves this list.': 'ពេលអ្នកចុច បានដឹកដល់ ការបញ្ជាទិញនឹងចេញពីបញ្ជីនេះ។',
+  'Nothing to deliver right now.': 'មិនមានអ្វីត្រូវដឹកជញ្ជូនទេឥឡូវនេះ។',
+  'Deliver': 'ដឹកជញ្ជូន',
+  'Order not found or already delivered': 'រកមិនឃើញការបញ្ជាទិញ ឬបានដឹកដល់រួចហើយ',
+  'No address': 'គ្មានអាសយដ្ឋាន',
+  'From stock': 'ពីស្តុក',
+  'Total pieces': 'ចំនួនគ្រឿងសរុប',
+  'Note:': 'កំណត់សម្គាល់៖',
+  'You are not allowed to deliver orders': 'អ្នកមិនមានសិទ្ធិដឹកជញ្ជូនការបញ្ជាទិញទេ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^(\d+) orders? to deliver$/, 'ការបញ្ជាទិញ $1 ត្រូវដឹកជញ្ជូន'],
+  [/^Delivered to (.+)\?$/, 'បានដឹកដល់ $1 ហើយ?'],
+  [/^(.+) · (\d+) pcs$/, '$1 · $2 គ្រឿង'],
+  [/^× (\d+)$/, '× $1']
+);
+Object.assign(window.KT_KM, {
+  'Give orders to drivers and mark Packed': 'ផ្តល់ការបញ្ជាទិញឱ្យអ្នកបើកបរ និងសម្គាល់ថាបានវេចខ្ចប់',
+  'Warehouse / managers. A driver then sees only his own orders': 'ឃ្លាំង / អ្នកគ្រប់គ្រង។ អ្នកបើកបរឃើញតែការបញ្ជាទិញរបស់ខ្លួន',
+  'Waiting to pack': 'រង់ចាំវេចខ្ចប់',
+  'Packed': 'បានវេចខ្ចប់',
+  '🚚 Delivery': '🚚 ការដឹកជញ្ជូន',
+  'Change driver': 'ប្តូរអ្នកបើកបរ',
+  'Give to a driver': 'ផ្តល់ឱ្យអ្នកបើកបរ',
+  'Not given yet': 'មិនទាន់ផ្តល់',
+  'Received by': 'អ្នកទទួល',
+  'Distance from the shop': 'ចម្ងាយពីហាង',
+  '📦 Packed': '📦 បានវេចខ្ចប់',
+  'Nobody can deliver yet. Give "Mark orders delivered" to your drivers in User Login & Permissions.': 'មិនទាន់មាននរណាអាចដឹកជញ្ជូនទេ។ សូមផ្តល់សិទ្ធិ "សម្គាល់ថាបានដឹកដល់" ដល់អ្នកបើកបរ ក្នុង ការចូល និងសិទ្ធិអ្នកប្រើ។',
+  'Take it back (no driver)': 'ដកវិញ (គ្មានអ្នកបើកបរ)',
+  'Given to the driver': 'បានផ្តល់ឱ្យអ្នកបើកបរ',
+  'Taken back': 'បានដកវិញ',
+  'Tap to take a photo of the delivery': 'ចុចដើម្បីថតរូបការដឹកជញ្ជូន',
+  'Shop signature': 'ហត្ថលេខាហាង',
+  'Name of the person who received the goods': 'ឈ្មោះអ្នកទទួលទំនិញ',
+  'Pay on delivery. Type what you received (0 = nothing). It waits for a manager to check.': 'បង់ពេលដឹកដល់។ វាយចំនួនដែលអ្នកបានទទួល (0 = គ្មាន)។ វារង់ចាំអ្នកគ្រប់គ្រងពិនិត្យ។',
+  'Currency': 'រូបិយប័ណ្ណ',
+  'How': 'របៀប',
+  'Take a photo of the delivery': 'សូមថតរូបការដឹកជញ្ជូន',
+  'Wait for the GPS, or tap Retry GPS': 'រង់ចាំ GPS ឬចុច ព្យាយាម GPS ម្តងទៀត',
+  'The shop must sign in the white box': 'ហាងត្រូវចុះហត្ថលេខាក្នុងប្រអប់ស',
+  'Type the name of the person who received the goods': 'វាយឈ្មោះអ្នកទទួលទំនិញ',
+  'GPS is not available here': 'GPS មិនអាចប្រើបាននៅទីនេះ',
+  'Orders delivered': 'ការបញ្ជាទិញបានដឹកដល់',
+  'Far from the shop (over 300 m)': 'ឆ្ងាយពីហាង (លើស 300 ម៉ែត្រ)',
+  'Cash collected · waiting check': 'ប្រាក់បានប្រមូល · រង់ចាំពិនិត្យ',
+  'Cash collected · confirmed': 'ប្រាក់បានប្រមូល · បានបញ្ជាក់',
+  'Drivers': 'អ្នកបើកបរ',
+  'Delivered in these dates. Time = from approval to delivered; road = from On the way to delivered.': 'បានដឹកដល់ក្នុងកាលបរិច្ឆេទទាំងនេះ។ ពេលវេលា = ពីការអនុម័តដល់ដឹកដល់; ផ្លូវ = ពីកំពុងដឹកដល់ដឹកដល់។',
+  'Avg time': 'ពេលវេលាមធ្យម',
+  'Avg road time': 'ពេលវេលាធ្វើដំណើរមធ្យម',
+  'Far': 'ឆ្ងាយ',
+  'No proof': 'គ្មានភស្តុតាង',
+  'Cash waiting': 'ប្រាក់រង់ចាំ',
+  'Cash confirmed': 'ប្រាក់បានបញ្ជាក់',
+  'Each delivery': 'ការដឹកជញ្ជូននីមួយៗ',
+  'Distance': 'ចម្ងាយ',
+  'Proof': 'ភស្តុតាង',
+  'Photo': 'រូបថត',
+  'Signature': 'ហត្ថលេខា',
+  'No deliveries in these dates': 'គ្មានការដឹកជញ្ជូនក្នុងកាលបរិច្ឆេទទាំងនេះ',
+  'First 300 shown · all are in the Excel file.': 'បង្ហាញ 300 ដំបូង · ទាំងអស់មាននៅក្នុងឯកសារ Excel។',
+  'Orders given to you': 'ការបញ្ជាទិញដែលផ្តល់ឱ្យអ្នក',
+  'After Delivered, the order leaves this list.': 'ក្រោយពីដឹកដល់ ការបញ្ជាទិញនឹងចេញពីបញ្ជីនេះ។',
+  'No driver': 'គ្មានអ្នកបើកបរ',
+  'Shop picked it up (delivered here)': 'ហាងមកយកផ្ទាល់ (ដឹកដល់នៅទីនេះ)',
+  'Waiting for the warehouse to pack it.': 'រង់ចាំឃ្លាំងវេចខ្ចប់។',
+  'Pay on delivery. You type what you received when you tap Delivered.': 'បង់ពេលដឹកដល់។ ពេលចុច ដឹកដល់ អ្នកវាយចំនួនដែលបានទទួល។',
+  'Ordered': 'បានបញ្ជាទិញ',
+  'Use Mark delivered with photo, GPS, signature and receiver name': 'សូមប្រើ ដឹកដល់ ជាមួយរូបថត GPS ហត្ថលេខា និងឈ្មោះអ្នកទទួល',
+  'Tap On the way first': 'ចុច កំពុងដឹក ជាមុនសិន',
+  'This order was not given to you': 'ការបញ្ជាទិញនេះមិនបានផ្តល់ឱ្យអ្នកទេ',
+  'The shop must sign': 'ហាងត្រូវចុះហត្ថលេខា',
+  'Turn on GPS: the location is needed': 'បើក GPS: ត្រូវការទីតាំង',
+  'Credit order: there is no money to collect': 'ការបញ្ជាទិញជំពាក់: គ្មានប្រាក់ត្រូវប្រមូល',
+  'That is more than the amount to collect': 'លើសចំនួនដែលត្រូវប្រមូល',
+  'Only warehouse or managers can give orders to drivers': 'មានតែឃ្លាំង ឬអ្នកគ្រប់គ្រងទេ ដែលអាចផ្តល់ការបញ្ជាទិញឱ្យអ្នកបើកបរ',
+  'Only approved or packed orders can be given to a driver': 'មានតែការបញ្ជាទិញដែលបានអនុម័ត ឬវេចខ្ចប់ ទេដែលអាចផ្តល់ឱ្យអ្នកបើកបរ',
+  'This person cannot deliver orders': 'អ្នកនេះមិនអាចដឹកជញ្ជូនបានទេ',
+  'Order to deliver': 'ការបញ្ជាទិញត្រូវដឹកជញ្ជូន',
+  'Order taken back': 'ការបញ្ជាទិញត្រូវបានដកវិញ',
+});
+window.KT_KM_PATTERNS.push(
+  [/^💵 Collect (\$[\d,.]+) from the shop$/, '💵 ប្រមូល $1 ពីហាង'],
+  [/^Delivered · (.+)$/, 'បានដឹកដល់ · $1'],
+  [/^(\d+) orders? now$/, 'ការបញ្ជាទិញ $1 ឥឡូវ'],
+  [/^📍 GPS ±(\d+) m( ✓)?$/, '📍 GPS ±$1 ម៉ែត្រ$2'],
+  [/^(\d+) m ⚠️ far$/, '$1 ម៉ែត្រ ⚠️ ឆ្ងាយ'],
+  [/^(\d+) min$/, '$1 នាទី'],
+  [/^(\d+) h (\d+) min$/, '$1 ម៉ោង $2 នាទី']
+);
+Object.assign(window.KT_KM, {
+  'Sells online': 'លក់អនឡាញ',
+  'Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.': 'បន្ថែមការតាមដាន "អតិថិជនមកពីណា" ការលក់គ្មានផលិតផល និងគោលដៅអនឡាញ។ ច្បាប់លក់ទាំងអស់នៅដដែល។',
+  'Sells online: on': 'លក់អនឡាញ: បើក',
+  'Sells online: off': 'លក់អនឡាញ: បិទ',
+  '🏪 A shop': '🏪 ហាង',
+  'Check in at the shop: GPS + photo': 'ចុះឈ្មោះនៅហាង: GPS + រូបថត',
+  '🌐 An online customer': '🌐 អតិថិជនអនឡាញ',
+  'Facebook, TikTok, Telegram…: name, phone, Telegram': 'Facebook, TikTok, Telegram…: ឈ្មោះ ទូរស័ព្ទ Telegram',
+  'Only the admin or HR can change this': 'មានតែអ្នកគ្រប់គ្រង ឬធនធានមនុស្សទេ ដែលអាចប្តូរបាន',
+  'Sales (online)': 'អ្នកលក់ (អនឡាញ)',
+});
+window.KT_KM_PATTERNS.push(
+
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7606,6 +7814,122 @@ window.KT_ZH_PATTERNS.push(
   [/^Shop visit and start work photos from before (.+) are deleted for ever\. The visits and attendance records stay\.$/, '$1 之前的拜访店铺和上班照片将被永久删除。拜访和考勤记录保留。'],
   [/^(\d+) photos? deleted$/, '已删除 $1 张照片']
 );
+Object.assign(window.KT_ZH, {
+  'See order amounts and prices': '查看订单金额和价格',
+  'Off = only orders to deliver, without any money (drivers, warehouse)': '关闭 = 只看要送的订单，不显示任何金额（司机、仓库）',
+  'Orders waiting for delivery': '等待送货的订单',
+  'Search shop, order number or area': '搜索店铺、订单号或地区',
+  'After you tap Delivered, the order leaves this list.': '点击"已送达"后，订单会从此列表中消失。',
+  'Nothing to deliver right now.': '目前没有要送的货。',
+  'Deliver': '送货',
+  'Order not found or already delivered': '找不到订单或已送达',
+  'No address': '没有地址',
+  'From stock': '出货仓库',
+  'Total pieces': '总件数',
+  'Note:': '备注：',
+  'You are not allowed to deliver orders': '您无权送货',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^(\d+) orders? to deliver$/, '$1 个订单要送'],
+  [/^Delivered to (.+)\?$/, '已送到 $1？'],
+  [/^(.+) · (\d+) pcs$/, '$1 · $2 件'],
+  [/^× (\d+)$/, '× $1']
+);
+Object.assign(window.KT_ZH, {
+  'Give orders to drivers and mark Packed': '把订单交给司机并标记已打包',
+  'Warehouse / managers. A driver then sees only his own orders': '仓库 / 经理。司机只看到交给自己的订单',
+  'Waiting to pack': '等待打包',
+  'Packed': '已打包',
+  '🚚 Delivery': '🚚 送货',
+  'Change driver': '更换司机',
+  'Give to a driver': '交给司机',
+  'Driver': '司机',
+  'Not given yet': '还没交给司机',
+  'Received by': '收货人',
+  'Distance from the shop': '离店距离',
+  '📦 Packed': '📦 已打包',
+  'Nobody can deliver yet. Give "Mark orders delivered" to your drivers in User Login & Permissions.': '还没有人能送货。请在"用户登录与权限"中给司机"标记订单已送达"权限。',
+  'Take it back (no driver)': '收回（不交给司机）',
+  'Given to the driver': '已交给司机',
+  'Taken back': '已收回',
+  'Tap to take a photo of the delivery': '点击拍送货照片',
+  'Shop signature': '店铺签名',
+  'Clear': '清除',
+  'Name of the person who received the goods': '收货人姓名',
+  'Pay on delivery. Type what you received (0 = nothing). It waits for a manager to check.': '货到付款。输入你收到的金额（0 = 没收到）。等待经理确认。',
+  'Amount': '金额',
+  'Currency': '货币',
+  'How': '方式',
+  'Take a photo of the delivery': '请拍送货照片',
+  'Wait for the GPS, or tap Retry GPS': '等待 GPS，或点击重试 GPS',
+  'The shop must sign in the white box': '店铺必须在白框里签名',
+  'Type the name of the person who received the goods': '请输入收货人姓名',
+  'GPS is not available here': '这里无法使用 GPS',
+  'Orders delivered': '已送达订单',
+  'Pieces': '件数',
+  'Far from the shop (over 300 m)': '离店较远（超过 300 米）',
+  'Cash collected · waiting check': '已收现金 · 等待确认',
+  'Cash collected · confirmed': '已收现金 · 已确认',
+  'Drivers': '司机',
+  'Delivered in these dates. Time = from approval to delivered; road = from On the way to delivered.': '这些日期内送达。时间 = 从批准到送达；路上 = 从在路上到送达。',
+  'Avg time': '平均时间',
+  'Avg road time': '平均路上时间',
+  'Far': '远',
+  'No proof': '无凭证',
+  'Cash waiting': '待确认现金',
+  'Cash confirmed': '已确认现金',
+  'Each delivery': '每次送货',
+  'Distance': '距离',
+  'Proof': '凭证',
+  'Photo': '照片',
+  'Signature': '签名',
+  'No deliveries in these dates': '这些日期没有送货',
+  'First 300 shown · all are in the Excel file.': '显示前 300 条 · 全部在 Excel 文件里。',
+  'Deliveries': '送货',
+  'Orders given to you': '交给你的订单',
+  'After Delivered, the order leaves this list.': '送达后，订单会从此列表中消失。',
+  'No driver': '没有司机',
+  'Shop picked it up (delivered here)': '店铺自取（在这里交货）',
+  'Waiting for the warehouse to pack it.': '等待仓库打包。',
+  'Pay on delivery. You type what you received when you tap Delivered.': '货到付款。点击"已送达"时输入你收到的金额。',
+  'Ordered': '下单时间',
+  'Use Mark delivered with photo, GPS, signature and receiver name': '请用"已送达"并附照片、GPS、签名和收货人姓名',
+  'Tap On the way first': '请先点击"在路上"',
+  'This order was not given to you': '这个订单不是交给你的',
+  'The shop must sign': '店铺必须签名',
+  'Turn on GPS: the location is needed': '请打开 GPS：需要位置',
+  'Credit order: there is no money to collect': '赊账订单：不需要收钱',
+  'That is more than the amount to collect': '超过要收的金额',
+  'Only warehouse or managers can give orders to drivers': '只有仓库或经理可以把订单交给司机',
+  'Only approved or packed orders can be given to a driver': '只有已批准或已打包的订单才能交给司机',
+  'This person cannot deliver orders': '这个人不能送货',
+  'Order to deliver': '要送的订单',
+  'Order taken back': '订单已收回',
+});
+window.KT_ZH_PATTERNS.push(
+  [/^💵 Collect (\$[\d,.]+) from the shop$/, '💵 向店铺收 $1'],
+  [/^Delivered · (.+)$/, '已送达 · $1'],
+  [/^(\d+) orders? now$/, '现在 $1 个订单'],
+  [/^📍 GPS ±(\d+) m( ✓)?$/, '📍 GPS ±$1 米$2'],
+  [/^(\d+) m ⚠️ far$/, '$1 米 ⚠️ 远'],
+  [/^(\d+) min$/, '$1 分钟'],
+  [/^(\d+) h (\d+) min$/, '$1 小时 $2 分钟']
+);
+Object.assign(window.KT_ZH, {
+  'Sells online': '网上销售',
+  'Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.': '增加跟进、"客户从哪里来"、无产品销售和网上目标。所有销售规则保持不变。',
+  'Sells online: on': '网上销售：开',
+  'Sells online: off': '网上销售：关',
+  '🏪 A shop': '🏪 店铺',
+  'Check in at the shop: GPS + photo': '在店里签到：GPS + 照片',
+  '🌐 An online customer': '🌐 网上客户',
+  'Facebook, TikTok, Telegram…: name, phone, Telegram': 'Facebook、TikTok、Telegram…：姓名、电话、Telegram',
+  'Only the admin or HR can change this': '只有管理员或人事可以更改',
+  'Sales (online)': '销售（网上）',
+});
+window.KT_ZH_PATTERNS.push(
+
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -8622,7 +8946,9 @@ window.KT_ZH_PATTERNS.push(
   K.sourceName = k => (K.SOURCES.find(x => x[0] === k) || [k, k || ''])[1];
   K.SALES_ST = { new: ['New', 'bl'], contacted: ['Contacted', 'gy'], interested: ['Interested', 'or'], ordered: ['Ordered', 'gr'], not_interested: ['Not interested', 'rd'] };
   K.salesPill = st => { const x = K.SALES_ST[st] || K.SALES_ST.new; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; };
-  K.isOnlineSeller = () => !!K.S.me && K.S.me.role === 'online_sales';
+  // 26 Oct 2026: one Sales role; the online tools follow the tick "Sells online" (old role 'online_sales' still counts)
+  K.sellsOnline = u => !!u && (u.sells_online === true || u.role === 'online_sales');
+  K.isOnlineSeller = () => K.sellsOnline(K.S.me);
   const METHODS = [['telegram', 'Telegram'], ['phone', 'Phone'], ['other', 'Other']];
   const RESULTS = [['no_answer', 'No answer'], ['talked', 'Talked'], ['interested', 'Interested'], ['ordered', 'Ordered'], ['not_interested', 'Not interested'], ['other', 'Other']];
   const resName = k => (RESULTS.find(x => x[0] === k) || [k, k])[1];
@@ -8831,7 +9157,7 @@ window.KT_ZH_PATTERNS.push(
   // HR → Commission: daily targets of online sales staff (admin / managers)
   K.onlineTargetsCard = async el => {
     const [st, staff, tg] = await Promise.all([api.getSettings().catch(() => ({})), K.data.staff().catch(() => []), api.listOnlineTargets().catch(() => [])]);
-    const ppl = staff.filter(u => u.active && u.role === 'online_sales'), of = id => tg.find(x => x.user_id === id) || {};
+    const ppl = staff.filter(u => u.active && K.sellsOnline(u)), of = id => tg.find(x => x.user_id === id) || {};
     if (!el.isConnected) return;
     el.innerHTML = `<div class="card" style="gap:10px"><b>Online sales · daily targets</b>
       <div class="small muted">Shown on their Home: "New customers today X / Y" (a customer counts after its first follow-up) and "Orders today X / Y" (orders with stock products). Empty = the number for everyone.</div>
@@ -9176,7 +9502,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const draw = async () => {
       const end = K.period.dstr(new Date(new Date(month + 'T00:00:00').getFullYear(), new Date(month + 'T00:00:00').getMonth() + 1, 0));
       const [rows, staff, npT, npS] = await Promise.all([K.api.teamSales(month), K.data.staff().catch(() => []), K.api.listNopTargets ? K.api.listNopTargets(month).catch(() => []) : [], K.api.listNopSales ? K.api.listNopSales(null, month, end).catch(() => []) : []]);
-      const online = id => (staff.find(u => u.id === id) || {}).role === 'online_sales', npTarget = id => (npT.find(t => t.user_id === id) || {}).amount, npSold = id => npS.filter(x => x.sales_rep_id === id).reduce((a, x) => a + +x.amount, 0);
+      const online = id => K.sellsOnline(staff.find(u => u.id === id)), npTarget = id => (npT.find(t => t.user_id === id) || {}).amount, npSold = id => npS.filter(x => x.sales_rep_id === id).reduce((a, x) => a + +x.amount, 0);
       const next = new Date(month + 'T00:00:00'); next.setMonth(next.getMonth() + 1);
       const prev = new Date(month + 'T00:00:00'); prev.setMonth(prev.getMonth() - 1);
       K.$('.sb', s.el).innerHTML = `<div class="row"><button class="btn sm out" id="pm">‹</button><b class="grow" style="text-align:center">${K.monthName(month)}</b><button class="btn sm out" id="nm">›</button></div>
@@ -9366,6 +9692,134 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       });
     };
     await draw();
+  };
+})();
+
+// Delivery system (26 Oct 2026, Mr. Lee): give an order to a driver, Packed / On the way steps, proof of delivery
+// (photo + GPS + shop signature + receiver name), "Collect $X" for pay-on-delivery orders, Reports → Deliveries. Both bundles.
+(function () {
+  const K = window.KT;
+  const { api, S, esc, money, $, $$, icon, toast, sheet, busy, when, hhmm } = K;
+  const at = d => !d ? '' : K.sameDay(d, new Date()) ? hhmm(d) : when(d) + ' · ' + hhmm(d);
+  const mapLink = (lat, lng) => lat != null ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : null;
+  K.FAR_DELIVERY_M = 300;
+  K.DELIVERY_STEP = { approved: ['Waiting to pack', 'or'], packed: ['Packed', 'bl'], delivering: ['On the way', 'bl'] };
+  K.deliveryPill = st => { const x = K.DELIVERY_STEP[st]; return x ? `<span class="pill ${x[1]}">${x[0]}</span>` : ''; };
+
+  // order page for people who see money (phone + admin web): driver, steps, proof
+  K.deliveryCard = o => {
+    const live = ['approved', 'packed', 'delivering'].includes(o.status);
+    if (!(o.driver_id || o.packed_at || o.delivery_photo || (live && K.allow('orders.assign')))) return '';
+    const canAssign = K.allow('orders.assign') && ['approved', 'packed'].includes(o.status);
+    const line = (l, v) => `<div class="row small"><span class="grow muted">${l}</span><b>${v}</b></div>`;
+    const far = o.delivery_distance_m != null && o.delivery_distance_m > K.FAR_DELIVERY_M;
+    const map = mapLink(o.delivery_lat, o.delivery_lng);
+    return `<div class="card" style="gap:8px"><div class="row"><b class="grow">🚚 Delivery</b>${canAssign ? `<button class="btn sm out" id="dasg">${o.driver_id ? 'Change driver' : 'Give to a driver'}</button>` : ''}</div>
+      ${line('Driver', esc(o.driver ? o.driver.full_name : o.driver_id ? '…' : 'Not given yet'))}
+      ${o.packed_at ? line('Packed', at(o.packed_at)) : ''}${o.picked_at ? line('On the way', at(o.picked_at)) : ''}${o.delivered_at && o.delivery_photo ? line('Delivered', at(o.delivered_at)) : ''}
+      ${o.delivery_receiver ? line('Received by', esc(o.delivery_receiver)) : ''}
+      ${o.delivery_distance_m != null ? line('Distance from the shop', `<span style="color:${far ? 'var(--rd)' : 'inherit'}">${o.delivery_distance_m} m${far ? ' ⚠️ far' : ''}</span>`) : ''}
+      ${o.delivery_photo || o.delivery_sign ? `<div class="row" style="gap:8px;flex-wrap:wrap">${o.delivery_photo ? `<a href="${esc(o.delivery_photo)}" target="_blank" rel="noopener"><img src="${esc(o.delivery_photo)}" alt="Delivery photo" style="width:96px;height:96px;object-fit:cover;border-radius:10px"></a>` : ''}
+        ${o.delivery_sign ? `<a href="${esc(o.delivery_sign)}" target="_blank" rel="noopener"><img src="${esc(o.delivery_sign)}" alt="Signature" style="width:150px;height:96px;object-fit:contain;border-radius:10px;background:#fff;border:1px solid var(--line)"></a>` : ''}
+        ${map ? `<a class="btn sm out" href="${map}" target="_blank" rel="noopener">${icon('nav', 16)}Map</a>` : ''}</div>` : ''}
+      ${K.allow('orders.assign') && o.status === 'approved' ? `<button class="btn out block" id="dpk">📦 Packed</button>` : ''}</div>`;
+  };
+  K.bindDeliveryCard = (el, o, onDone) => {
+    const a = $('#dasg', el); if (a) a.onclick = () => K.assignDriverSheet(o.id, o.driver_id, onDone);
+    const p = $('#dpk', el); if (p) p.onclick = async () => { await busy(p, () => api.setOrderStatus(o.id, 'packed')); K.forget('orders'); toast('Packed'); onDone(); };
+  };
+
+  // choose the driver (warehouse / managers)
+  K.assignDriverSheet = async (id, cur, onDone) => {
+    const s = sheet('Give to a driver', K.loading);
+    const list = await api.deliveryDrivers().catch(e => { toast(e.message); return null; });
+    if (!list) return s.close();
+    $('.sb', s.el).innerHTML = `${list.length ? `<div class="card flush">${list.map(d => `<button class="list-item" data-drv="${esc(d.id)}" style="width:100%;text-align:left;font:inherit;background:${d.id === cur ? 'var(--ps)' : 'none'};border:0;cursor:pointer">
+        <div class="ic-av sq">${icon('truck', 20)}</div><div class="grow"><div class="tt">${esc(d.full_name)}${d.id === cur ? ' ✓' : ''}</div><div class="st">${esc((K.ROLE_LABEL || {})[d.role] || d.role)} · ${d.open} <span>${+d.open === 1 ? 'order now' : 'orders now'}</span></div></div></button>`).join('')}</div>`
+        : '<div class="small muted">Nobody can deliver yet. Give "Mark orders delivered" to your drivers in User Login & Permissions.</div>'}
+      ${cur ? '<button class="btn out block" id="dnone">Take it back (no driver)</button>' : ''}`;
+    const pick = async (drv, b) => { await busy(b, () => api.assignDriver(id, drv)); s.close(); K.forget('orders'); toast(drv ? 'Given to the driver' : 'Taken back'); onDone(); };
+    $$('[data-drv]', s.el).forEach(b => b.onclick = () => pick(b.dataset.drv, b));
+    if ($('#dnone', s.el)) $('#dnone', s.el).onclick = e => pick(null, e.currentTarget);
+  };
+
+  // Delivered with proof: photo, GPS, the shop's signature, receiver name (+ money for pay-on-delivery)
+  K.deliverSheet = (o, onDone) => {
+    const st = { photo: null, pos: null, err: null, ink: false, run: 0 };
+    const collect = +o.collect || 0;
+    const s = sheet('Delivered · ' + o.order_no, `
+      <button class="photo-box" id="dpb" type="button">${icon('camera', 30)}Tap to take a photo of the delivery</button><input type="file" id="dpf" accept="image/*" capture="environment" hidden>
+      <div class="row" style="gap:8px"><div class="small grow" id="dgp">Finding GPS…</div><button class="btn sm ghost" id="dgr" type="button">${icon('pin', 16)}Retry GPS</button></div>
+      <div class="row"><b class="grow">Shop signature</b><button class="btn sm ghost" id="dsc" type="button">Clear</button></div>
+      <canvas id="dsg" style="width:100%;height:170px;background:#fff;border:1px dashed var(--line);border-radius:12px;touch-action:none"></canvas>
+      <label class="f">Name of the person who received the goods<input class="inp" id="drc" autocomplete="off"></label>
+      ${collect > 0 ? `<div class="card" style="gap:8px;border-color:#BFE3CC;background:var(--grs)"><b>💵 Collect ${money(collect)} from the shop</b>
+        <div class="small muted">Pay on delivery. Type what you received (0 = nothing). It waits for a manager to check.</div>
+        <div class="btns"><label class="f">Amount<input class="inp" id="dca" type="number" inputmode="decimal" min="0" step="0.01" value="${collect.toFixed(2)}"></label>
+          <label class="f">Currency<select class="inp" id="dcc"><option>USD</option><option>KHR</option></select></label>
+          <label class="f">How<select class="inp" id="dcm"><option value="cash">Cash</option><option value="aba">ABA</option><option value="khqr">KHQR</option><option value="bank">Bank</option></select></label></div></div>` : ''}
+      <button class="btn green block" id="dok">${icon('check', 20)}Delivered</button>`);
+    const pb = $('#dpb', s.el), pf = $('#dpf', s.el);
+    pb.onclick = () => pf.click();
+    pf.onchange = () => { const f = pf.files && pf.files[0]; if (!f) return; st.photo = f;
+      pb.innerHTML = `<img src="${URL.createObjectURL(f)}" alt="Delivery photo" style="max-height:160px;max-width:100%;border-radius:10px">`; };
+    const gps = async () => { const me = ++st.run; st.pos = null; st.err = null; $('#dgp', s.el).textContent = 'Finding GPS…';
+      if (!K.bestPosition) { $('#dgp', s.el).textContent = 'GPS is not available here'; return; }
+      try { const p = await K.bestPosition(x => { if (me === st.run) { st.pos = x; $('#dgp', s.el).textContent = '📍 GPS ±' + x.acc + ' m'; } }); if (me === st.run) { st.pos = p; $('#dgp', s.el).textContent = '📍 GPS ±' + p.acc + ' m ✓'; } }
+      catch (er) { if (me === st.run) { st.err = er.message; $('#dgp', s.el).textContent = er.message; } } };
+    $('#dgr', s.el).onclick = gps; gps();
+    // signature pad
+    const cv = $('#dsg', s.el), ctx = cv.getContext('2d'), fit = () => { const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+      cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, r.width, r.height); ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111'; st.ink = false; };
+    setTimeout(fit, 50);
+    let down = false;
+    const pt = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.onpointerdown = e => { down = true; cv.setPointerCapture(e.pointerId); const [x, y] = pt(e); ctx.beginPath(); ctx.moveTo(x, y); };
+    cv.onpointermove = e => { if (!down) return; const [x, y] = pt(e); ctx.lineTo(x, y); ctx.stroke(); st.ink = true; };
+    cv.onpointerup = cv.onpointercancel = () => { down = false; };
+    $('#dsc', s.el).onclick = fit;
+    $('#dok', s.el).onclick = async e => {
+      const b = e.currentTarget, rc = $('#drc', s.el).value.trim();
+      if (!st.photo) return toast('Take a photo of the delivery');
+      if (!st.pos) return toast(st.err || 'Wait for the GPS, or tap Retry GPS');
+      if (!st.ink) return toast('The shop must sign in the white box');
+      if (rc.length < 2) return toast('Type the name of the person who received the goods');
+      const amt = collect > 0 ? +($('#dca', s.el).value || 0) : 0;
+      const r = await busy(b, async () => {
+        const photo = await api.uploadPhoto(st.photo, 'delivery');
+        const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+        const sign = await api.uploadPhoto(blob, 'delivery', true);
+        return api.orderDeliver(o.id, { photo, sign, receiver: rc, lat: st.pos.lat, lng: st.pos.lng, acc: st.pos.acc,
+          cash: amt > 0 ? { amount: amt, currency: $('#dcc', s.el).value, method: $('#dcm', s.el).value } : null });
+      });
+      s.close(); K.forget('orders');
+      toast(r && r.far ? 'Delivered · ⚠️ ' + r.distance_m + ' m from the shop' : 'Delivered'); onDone();
+    };
+  };
+
+  // ---------- Reports → Deliveries (admin web) ----------
+  K.deliveriesReport = async (el, from, to) => {
+    const r = await api.reportDeliveries(from, to), ds = r.drivers || [], list = r.list || [];
+    const mins = m => m == null ? '—' : m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min';
+    const T = k => ds.reduce((a, d) => a + +(d[k] || 0), 0);
+    const kpi = (v, l, c) => K.adm.kpi(v, l, c);
+    el.innerHTML = `<div class="kpis">${kpi(T('delivered'), 'Orders delivered')}${kpi(T('pieces'), 'Pieces')}${kpi(T('far'), 'Far from the shop (over 300 m)', T('far') ? 'var(--rd)' : null)}${kpi(money(T('cash_waiting')), 'Cash collected · waiting check', T('cash_waiting') ? 'var(--or)' : null)}${kpi(money(T('cash_confirmed')), 'Cash collected · confirmed', 'var(--gr)')}</div>
+      <div class="card"><b>Drivers</b><div class="small muted">Delivered in these dates. Time = from approval to delivered; road = from On the way to delivered.</div>
+      <div class="tbl"><table><thead><tr><th style="text-align:left">Driver</th><th>Delivered</th><th>Pieces</th><th>Avg time</th><th>Avg road time</th><th>Far</th><th>No proof</th><th>Cash waiting</th><th>Cash confirmed</th></tr></thead>
+      <tbody>${ds.map(d => `<tr><td style="text-align:left"><b>${esc(d.name || '?')}</b></td><td>${d.delivered}</td><td>${d.pieces}</td><td>${mins(d.avg_min)}</td><td>${mins(d.avg_road_min)}</td>
+        <td style="${+d.far ? 'color:var(--rd);font-weight:700' : ''}">${d.far}</td><td>${d.no_proof}</td><td>${money(d.cash_waiting)}</td><td>${money(d.cash_confirmed)}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">No deliveries in these dates</td></tr>'}</tbody></table></div></div>
+      <div class="card"><b>Each delivery</b><div class="tbl"><table><thead><tr><th style="text-align:left">Order</th><th style="text-align:left">Shop</th><th style="text-align:left">Driver</th><th style="text-align:left">Delivered</th><th style="text-align:left">Received by</th><th>Distance</th><th>Pieces</th><th>Proof</th></tr></thead>
+      <tbody>${list.slice(0, 300).map(x => `<tr><td style="text-align:left">${esc(x.order_no)}</td><td style="text-align:left">${esc(x.shop)}</td><td style="text-align:left">${esc(x.driver || '')}</td><td style="text-align:left">${at(x.delivered_at)}</td>
+        <td style="text-align:left">${esc(x.receiver || '—')}</td><td style="${x.distance_m > K.FAR_DELIVERY_M ? 'color:var(--rd);font-weight:700' : ''}">${x.distance_m != null ? x.distance_m + ' m' : '—'}</td><td>${x.pieces || 0}</td>
+        <td>${x.photo ? `<a href="${esc(x.photo)}" target="_blank" rel="noopener">Photo</a>` : ''}${x.sign ? ` · <a href="${esc(x.sign)}" target="_blank" rel="noopener">Signature</a>` : ''}${x.lat != null ? ` · <a href="${mapLink(x.lat, x.lng)}" target="_blank" rel="noopener">Map</a>` : ''}${!x.photo ? '<span class="muted">—</span>' : ''}</td></tr>`).join('')
+        || '<tr><td colspan="8" class="muted">No deliveries in these dates</td></tr>'}</tbody></table></div>${list.length > 300 ? '<div class="small muted">First 300 shown · all are in the Excel file.</div>' : ''}</div>`;
+    const t2 = d => d ? new Date(d).toLocaleString('en-GB') : '';
+    const rows = [['Driver', 'Delivered', 'Pieces', 'Avg minutes', 'Avg road minutes', 'Far', 'No proof', 'Cash waiting', 'Cash confirmed']]
+      .concat(ds.map(d => [d.name, d.delivered, d.pieces, d.avg_min, d.avg_road_min, d.far, d.no_proof, (+d.cash_waiting).toFixed(2), (+d.cash_confirmed).toFixed(2)]));
+    return { name: 'deliveries', rows, sheets: [{ name: 'Drivers', rows },
+      { name: 'Each delivery', rows: [['Order', 'Shop', 'Driver', 'Given to driver', 'Packed', 'On the way', 'Delivered', 'Received by', 'Distance m', 'Pieces', 'Photo', 'Signature', 'Map']]
+        .concat(list.map(x => [x.order_no, x.shop, x.driver, t2(x.assigned_at), t2(x.packed_at), t2(x.picked_at), t2(x.delivered_at), x.receiver || '', x.distance_m == null ? '' : x.distance_m, x.pieces || 0, x.photo || '', x.sign || '', x.lat != null ? mapLink(x.lat, x.lng) : ''])) }] };
   };
 })();
 
@@ -10206,7 +10660,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${pays.length ? `<div id="plist" style="margin:0 -16px">${pays.map(p => K.paymentRow(p, { allowUndo: true })).join('')}</div>` : ''}
         ${K.canCollect() && ['approved', 'delivered'].includes(o.status) && owed - pend > 0.009 ? `<button class="btn green" id="col">${icon('cash', 18)}Add payment</button>` : ''}</div>` : ''}
       ${K.commissionRow(o) ? `<div class="card" style="padding:10px 14px">${K.commissionRow(o)}</div>` : ''}
-      ${K.openingLine(o)}${K.refundLine(o)}${K.exchangeCard(o)}
+      ${K.openingLine(o)}${K.refundLine(o)}${K.exchangeCard(o)}${K.deliveryCard(o)}
       <div class="card" style="gap:8px">${o.items.map(i => `<div class="row"><div class="grow"><div style="font-weight:600;font-size:14px">${esc(i.products.name)}</div><div class="small muted">${i.qty} × ${money(i.price)}${K.priceNote(i)}</div></div><b>${money(i.qty * i.price)}</b></div>`).join('')}</div>
       ${o.notes ? `<div class="small" style="background:var(--bg);border-radius:10px;padding:10px">${esc(o.notes)}</div>` : ''}
       <div class="card" style="gap:6px">${o.events.map(e => `<div class="row small"><span class="grow"><b>${esc(K.STATUS[e.status] ? K.STATUS[e.status][0] : e.status)}</b> · ${esc(e.profiles ? e.profiles.full_name : '')}</span><span class="muted">${when(e.created_at)}${K.sameDay(e.created_at, new Date()) ? '' : ' ' + hhmm(e.created_at)}</span></div>`).join('')}</div>
@@ -10223,6 +10677,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if ($('#rx', s.el)) $('#rx', s.el).onclick = () => { s.close(); K.returnSheet(o, () => K.render()); };
     if ($('#ex', s.el)) $('#ex', s.el).onclick = () => { s.close(); K.exchangeSheet(o, () => K.render()); };
     K.bindExchangeCard(s.el, o, () => { s.close(); K.render(); });
+    K.bindDeliveryCard(s.el, o, () => { s.close(); forget('orders'); orderSheet(id); });
     K.bindCommission(s.el, o, () => { s.close(); orderSheet(id); });
     if ($('#cx', s.el)) $('#cx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setOrderStatus(id, 'cancelled')); s.close(); toast('Order cancelled'); forget('orders', 'products'); K.render(); };
   }
@@ -10594,7 +11049,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     await refreshCounts();
     const main = shell('reports', 'Reports', `<button class="btn sm out" id="csv">${icon('list', 18)}<span>Download</span><span class="hide-sm" id="csvkind"> Excel</span></button>`);
     const showProfit = K.allow('purchases.manage');
-    const TABS = [['sales', 'Sales'], ['reps', 'Sales reps'], ['online', 'Online sales'], ['stock', 'Stock'], ['stockmoves', 'Stock movements'], ['shops', 'Shops'], ['money', 'Money']];
+    const TABS = [['sales', 'Sales'], ['reps', 'Sales reps'], ['online', 'Online sales'], ['stock', 'Stock'], ['stockmoves', 'Stock movements'], ['shops', 'Shops'], ['money', 'Money'], ['deliveries', 'Deliveries']];
     let tab = TABS.some(t => t[0] === q.t) ? q.t : 'sales', seq = 0, csvName = 'sales';
     let orders, items, prods, exps, custs, staffL, depts, pays, salesSheets = null;
     const loadSales = async () => { if (orders) return; [orders, items, prods, exps, custs, staffL, depts, pays] = await Promise.all([loadOrders(true), api.listOrderItems(), data.products(true), showProfit ? ensureBig('expenses', api.listExpenses, true) : [], data.customers(true), data.staff(true).catch(() => []), data.departments(true).catch(() => []), K.allow('payments.confirm') ? ensureBig('payments', api.listPayments, true).catch(() => null) : null]); };
@@ -10610,7 +11065,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-rt="${k}">${l}</button>`).join('');
       $('#cust').innerHTML = P.html(st.p, st.from, st.to) + `<div class="small muted">${esc(P.label(st))}</div>`;
       P.bind($('#cust'), st, draw);
-      $('#salesnote').style.display = tab === 'sales' ? '' : 'none'; $('#csvkind').textContent = tab === 'sales' || tab === 'online' || tab === 'stockmoves' ? ' Excel' : ' CSV';
+      $('#salesnote').style.display = tab === 'sales' ? '' : 'none'; $('#csvkind').textContent = tab === 'sales' || tab === 'online' || tab === 'stockmoves' || tab === 'deliveries' ? ' Excel' : ' CSV';
       const my = ++seq, el = $('#rep');
       if (tab !== 'sales') {
         el.innerHTML = '<div class="card muted small">Loading…</div>';
@@ -10778,7 +11233,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   });
 
   // ---------------- Roles & permissions (admin only) ----------------
-  const PROLES = [['manager', 'Manager'], ['supervisor', 'Supervisor'], ['sales', 'Sales'], ['online_sales', 'Online'], ['accountant', 'Account.'], ['cashier', 'Cashier'], ['hr', 'HR'], ['purchasing', 'Purchase'], ['warehouse', 'Wareh.'], ['driver', 'Driver']];
+  const PROLES = [['manager', 'Manager'], ['supervisor', 'Supervisor'], ['sales', 'Sales'], ['accountant', 'Account.'], ['cashier', 'Cashier'], ['hr', 'HR'], ['purchasing', 'Purchase'], ['warehouse', 'Wareh.'], ['driver', 'Driver']];
   route(/^\/permissions$/, async (_, q, current) => {
     if (S.me.role !== 'admin') return go('#/dashboard');
     await refreshCounts();
@@ -11489,6 +11944,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   };
   // Stock movements (23 Oct 2026): transfers, adjustments, count sheets — built in stock-control.js
   K.reports.stockmoves = (el, from, to) => K.SC.movesReport(el, from, to);
+  K.reports.deliveries = (el, from, to) => K.deliveriesReport(el, from, to);   // drivers (26 Oct 2026, delivery-common.js)
 })();
 
 // Full sales report (Reports → Sales): filters, trend + compare, payments & discounts, every breakdown, the full order list, one Excel file.
@@ -11885,7 +12341,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
-      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'].concat(u.role === 'agent' ? ['agent'] : []).concat(u.role === 'partner' ? ['partner'] : []);   // partner logins: only from the Partners tab
+      const hh = (ctx.hrs || []).find(h => h.user_id === u.id) || {}, roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin'].concat(u.role === 'agent' ? ['agent'] : []).concat(u.role === 'online_sales' ? ['online_sales'] : []).concat(u.role === 'partner' ? ['partner'] : []);   // partner logins: only from the Partners tab
       const hints = K.ROLE_HINTS;
       let role = u.role, gender = hh.gender || '';
       const sups = (K.S.cache.staff || []).filter(x => x.active && x.role !== 'guest' && x.id !== u.id), deps = K.S.cache.departments || [];
@@ -11897,6 +12353,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
         ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="rh">${hints[role]}</div>
+        <label class="row" id="sonlw" style="gap:10px;align-items:flex-start;cursor:pointer;${['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'display:none'}"><input type="checkbox" id="sonl" ${K.sellsOnline(u) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="spw">Which partner<select class="inp" id="spart"><option value="">Loading…</option></select></label>` : ''}
         ${K.allow('stock.access') && u.active ? `<div id="stx" class="card" style="background:var(--bg);gap:6px"><b style="font-size:14px">Can order from these stocks</b><div class="small muted">Loading…</div></div>` : ''}
         ${boss || hr ? `<div id="orgx"><div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
@@ -11933,7 +12390,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         K.$$('[data-st]', s.el).forEach(c => c.onchange = () => { c.checked ? stTicks.add(+c.dataset.st) : stTicks.delete(+c.dataset.st); });
       }).catch(() => { const b = K.$('#stx', s.el); if (b) b.style.display = 'none'; });
       stShow();
-      K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; stShow(); });
+      K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; stShow();
+        const w = K.$('#sonlw', s.el); if (w) w.style.display = ['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'none'; });
+      // "Sells online" is saved at once (26 Oct 2026: one Sales role, online tools by this tick)
+      if (K.$('#sonl', s.el)) K.$('#sonl', s.el).onchange = async e => { const on = e.target.checked;
+        try { await api.setSellsOnline(u.id, on); u.sells_online = on; K.forget('staff'); toast(on ? 'Sells online: on' : 'Sells online: off'); } catch (er) { e.target.checked = !on; toast(er.message); } };
       K.$$('[data-g]', s.el).forEach(b => b.onclick = () => { gender = gender === b.dataset.g ? '' : b.dataset.g; K.$$('[data-g]', s.el).forEach(x => x.classList.toggle('on', x.dataset.g === gender)); });
       const v = id => K.$('#' + id, s.el).value.trim();
       const saveIt = async (btn, active) => {
@@ -11963,12 +12424,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
   K.addStaffSheet = function addStaffSheet(onCreated) {
-      const roles = ['sales', 'online_sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';   // partner logins: Partners → Add partner user
+      const roles = ['sales', 'supervisor', 'warehouse', 'driver', 'cashier', 'accountant', 'purchasing', 'hr', 'manager', 'admin']; let role = 'sales';   // partner logins: Partners → Add partner user
       const s = K.sheet('Add staff', `<div class="btns"><label class="f">Full name<input class="inp" id="an" placeholder="e.g. Choeun Rong"></label><label class="f">Phone<input class="inp" id="aph" type="tel" placeholder="012 345 678"></label></div>
         <div class="small muted" style="margin-top:-6px">Type the full name exactly as in your shop list, so their shops are linked to them automatically.</div>
         <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
         <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="arh">${esc(K.ROLE_HINTS.sales)}</div>
+        <label class="row" id="aonlw" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="aonl" style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="apw2" style="display:none">Which partner<select class="inp" id="apart"><option value="">Loading…</option></select></label>
         ${(K.S.cache.departments || []).length ? `<label class="f">Department (optional)<select class="inp" id="adep"><option value="">No department yet</option>${(K.S.cache.departments || []).filter(d => d.active !== false).map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>` : ''}
         <button class="btn block" id="aok">${icon('plus', 18)}Create account</button>`);
@@ -11977,7 +12439,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       K.$('#an', s.el).oninput = () => { const u = K.$('#au', s.el); if (!u.dataset.touched) u.value = v('an').toLowerCase().split(/\s+/).pop().replace(/[^a-z0-9._]/g, ''); };
       K.$('#au', s.el).oninput = e => { e.target.dataset.touched = '1'; };
       K.$$('[data-ar]', s.el).forEach(b => b.onclick = () => { role = b.dataset.ar; K.$$('[data-ar]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#arh', s.el).textContent = K.ROLE_HINTS[role] || '';
-        K.$('#apw2', s.el).style.display = role === 'partner' ? '' : 'none'; const d = K.$('#adep', s.el); if (d) d.closest('label').style.display = role === 'partner' ? 'none' : ''; });
+        K.$('#apw2', s.el).style.display = role === 'partner' ? '' : 'none'; K.$('#aonlw', s.el).style.display = ['sales', 'supervisor'].includes(role) ? '' : 'none'; const d = K.$('#adep', s.el); if (d) d.closest('label').style.display = role === 'partner' ? 'none' : ''; });
       api.listPartners().then(ps => { const sel = K.$('#apart', s.el); if (!sel) return;
         sel.innerHTML = ps.filter(p => p.active).length ? '<option value="">Choose a partner</option>' + ps.filter(p => p.active).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') : '<option value="">No partners yet: add one in Partners</option>'; }).catch(() => {});
       K.$('#aok', s.el).onclick = async e => {
@@ -11986,7 +12448,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!x.full_name) return toast('Enter the full name'); if (!/^[a-z0-9._]{3,24}$/.test(x.username)) return toast('Username: 3–24 letters or numbers, no spaces');
         if (x.password.length < 8) return toast('The password needs at least 8 characters');
         const dep = role !== 'partner' && K.$('#adep', s.el) && K.$('#adep', s.el).value ? +K.$('#adep', s.el).value : null;
-        await busy(e.currentTarget, async () => { const id = await api.createStaff(x); if (dep && id) { try { await api.setStaffOrg(id, dep, null); } catch (err) { toast('Account made, but the department was not saved: ' + err.message); } } }); s.close();
+        await busy(e.currentTarget, async () => { const id = await api.createStaff(x);
+          if (id && K.$('#aonl', s.el).checked && ['sales', 'supervisor'].includes(role)) { try { await api.setSellsOnline(id, true); } catch (err) { toast('Account made, but "Sells online" was not saved: ' + err.message); } }
+          if (dep && id) { try { await api.setStaffOrg(id, dep, null); } catch (err) { toast('Account made, but the department was not saved: ' + err.message); } } }); s.close();
         K.forget('staff'); await K.data.staff(true); if (onCreated) await onCreated();
         const ok = K.sheet('Account ready', `<div class="card" style="background:var(--grs)"><b>${esc(x.full_name)}</b><div>Username: <b>${esc(x.username)}</b></div><div>Password: <b>${esc(x.password)}</b></div><div class="small muted">Role: ${esc(K.ROLE_LABEL[x.role])}</div></div>
           <div class="small muted">Send these to them (for example in Telegram) together with the app link. They can change the password in More → My profile.</div>
@@ -12150,12 +12614,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         h = `<div class="card" style="gap:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">Commission for each rep</b><button class="btn sm out" id="hrtg">${icon('pen', 16)}Set sales targets</button></div>
             <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).</div>
             <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
-            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th>${reps.some(u => u.role === 'online_sales') ? '<th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th>' : ''}</tr></thead><tbody>
+            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th>${reps.some(u => K.sellsOnline(u)) ? '<th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th>' : ''}</tr></thead><tbody>
             ${reps.map(u => { const r = rates.find(x => x.user_id === u.id) || {};
               return `<tr><td><b>${esc(u.full_name)}</b><div class="small muted">${esc(K.ROLE_LABEL[u.role] || u.role)}</div></td>
                 <td style="text-align:right"><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Commission %"></td>
                 <td style="text-align:right"><input class="inp" data-cb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Bonus %"></td>
-                ${!reps.some(x => x.role === 'online_sales') ? '' : u.role !== 'online_sales' ? '<td></td><td></td>' : `<td style="text-align:right"><input class="inp" data-cn="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product %"></td>
+                ${!reps.some(x => K.sellsOnline(x)) ? '' : !K.sellsOnline(u) ? '<td></td><td></td>' : `<td style="text-align:right"><input class="inp" data-cn="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product %"></td>
                 <td style="text-align:right"><input class="inp" data-cnb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product bonus %"></td>`}</tr>`; }).join('') || '<tr><td colspan="3" class="muted">No sales reps yet</td></tr>'}
             </tbody></table></div>
             <button class="btn" id="scr" style="align-self:flex-start">Save commission</button></div>
@@ -13305,7 +13769,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div style="font-size:20px;font-weight:800">${chat ? 'Create a chat account' : signup ? 'Create staff account' : 'Log in'}</div>
         ${chat ? '<div class="small muted" style="line-height:1.5">For friends &amp; family: chat only. Find people by their username and send messages, voice, photos and stickers.</div>' : ''}
         ${demo ? `<div class="demo-note">Demo mode: sample data on this phone only. Tap a role to try it.</div>
-          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['sreyleak', 'Online sales'], ['dina', 'Sales (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user'], ['kosal', 'Partner']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
+          <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['lee', 'Admin'], ['sophea', 'Manager'], ['rithy', 'Supervisor'], ['kimlong', 'Sales'], ['sreyleak', 'Sales (online)'], ['dina', 'Sales (main stock)'], ['malis', 'Accountant'], ['vanna', 'Warehouse'], ['dara', 'Driver'], ['bopha', 'Chat user'], ['kosal', 'Partner']].filter(x => !(window.KT_CONFIG || {}).ADMIN || ['Admin', 'Manager', 'Accountant'].includes(x[1])).map(([u, r]) => `<button type="button" class="chip" data-demo="${u}">${r}</button>`).join('')}</div>` : ''}
         ${signup ? `<label class="f">Full name<input class="inp" name="full" required autocomplete="name"></label>` : ''}
         <label class="f">Username<input class="inp" name="user" required autocomplete="username" autocapitalize="none" autocorrect="off" pattern="[a-zA-Z0-9._]{3,24}" title="3–24 letters or numbers, no spaces"></label>
         <label class="f">Password<input class="inp" name="pass" type="password" required minlength="${signup ? 8 : 6}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
@@ -13371,7 +13835,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     list.cashier = money.concat([qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')]);
     list.hr = [qa('#/hr', 'users', 'HR & Payroll', 'var(--ors)', 'var(--or)'), qa('#/attendance', 'clock', 'My attendance', 'var(--bls)', 'var(--bl)'), K.allow('chat.announce') ? qa('#/chat/channel/announcements', 'mega', 'Announce') : '', qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
     list.purchasing = [qa('#/purchases', 'truck', 'From suppliers'), qa('#/stock', 'box', 'Stock', 'var(--bls)', 'var(--bl)'), qa('#/expenses', 'receipt', 'Expenses', 'var(--ors)', 'var(--or)')];
-    return (list[r] || list.sales).join('');
+    const noMoney = K.canSeeMoney && !K.canSeeMoney();   // drivers / warehouse see only "To deliver" (26 Oct 2026)
+    return (list[r] || list.sales).filter(h => !(noMoney && h.includes('#/orders?f=delivered'))).join('');
   }
   route(/^\/home$/, async (_, __, current) => {
     const hour = new Date().getHours(), sellerDash = K.allow('orders.create') && !K.allow('dashboard.view');   // sales staff: the whole My dashboard on Home (20 Oct 2026)
@@ -13398,7 +13863,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // admin / managers: team target card · warehouse / drivers: today's work card (20 Oct 2026)
     if (workDash) {
       let top = '';
-      try { const d = await api.myDashboard(); if (!current()) return; top = K.allow('dashboard.view') ? K.teamCardHtml(d) : K.workCardHtml(d); } catch (e) {}
+      try { const d = await api.myDashboard(); if (!current()) return;
+        if (!K.allow('dashboard.view') && K.allow('orders.deliver') && !K.allow('orders.assign') && api.deliveryList) {   // a driver: only the orders given to him (26 Oct 2026)
+          const dl = await api.deliveryList().catch(() => null); if (!current()) return; if (dl) d.to_deliver = dl.length; }
+        top = K.allow('dashboard.view') ? K.teamCardHtml(d) : K.workCardHtml(d); } catch (e) {}
       html = top + `<div class="card" style="padding:18px 10px;margin-top:${top ? 12 : 0}px"><div class="grid4">${quickActions()}</div></div>` + (html ? `<div style="margin-top:12px">${html}</div>` : '');
     }
     // sales staff: the top of My dashboard (target card, today, commission, ranking, 7-day chart), then the buttons
@@ -13423,10 +13891,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const un = orders.filter(o => o.status === 'delivered' && K.owedOf(o) > 0);
       if (un.length) html += card('#/payments', 'cash', money(un.reduce((s, o) => s + K.owedOf(o), 0)) + ' to collect', new Set(un.map(o => o.customer_id)).size + ' shop' + (new Set(un.map(o => o.customer_id)).size > 1 ? 's' : '') + ' still owe money', 'var(--rds)', '#F1C4BF', 'var(--rd)');
     }
-    const todo = [K.allow('orders.approve') && 'pending', K.allow('orders.deliver') && 'approved', K.allow('orders.paid') && 'delivered'].filter(Boolean);
-    const mine = !todo.length ? orders.filter(o => o.created_by === S.me.id || o.sales_rep_id === S.me.id).slice(0, 4) : orders.filter(o => todo.includes(o.status)).slice(0, 5);
-    html += `<div class="sec" style="margin-top:14px"><span>${!todo.length ? 'My latest orders' : 'Needs your action'}</span><a href="#/orders${todo[0] ? '?f=' + todo[0] : ''}">See all</a></div>`;
-    html += mine.length ? `<div class="card flush" style="margin-top:10px">${mine.map(orderRow).join('')}</div>` : `<div class="card" style="margin-top:10px">${emptyBox('check', !todo.length ? 'No orders yet. Tap New order to start.' : 'Nothing waiting for you right now.')}</div>`;
+    if (K.canSeeMoney && !K.canSeeMoney()) {   // drivers / warehouse: orders to deliver, no money (26 Oct 2026)
+      const dl = K.allow('orders.deliver') ? await api.deliveryList().catch(() => []) : [];
+      if (!current()) return;
+      if (K.allow('orders.deliver')) html += `<div class="sec" style="margin-top:14px"><span>To deliver</span><a href="#/orders">See all</a></div>` + (dl.length ? `<div class="card flush" style="margin-top:10px">${dl.slice(0, 5).map(K.deliveryRow).join('')}</div>` : `<div class="card" style="margin-top:10px">${emptyBox('check', 'Nothing to deliver right now.')}</div>`);
+    } else {
+      const todo = [K.allow('orders.approve') && 'pending', K.allow('orders.deliver') && 'approved', K.allow('orders.paid') && 'delivered'].filter(Boolean);
+      const mine = !todo.length ? orders.filter(o => o.created_by === S.me.id || o.sales_rep_id === S.me.id).slice(0, 4) : orders.filter(o => todo.includes(o.status)).slice(0, 5);
+      html += `<div class="sec" style="margin-top:14px"><span>${!todo.length ? 'My latest orders' : 'Needs your action'}</span><a href="#/orders${todo[0] ? '?f=' + todo[0] : ''}">See all</a></div>`;
+      html += mine.length ? `<div class="card flush" style="margin-top:10px">${mine.map(orderRow).join('')}</div>` : `<div class="card" style="margin-top:10px">${emptyBox('check', !todo.length ? 'No orders yet. Tap New order to start.' : 'Nothing waiting for you right now.')}</div>`;
+    }
     const unreadConvs = convs.filter(c => c.unread).slice(0, 3);
     if (unreadConvs.length) html += `<div class="sec" style="margin-top:18px"><span>New messages</span><a href="#/chat">Open chat</a></div><div class="card flush" style="margin-top:10px">${unreadConvs.map(K.convRow).join('')}</div>`;
     if ($('#home-rest')) { $('#home-rest').innerHTML = html;   // the person may have left the home screen meanwhile
