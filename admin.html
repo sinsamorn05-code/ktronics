@@ -6240,6 +6240,12 @@ window.KT_KM_PATTERNS.push(
 );
 Object.assign(window.KT_KM, {"Empty = 0%. A % set on one order is used for that order. People who sell online: no-product sales have their own % and bonus % (above their no-product target).": "ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។ លក់អនឡាញ៖ ការលក់គ្មានផលិតផលមាន % និងប្រាក់រង្វាន់ % ផ្ទាល់ (លើសគោលដៅគ្មានផលិតផល)។", "Staff who sell online copy these with one tap on a customer (greeting, price list, promotion…). Write": "បុគ្គលិកលក់អនឡាញចម្លងវាដោយចុចម្តងលើអតិថិជន (ស្វាគមន៍ បញ្ជីតម្លៃ ប្រូម៉ូសិន…)។ សរសេរ", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. People who sell online have a 2nd target for sales without products.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ លក់អនឡាញមានគោលដៅទី 2 សម្រាប់ការលក់គ្មានផលិតផល។"});
 Object.assign(window.KT_KM, {"Empty = 0%. A % set on one order is used for that order. Sales without products have their own % and bonus % (above the no-product target), for every sales rep.": "ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។ លក់អនឡាញ៖ ការលក់គ្មានផលិតផលមាន % និងប្រាក់រង្វាន់ % ផ្ទាល់ (លើសគោលដៅគ្មានផលិតផល)។", "Sales without products have their own % and bonus % (above the no-product target), for every sales rep.": "ការលក់គ្មានផលិតផលមាន % និង % ប្រាក់រង្វាន់ផ្ទាល់ខ្លួន (លើសគោលដៅគ្មានផលិតផល) សម្រាប់អ្នកលក់គ្រប់រូប។", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for sales without products.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ លក់អនឡាញមានគោលដៅទី 2 សម្រាប់ការលក់គ្មានផលិតផល។", "Each sales rep also has a 2nd target for sales without products.": "អ្នកលក់ម្នាក់ៗក៏មានគោលដៅទី ២ សម្រាប់ការលក់គ្មានផលិតផលដែរ។"});
+Object.assign(window.KT_KM, {
+  'Expenses to pay back': 'ចំណាយត្រូវសងវិញ',
+});
+window.KT_KM_PATTERNS.push(
+
+);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -7970,6 +7976,12 @@ window.KT_ZH_PATTERNS.push(
 );
 Object.assign(window.KT_ZH, {"Empty = 0%. A % set on one order is used for that order. People who sell online: no-product sales have their own % and bonus % (above their no-product target).": "空 = 0%。某个订单上设置的 % 用于该订单。线上销售：无产品销售有自己的 % 和奖金 %（超过无产品目标部分）。", "Staff who sell online copy these with one tap on a customer (greeting, price list, promotion…). Write": "线上销售在客户页面一键复制（问候、价目表、促销…）。在客户名字的位置写", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. People who sell online have a 2nd target for sales without products.": "目标 = 每位销售本月应卖多少（已批准订单）。留空 = 无目标。线上销售还有第 2 个目标：无产品销售。"});
 Object.assign(window.KT_ZH, {"Empty = 0%. A % set on one order is used for that order. Sales without products have their own % and bonus % (above the no-product target), for every sales rep.": "空 = 0%。某个订单上设置的 % 用于该订单。线上销售：无产品销售有自己的 % 和奖金 %（超过无产品目标部分）。", "Sales without products have their own % and bonus % (above the no-product target), for every sales rep.": "无产品销售有自己的 % 和奖金 %（超过无产品目标部分），适用于每个销售员。", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for sales without products.": "目标 = 每位销售本月应卖多少（已批准订单）。留空 = 无目标。线上销售还有第 2 个目标：无产品销售。", "Each sales rep also has a 2nd target for sales without products.": "每个销售员还有第二个目标：无产品销售。"});
+Object.assign(window.KT_ZH, {
+  'Expenses to pay back': '待报销费用',
+});
+window.KT_ZH_PATTERNS.push(
+
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -12542,8 +12554,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
     if (!current()) return;
     const att_ = attList;
-    const tabs = [boss && ['staff', 'Staff'], (boss || hr) && ['depts', 'Departments'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], hr && ['pay', 'Staff & pay'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
-    let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), month = K.monthKey(), cmonth = K.monthKey();
+    const tabs = [boss && ['staff', 'Staff'], (boss || hr) && ['depts', 'Departments'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
+    if (q.t === 'pay') q.t = 'payroll';   // "Staff & pay" moved into Payroll (27 Oct 2026, Mr. Lee)
+    let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), cmonth = K.monthKey();
     const S2 = {};
     const reps = staff.filter(u => u.active && ['sales', 'online_sales', 'supervisor', 'agent'].includes(u.role));
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
@@ -12636,11 +12649,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               return ppl.length ? `<div class="sec">${esc(d.name)} (${ppl.length})${hd ? ` <span style="text-transform:none;font-weight:600">· head ${esc(hd.full_name)}</span>` : ''}</div><div class="card flush">${ppl.map(row).join('')}</div>` : ''; }).join('')
             : `<div class="sec">Active staff (${active.length})</div><div class="card flush">${active.map(row).join('')}</div>`}`;
       } else if (tab === 'depts') {
-        const card = d => { const ppl = activeAll.filter(u => u.department_id === d.id), hd = staff.find(u => u.id === d.head_id), cost = ppl.reduce((s, u) => s + (+hrOf(u.id).base_salary || 0), 0);
+        const card = d => { const ppl = activeAll.filter(u => u.department_id === d.id && working(u)), hd = staff.find(u => u.id === d.head_id), cost = ppl.reduce((s, u) => s + (+hrOf(u.id).base_salary || 0), 0);
           return `<button class="list-item" data-dep="${d.id}" style="width:100%;text-align:left;align-items:flex-start"><div class="ic-av sq">${icon('users', 20)}</div><div class="grow"><div class="tt">${esc(d.name)}${d.active === false ? ' <span class="pill gy">Off</span>' : ''}</div>
             <div class="st">${hd ? 'Head: ' + esc(hd.full_name) : '<b style="color:var(--or)">No head yet</b>'} · ${ppl.length} staff${hr && cost ? ' · base salaries ' + money(cost) + ' a month' : ''}</div>
             <div class="small muted">${esc(ppl.map(u => u.full_name).join(', ') || 'Nobody yet')}</div></div>${icon('right', 18)}</button>`; };
-        const none = activeAll.filter(u => !u.department_id);
+        const none = activeAll.filter(u => !u.department_id && working(u));
         h = `<div class="row"><button class="btn" id="adddep">${icon('plus', 18)}Add department</button></div>
           <div class="card small muted"><div style="line-height:1.6"><b>Role</b> = what a person can do in the app. <b>Department</b> = where they belong in the company. <b>Reports to</b> = their direct boss.<br>
             The <b>head</b> of a department sees their people's attendance and leave, approves their leave and posts in the department's chat channel. Heads do not see salaries.<br>To put someone in a department, tap the person (Staff tab) → Department.</div></div>
@@ -12703,20 +12716,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const lv = leave.filter(l => (seeAll && !deptF) || active.some(u => u.id === l.staff_id) || (l.staff_id === K.S.me.id && !deptF)), pend = lv.filter(l => l.status === 'pending'), rest = lv.filter(l => l.status !== 'pending');
         h = `<div class="sec">Waiting for approval</div><div class="card flush">${pend.map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests waiting</div>'}</div>
           <div class="sec">All requests</div><div class="card flush">${rest.slice(0, 100).map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests yet</div>'}</div>`;
-      } else {
-        const com = await api.commissionReport(month), exps = await A.ensureBig('expenses', api.listExpenses);
-        const nm = new Date(month + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
-        const rows = active.filter(u => u.role !== 'admin').map(u => { const hh = hrOf(u.id), c = (com.find(r => r.user_id === u.id) || {}).commission || 0;
-          const back = exps.filter(e => e.staff_id === u.id && e.status === 'approved').reduce((s, e) => s + +e.amount_usd, 0);
-          const yr = String(nm.getFullYear()), used = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.kind === 'annual' && l.from_date.startsWith(yr)).reduce((s, l) => s + +l.days, 0);
-          return { u, hh, c: +c, back, pay: (+hh.base_salary || 0) + +c, left: (+hh.annual_leave_days || 18) - used }; });
-        h = `<div class="card"><div class="row"><button class="btn sm out" data-m="${pm}">‹</button><b class="grow" style="text-align:center">Pay summary · ${esc(K.monthName(month))}</b><button class="btn sm out" data-m="${nx}">›</button></div>
-          <div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:left" class="hide-sm">Position</th><th style="text-align:right">Base salary</th><th style="text-align:right">Commission</th><th style="text-align:right">Salary + commission</th><th style="text-align:right">Expenses to pay back</th><th style="text-align:right">Leave left</th><th></th></tr></thead><tbody>
-          ${rows.map(r => `<tr><td><b>${esc(r.u.full_name)}</b></td><td class="hide-sm">${esc(r.hh.position || K.ROLE_LABEL[r.u.role])}</td><td style="text-align:right">${money(r.hh.base_salary || 0)}</td><td style="text-align:right">${r.c ? money(r.c) : '—'}</td><td style="text-align:right"><b>${money(r.pay)}</b></td><td style="text-align:right">${r.back ? money(r.back) : '—'}</td><td style="text-align:right">${r.left} d</td><td><button class="btn sm out" data-hr="${esc(r.u.id)}">Edit</button></td></tr>`).join('')}
-          <tr style="background:var(--bg)"><td><b>Total</b></td><td class="hide-sm"></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + (+r.hh.base_salary || 0), 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.c, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.pay, 0))}</b></td><td style="text-align:right"><b>${money(rows.reduce((s, r) => s + r.back, 0))}</b></td><td></td><td></td></tr></tbody></table></div>
-          <div class="small muted">Salary details are private: only you (and people you give "Staff details, salary…" permission) can see them. Each person sees only their own.</div></div>`;
       }
-      if (depts.length && ['staff', 'today', 'att', 'leave', 'pay'].includes(tab)) {
+      if (depts.length && ['staff', 'today', 'att', 'leave'].includes(tab)) {
         const opts = depts.filter(d => seeAll || heads.includes(d.id));
         if (seeAll || opts.length > 1) h = `<label class="f" style="max-width:280px">Department<select class="inp" id="deptf"><option value="">${seeAll ? 'All departments' : 'All my departments'}</option>${opts.map(d => `<option value="${d.id}" ${String(d.id) === deptF ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}${seeAll ? `<option value="none" ${deptF === 'none' ? 'selected' : ''}>No department</option>` : ''}</select></label>` + h;
       }
@@ -12724,14 +12725,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#deptf')) $('#deptf').onchange = e => { deptF = e.target.value; who = ''; draw(); };
       if ($('#adddep')) $('#adddep').onclick = () => deptSheet({});
       $$('[data-dep]').forEach(b => b.onclick = () => deptSheet(depts.find(d => d.id === +b.dataset.dep)));
-      if ($('#payv')) K.payrollView($('#payv'), { staff });
+      if ($('#payv')) K.payrollView($('#payv'), { staff, leave, hrs });
       if ($('#attwho')) $('#attwho').onchange = e => { who = e.target.value; draw(); };
       if ($('#attall')) $('#attall').onclick = () => { who = ''; draw(); };
       $$('[data-who]').forEach(r => r.onclick = () => { who = r.dataset.who; draw(); const m = $('#main'); if (m) m.scrollTop = 0; });
       if ($('#per')) P.bind($('#per'), pst, draw);
-      $$('[data-m]').forEach(b => b.onclick = () => { month = b.dataset.m; draw(); });
       $$('[data-lv]').forEach(b => b.onclick = () => { const l = leave.find(x => x.id === +b.dataset.lv); if (hr || K.isHeadOf(l.staff_id)) K.leaveReview(l, () => K.render()); });
-      $$('[data-hr]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.hr)));
       $$('[data-u]').forEach(b => b.onclick = () => staffSheet(staff.find(u => u.id === b.dataset.u)));
       if ($('#addst')) $('#addst').onclick = addStaffSheet;
       $$('[data-self]').forEach(b => b.onclick = async () => { await busy(b, () => api.saveSettings({ allow_signup: b.dataset.self })); st.allow_signup = b.dataset.self; toast(b.dataset.self === 'true' ? 'Staff can make their own account (you approve them)' : 'Only you can make new accounts'); draw(); });
@@ -12992,8 +12991,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.payrollView = async function (el, ctx) {
     ctx = ctx || {};
     const d0 = new Date();
-    let month = K.payMonth || K.monthKey(d0.getDate() <= 10 ? new Date(d0.getFullYear(), d0.getMonth() - 1, 1) : d0), fresh = false, data = null;
+    let month = K.payMonth || K.monthKey(d0.getDate() <= 10 ? new Date(d0.getFullYear(), d0.getMonth() - 1, 1) : d0), fresh = false, data = null, exps = null;
     const load = async () => { el.innerHTML = '<div class="loading"><div class="spin"></div></div>'; data = await api.payrollGet(month, fresh);
+      if (!exps) exps = await (K.adm && K.adm.ensureBig ? K.adm.ensureBig('expenses', api.listExpenses) : api.listExpenses()).catch(() => []);
       // the admin (owner) has no payroll line unless a base salary is set or something was paid (27 Oct 2026, Mr. Lee)
       { const adm = new Set((ctx.staff || []).filter(u => u.role === 'admin').map(u => u.id)); data.lines = data.lines.filter(l => !adm.has(l.user_id) || num(l.base) > 0 || num(l.net) > 0 || l.status === 'paid'); }
       if (fresh) data.lines.forEach(l => { if (l.status !== 'paid') l.dirty = true; }); draw(); };
@@ -13004,6 +13004,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const tot = k => L.reduce((a, l) => a + num(l[k]), 0), paidN = L.filter(l => l.status === 'paid').length, unsaved = L.filter(l => l.status !== 'paid' && (!l.saved || l.dirty)).length;
       const st = l => l.status === 'paid' ? '<span class="pill gr">Paid</span>' : l.dirty ? '<span class="pill or">Counted again</span>' : l.saved ? '<span class="pill bl">Saved</span>' : '<span class="pill gy">Not saved</span>';
       const c = (n, cnt, unit, minus) => num(n) ? `<span style="white-space:nowrap${minus ? ';color:var(--rd)' : ''}">${minus ? '−' : ''}${money(n)}</span>${cnt ? `<div class="small muted" style="white-space:nowrap">${dz(cnt, unit)}</div>` : ''}` : '<span class="muted">—</span>';
+      // from the old "Staff & pay" tab (27 Oct 2026, Mr. Lee): expenses to pay back + annual leave left
+      const back = id => (exps || []).filter(e => e.staff_id === id && e.status === 'approved').reduce((s, e) => s + num(e.amount_usd), 0);
+      const yr = month.slice(0, 4), hrOf = id => (ctx.hrs || []).find(h => h.user_id === id) || {};
+      const leftOf = id => num(hrOf(id).annual_leave_days ?? 18) - (ctx.leave || []).filter(x => x.staff_id === id && x.status === 'approved' && x.kind === 'annual' && x.from_date.startsWith(yr)).reduce((s, x) => s + num(x.days), 0);
       const th = (t, left) => `<th style="text-align:${left ? 'left' : 'right'};white-space:nowrap">${t}</th>`;
       el.innerHTML = `<div class="card" style="gap:12px">
           <div class="row"><button class="btn sm out" data-pmn="${pm}" aria-label="Previous month">‹</button><b class="grow" style="text-align:center;font-size:16px">Payroll · ${esc(K.monthName(month))}</b><button class="btn sm out" data-pmn="${nx}" aria-label="Next month">›</button></div>
@@ -13016,16 +13020,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="btns" style="flex-wrap:wrap"><button class="btn sm out" id="pradv">${icon('cash', 16)}Salary advances</button><button class="btn sm out" id="prhol">${icon('clock', 16)}Holidays</button><button class="btn sm out" id="prset">${icon('pen', 16)}Payroll settings</button></div>
           ${fresh ? '<div class="card" style="background:var(--ors)"><b>Counted again from attendance.</b><div class="small">Check the numbers, then tap <b>Save payroll</b>. Paid salaries are not changed.</div></div>' : ''}
           ${unsaved && !fresh ? `<div class="small" style="color:var(--or);font-weight:700">${unsaved} not saved yet. Numbers can still change while staff work this month. Tap Save payroll when the month is finished.</div>` : ''}
-          <div class="tbl"><table style="font-size:13px"><thead><tr>${th('Staff', 1)}${th('Net pay')}${th('', 1)}${th('Base')}${th('Allowance')}${th('Commission')}${th('Overtime')}${th('Sunday')}${th('Holiday')}${th('Bonus')}${th('Late')}${th('Unpaid leave')}${th('Absent')}${th('Advance')}${th('NSSF / tax')}${th('Other')}</tr></thead><tbody>
-          ${L.map(l => `<tr data-pln="${esc(l.user_id)}" style="cursor:pointer"><td><b>${esc(l.full_name)}</b><div class="small muted">${dz(l.days_worked, 'days at work') || 'no attendance'}</div></td>
+          <div class="tbl"><table style="font-size:13px"><thead><tr>${th('Staff', 1)}${th('Net pay')}${th('', 1)}${th('Base')}${th('Allowance')}${th('Commission')}${th('Overtime')}${th('Sunday')}${th('Holiday')}${th('Bonus')}${th('Late')}${th('Unpaid leave')}${th('Absent')}${th('Advance')}${th('NSSF / tax')}${th('Other')}${th('Expenses to pay back')}</tr></thead><tbody>
+          ${L.map(l => `<tr data-pln="${esc(l.user_id)}" style="cursor:pointer"><td style="min-width:150px"><b>${esc(l.full_name)}</b><div class="small muted" style="white-space:nowrap">${dz(l.days_worked, 'days at work') || 'no attendance'}</div>${ctx.hrs ? `<div class="small muted" style="white-space:nowrap">${leftOf(l.user_id)} d leave left</div>` : ''}</td>
             <td style="text-align:right;white-space:nowrap"><b style="font-size:15px">${money(l.net)}</b></td><td>${st(l)}</td>
             <td style="text-align:right">${money(l.base)}</td><td style="text-align:right">${c(l.allowance)}</td><td style="text-align:right">${c(l.commission)}</td>
             <td style="text-align:right">${c(l.ot_pay, l.ot_hours, 'h')}</td><td style="text-align:right">${c(l.sunday_pay, l.sunday_days, 'day(s)')}</td><td style="text-align:right">${c(l.holiday_pay, l.holiday_days, 'day(s)')}</td>
             <td style="text-align:right">${c(l.bonus)}</td><td style="text-align:right">${c(l.late_deduct, l.late_days, 'day(s)', 1)}${!num(l.late_deduct) && num(l.late_days) ? `<span class="small muted">${dz(l.late_days, 'day(s)')}</span>` : ''}</td>
             <td style="text-align:right">${c(l.unpaid_deduct, l.unpaid_days, 'day(s)', 1)}</td><td style="text-align:right">${num(l.absent_deduct) ? c(l.absent_deduct, l.absent_days, 'day(s)', 1) : num(l.absent_days) ? `<span class="small muted">${dz(l.absent_days, 'day(s)')}</span>` : '<span class="muted">—</span>'}</td>
-            <td style="text-align:right">${c(l.saved || l.status === 'paid' ? l.advances : l.advances_now, 0, '', 1)}</td><td style="text-align:right">${c(l.tax, 0, '', 1)}</td><td style="text-align:right">${c(l.other_deduct, 0, '', 1)}</td></tr>`).join('') || '<tr><td colspan="16" class="muted">No staff yet. Add staff and their base salary in the Staff tab.</td></tr>'}
-          <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right;white-space:nowrap"><b>${money(tot('net'))}</b></td><td></td><td style="text-align:right"><b>${money(tot('base'))}</b></td><td style="text-align:right">${money(tot('allowance'))}</td><td style="text-align:right">${money(tot('commission'))}</td><td style="text-align:right">${money(tot('ot_pay'))}</td><td style="text-align:right">${money(tot('sunday_pay'))}</td><td style="text-align:right">${money(tot('holiday_pay'))}</td><td style="text-align:right">${money(tot('bonus'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('late_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('unpaid_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('absent_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(L.reduce((a, l) => a + num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), 0))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('tax'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('other_deduct'))}</td></tr></tbody></table></div>
-          <div class="small muted">Tap a person to see the payslip, change numbers, add a bonus or NSSF/tax.</div></div>
+            <td style="text-align:right">${c(l.saved || l.status === 'paid' ? l.advances : l.advances_now, 0, '', 1)}</td><td style="text-align:right">${c(l.tax, 0, '', 1)}</td><td style="text-align:right">${c(l.other_deduct, 0, '', 1)}</td><td style="text-align:right">${c(back(l.user_id))}</td></tr>`).join('') || '<tr><td colspan="17" class="muted">No staff yet. Add staff and their base salary in the Staff tab.</td></tr>'}
+          <tr style="background:var(--bg)"><td><b>Total</b></td><td style="text-align:right;white-space:nowrap"><b>${money(tot('net'))}</b></td><td></td><td style="text-align:right"><b>${money(tot('base'))}</b></td><td style="text-align:right">${money(tot('allowance'))}</td><td style="text-align:right">${money(tot('commission'))}</td><td style="text-align:right">${money(tot('ot_pay'))}</td><td style="text-align:right">${money(tot('sunday_pay'))}</td><td style="text-align:right">${money(tot('holiday_pay'))}</td><td style="text-align:right">${money(tot('bonus'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('late_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('unpaid_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('absent_deduct'))}</td><td style="text-align:right;white-space:nowrap">${ng(L.reduce((a, l) => a + num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), 0))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('tax'))}</td><td style="text-align:right;white-space:nowrap">${ng(tot('other_deduct'))}</td><td style="text-align:right">${money(L.reduce((a, l) => a + back(l.user_id), 0))}</td></tr></tbody></table></div>
+          <div class="small muted">Tap a person to see the payslip, change numbers, add a bonus or NSSF/tax. "Expenses to pay back" = their approved expenses; they are not in the net pay (pay them in Expenses). Base salary, position and leave days: Staff tab → tap the person.</div></div>
         ${(() => { const deps = K.S.cache.departments || [], staff = ctx.staff || K.S.cache.staff || []; if (!deps.length || !L.length) return '';
             const g = {}; L.forEach(l => { const u = staff.find(x => x.id === l.user_id) || {}; const k = u.department_id || 0; g[k] = g[k] || { n: 0, gross: 0, net: 0 }; g[k].n++; g[k].gross += num(l.gross); g[k].net += num(l.net); });
             const name = k => k ? ((deps.find(d => d.id === +k) || {}).name || 'Department') : 'No department';
@@ -13051,11 +13055,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         fresh = true; load(); };
       if ($('#prx', el)) $('#prx', el).onclick = () => {
         const head = ['Staff', 'Position', 'Days at work', 'Base', 'Allowance', 'Commission', 'Overtime hours', 'Overtime pay', 'Sundays worked', 'Sunday pay', 'Holidays worked', 'Holiday pay', 'Bonus', 'Total pay',
-          'Late days', 'Late', 'Unpaid leave days', 'Unpaid leave', 'Absent days', 'Absent', 'Advance', 'NSSF / tax', 'Other', 'Net pay', 'Status', 'Paid by', 'Bank account', 'Note'];
+          'Late days', 'Late', 'Unpaid leave days', 'Unpaid leave', 'Absent days', 'Absent', 'Advance', 'NSSF / tax', 'Other', 'Net pay', 'Status', 'Paid by', 'Bank account', 'Note', 'Expenses to pay back', 'Annual leave left'];
         const rows = L.map(l => [l.full_name, l.position || '', num(l.days_worked), num(l.base), num(l.allowance), num(l.commission), num(l.ot_hours), num(l.ot_pay), num(l.sunday_days), num(l.sunday_pay), num(l.holiday_days), num(l.holiday_pay), num(l.bonus), num(l.gross),
           num(l.late_days), num(l.late_deduct), num(l.unpaid_days), num(l.unpaid_deduct), num(l.absent_days), num(l.absent_deduct), num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), num(l.tax), num(l.other_deduct), num(l.net),
-          l.status === 'paid' ? 'Paid' : l.saved ? 'Saved' : 'Not saved', l.paid_method ? methodName(l.paid_method) : '', l.bank_account || '', l.note || '']);
-        rows.push(['Total', '', '', tot('base'), tot('allowance'), tot('commission'), tot('ot_hours'), tot('ot_pay'), tot('sunday_days'), tot('sunday_pay'), tot('holiday_days'), tot('holiday_pay'), tot('bonus'), tot('gross'), '', tot('late_deduct'), '', tot('unpaid_deduct'), '', tot('absent_deduct'), tot('advances'), tot('tax'), tot('other_deduct'), tot('net'), '', '', '', ''].map(v => typeof v === 'number' ? r2(v) : v));
+          l.status === 'paid' ? 'Paid' : l.saved ? 'Saved' : 'Not saved', l.paid_method ? methodName(l.paid_method) : '', l.bank_account || '', l.note || '', r2(back(l.user_id)), ctx.hrs ? leftOf(l.user_id) : '']);
+        rows.push(['Total', '', '', tot('base'), tot('allowance'), tot('commission'), tot('ot_hours'), tot('ot_pay'), tot('sunday_days'), tot('sunday_pay'), tot('holiday_days'), tot('holiday_pay'), tot('bonus'), tot('gross'), '', tot('late_deduct'), '', tot('unpaid_deduct'), '', tot('absent_deduct'), tot('advances'), tot('tax'), tot('other_deduct'), tot('net'), '', '', '', '', L.reduce((a, l) => a + back(l.user_id), 0), ''].map(v => typeof v === 'number' ? r2(v) : v));
         const blob = K.xlsxBlob([{ name: 'Payroll ' + month.slice(0, 7), rows: [head].concat(rows) }]), a = document.createElement('a');
         a.href = URL.createObjectURL(blob); a.download = 'payroll-' + month.slice(0, 7) + '.xlsx'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
       $('#pradv', el).onclick = () => K.advancesSheet(ctx.staff || [], () => load());
