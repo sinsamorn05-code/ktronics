@@ -6488,6 +6488,15 @@ Object.assign(window.KT_KM, {
 window.KT_KM_PATTERNS.push(
 
 );
+Object.assign(window.KT_KM, {
+  'Sales people with online customers': 'អ្នកលក់ដែលមានអតិថិជនអនឡាញ',
+  'Each working day of each person with online customers. Orders = stock orders.': 'ថ្ងៃធ្វើការនីមួយៗ របស់អ្នកដែលមានអតិថិជនអនឡាញ។ ការបញ្ជាទិញ = ការបញ្ជាទិញមានស្តុក។',
+  '🌐 Online customers (orders, sales without products, new online customers, follow-ups, each person who sells online)': '🌐 អតិថិជនអនឡាញ (ការបញ្ជាទិញ ការលក់គ្មានផលិតផល អតិថិជនអនឡាញថ្មី ការតាមដាន អ្នកលក់អនឡាញម្នាក់ៗ)',
+});
+window.KT_KM_PATTERNS.push(
+
+);
+Object.assign(window.KT_KM, {"Empty = 0%. A % set on one order is used for that order. People who sell online: no-product sales have their own % and bonus % (above their no-product target).": "ទទេ = 0%។ % ដែលកំណត់លើការបញ្ជាទិញណាមួយ ប្រើសម្រាប់ការបញ្ជាទិញនោះ។ លក់អនឡាញ៖ ការលក់គ្មានផលិតផលមាន % និងប្រាក់រង្វាន់ % ផ្ទាល់ (លើសគោលដៅគ្មានផលិតផល)។", "Staff who sell online copy these with one tap on a customer (greeting, price list, promotion…). Write": "បុគ្គលិកលក់អនឡាញចម្លងវាដោយចុចម្តងលើអតិថិជន (ស្វាគមន៍ បញ្ជីតម្លៃ ប្រូម៉ូសិន…)។ សរសេរ", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. People who sell online have a 2nd target for sales without products.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ លក់អនឡាញមានគោលដៅទី 2 សម្រាប់ការលក់គ្មានផលិតផល។"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8208,6 +8217,15 @@ Object.assign(window.KT_ZH, {
 window.KT_ZH_PATTERNS.push(
 
 );
+Object.assign(window.KT_ZH, {
+  'Sales people with online customers': '有网上客户的销售员',
+  'Each working day of each person with online customers. Orders = stock orders.': '每个有网上客户的人的每个工作日。订单 = 有库存的订单。',
+  '🌐 Online customers (orders, sales without products, new online customers, follow-ups, each person who sells online)': '🌐 网上客户（订单、无产品销售、新网上客户、跟进、每个网上销售的人）',
+});
+window.KT_ZH_PATTERNS.push(
+
+);
+Object.assign(window.KT_ZH, {"Empty = 0%. A % set on one order is used for that order. People who sell online: no-product sales have their own % and bonus % (above their no-product target).": "空 = 0%。某个订单上设置的 % 用于该订单。线上销售：无产品销售有自己的 % 和奖金 %（超过无产品目标部分）。", "Staff who sell online copy these with one tap on a customer (greeting, price list, promotion…). Write": "线上销售在客户页面一键复制（问候、价目表、促销…）。在客户名字的位置写", "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. People who sell online have a 2nd target for sales without products.": "目标 = 每位销售本月应卖多少（已批准订单）。留空 = 无目标。线上销售还有第 2 个目标：无产品销售。"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -10831,7 +10849,7 @@ window.KT_ZH_PATTERNS.push(
     let list = K.templatesOf(st);
     const draw = () => {
       el.innerHTML = `<div class="card" style="max-width:640px;gap:10px"><b>Ready-made messages</b>
-        <div class="small muted">Online sales staff copy these with one tap on a customer (greeting, price list, promotion…). Write <b>{shop}</b> where the customer's name should go.</div>
+        <div class="small muted">Staff who sell online copy these with one tap on a customer (greeting, price list, promotion…). Write <b>{shop}</b> where the customer's name should go.</div>
         ${list.map((t, i) => `<div class="card" style="gap:8px;background:var(--bg)"><input class="inp" data-tt="${i}" value="${esc(t.title || '')}" placeholder="Title, e.g. Greeting">
           <textarea class="inp" data-tx="${i}" rows="4" placeholder="Hello {shop}! …">${esc(t.text || '')}</textarea><button class="btn sm out red" data-td="${i}" style="align-self:flex-start">Remove</button></div>`).join('')}
         <div class="btns"><button class="btn out" id="tadd">${icon('plus', 16)}Add message</button><button class="btn" id="tsave">Save messages</button></div></div>`;
@@ -11296,7 +11314,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const next = new Date(month + 'T00:00:00'); next.setMonth(next.getMonth() + 1);
       const prev = new Date(month + 'T00:00:00'); prev.setMonth(prev.getMonth() - 1);
       K.$('.sb', s.el).innerHTML = `<div class="row"><button class="btn sm out" id="pm">‹</button><b class="grow" style="text-align:center">${K.monthName(month)}</b><button class="btn sm out" id="nm">›</button></div>
-        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Online sales have a 2nd target for sales without products.</div>
+        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. People who sell online have a 2nd target for sales without products.</div>
         <div class="card flush">${rows.map(r => `<div class="list-item" style="flex-wrap:wrap"><div class="grow"><div class="tt" style="font-size:15px">${esc(r.full_name)}</div><div class="st">Sold ${money(r.total)}${online(r.user_id) ? ' · <span>no products</span> ' + money(npSold(r.user_id)) : ''}</div></div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end"><label class="row" style="gap:6px">${online(r.user_id) ? '<span class="small muted">Products</span>' : ''}<span class="muted">$</span><input class="inp" data-t="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${r.target ? +r.target : ''}" style="width:120px;text-align:right"></label>
           ${online(r.user_id) ? `<label class="row" style="gap:6px"><span class="small muted">No products</span><span class="muted">$</span><input class="inp" data-nt="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${npTarget(r.user_id) ? +npTarget(r.user_id) : ''}" style="width:120px;text-align:right"></label>` : ''}</div></div>`).join('') || '<div class="empty">No active sales reps</div>'}</div>
@@ -13198,7 +13216,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
         // each rep has their own % and own bonus % (Mr. Lee, 22 Oct 2026); nothing typed = 0%
         h = `<div class="card" style="gap:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">Commission for each rep</b><button class="btn sm out" id="hrtg">${icon('pen', 16)}Set sales targets</button></div>
-            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Online sales: no-product sales have their own % and bonus % (above their no-product target).</div>
+            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. People who sell online: no-product sales have their own % and bonus % (above their no-product target).</div>
             <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
             <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th>${reps.some(u => K.sellsOnline(u)) ? '<th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th>' : ''}</tr></thead><tbody>
             ${reps.map(u => { const r = rates.find(x => x.user_id === u.id) || {};
