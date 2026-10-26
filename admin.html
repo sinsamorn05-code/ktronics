@@ -4740,8 +4740,8 @@ window.makeDemoApi = function () {
     return wait({ customer: D.customers.find(x => x.id === saved.id), visit_id: vr && vr.id }); };
   // field targets and the admin's place in the staff ranking (24 Oct 2026) — like the database
   const fieldCounts = (uid, day) => { const t = (D.fieldT || {})[uid] || {}, st = D.settings || {};
-    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length,
-      new_shops: D.customers.filter(c => c.created_by === uid && !c.source && c.created_at && localDay0(c.created_at) === day).length,
+    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length + new Set((D.followups || []).filter(f => f.staff_id === uid && localDay0(f.created_at) === day).map(f => f.customer_id)).size,
+      new_shops: D.customers.filter(c => c.created_by === uid && c.created_at && localDay0(c.created_at) === day).length,
       target_visits: t.visits_per_day ?? +(st.field_visits_per_day ?? 8), target_new: t.new_shops_per_day ?? +(st.field_new_shops_per_day ?? 1) }; };
   api.fieldToday = async uid => { if (!role()) fail('Your account is not active'); return wait(fieldCounts(uid || me.id, localDay0(now()))); };
   api.fieldTeamToday = async () => { if (!(hasRole('admin') || allow('hr.manage') || allow('dashboard.view'))) fail('Only admin or managers can see this');
@@ -6216,6 +6216,16 @@ Object.assign(window.KT_KM, {
   'Facebook, TikTok, Telegram…: name, phone, Telegram': 'Facebook, TikTok, Telegram…: ឈ្មោះ ទូរស័ព្ទ Telegram',
   'Only the admin or HR can change this': 'មានតែអ្នកគ្រប់គ្រង ឬធនធានមនុស្សទេ ដែលអាចប្តូរបាន',
   'Sales (online)': 'អ្នកលក់ (អនឡាញ)',
+});
+window.KT_KM_PATTERNS.push(
+
+);
+Object.assign(window.KT_KM, {
+  'Each customer you follow up today counts in "Shop visits today"; each customer you add counts in "New shops today".': 'អតិថិជនម្នាក់ៗដែលអ្នកតាមដានថ្ងៃនេះ រាប់ក្នុង "ការចុះហាងថ្ងៃនេះ"; អតិថិជនម្នាក់ៗដែលអ្នកបន្ថែម រាប់ក្នុង "ហាងថ្មីថ្ងៃនេះ"។',
+  'Online customers': 'អតិថិជនអនឡាញ',
+  '"Silent" customers use the "Sleeping shop" days above.': 'អតិថិជន "ស្ងាត់" ប្រើថ្ងៃ "ហាងដេក" ខាងលើ។',
+  'Orders count only stock orders. Status and silent = now.': 'ការបញ្ជាទិញរាប់តែការបញ្ជាទិញមានស្តុក។ ស្ថានភាព និងស្ងាត់ = ឥឡូវ។',
+  'Each working day of each online sales person. Orders = stock orders.': 'ថ្ងៃធ្វើការនីមួយៗ របស់អ្នកលក់អនឡាញម្នាក់ៗ។ ការបញ្ជាទិញ = ការបញ្ជាទិញមានស្តុក។',
 });
 window.KT_KM_PATTERNS.push(
 
@@ -7930,6 +7940,16 @@ Object.assign(window.KT_ZH, {
 window.KT_ZH_PATTERNS.push(
 
 );
+Object.assign(window.KT_ZH, {
+  'Each customer you follow up today counts in "Shop visits today"; each customer you add counts in "New shops today".': '今天跟进的每个客户都算在"今日拜访店铺"里；你添加的每个客户都算在"今日新店铺"里。',
+  'Online customers': '网上客户',
+  '"Silent" customers use the "Sleeping shop" days above.': '"沉默"客户使用上面的"沉睡店铺"天数。',
+  'Orders count only stock orders. Status and silent = now.': '订单只算有库存的订单。状态和沉默 = 现在。',
+  'Each working day of each online sales person. Orders = stock orders.': '每个网上销售员的每个工作日。订单 = 有库存的订单。',
+});
+window.KT_ZH_PATTERNS.push(
+
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -9144,12 +9164,11 @@ window.KT_ZH_PATTERNS.push(
   K.onlineHomeHtml = t => {
     const list = t.todo || [], n = k => list.filter(x => x.kind === k).length;
     const row = x => `<a class="list-item" href="#/customers/${x.id}" style="text-decoration:none;color:inherit"><div class="grow"><div class="tt" style="font-size:15px">${esc(x.name)}</div><div class="st">${esc(kindLine(x))}</div></div><span class="pill ${KIND[x.kind][1]}">${esc(KIND[x.kind][0])}</span></a>`;
-    return `<div class="stats">${meter(+t.new_today, +t.target_new, 'New customers today', '#/customers')}${meter(+t.orders_today, +t.target_orders, 'Orders today', '#/orders?p=today')}</div>
-      <div class="card" style="gap:8px"><div class="row"><b class="grow">Follow up today</b><span class="small muted">${list.length}</span></div>
+    return `<div class="card" style="gap:8px"><div class="row"><b class="grow">Follow up today</b><span class="small muted">${list.length}</span></div>
         ${list.length ? `<div class="row small" style="gap:6px;flex-wrap:wrap">${['hot', 'due', 'reorder', 'silent'].filter(n).map(k => `<span class="pill ${KIND[k][1]}"><span>${esc(KIND[k][0])}</span>&nbsp;${n(k)}</span>`).join('')}</div>
           <div class="card flush" style="margin:0 -6px" id="todo">${list.slice(0, 12).map(row).join('')}</div>${list.length > 12 ? `<button class="btn ghost block" id="todoall">Show all (${list.length})</button>` : ''}`
           : '<div class="small muted">Nothing to follow up today. Add new customers!</div>'}
-        <div class="small muted">A new customer counts after the first follow-up. Orders today = orders with stock products.</div></div>`;
+        <div class="small muted">Each customer you follow up today counts in "Shop visits today"; each customer you add counts in "New shops today".</div></div>`;
   };
   K.bindOnlineHome = (el, t) => { const b = $('#todoall', el); if (b) b.onclick = () => { const all = (t.todo || []);
     $('#todo', el).innerHTML = all.map(x => `<a class="list-item" href="#/customers/${x.id}" style="text-decoration:none;color:inherit"><div class="grow"><div class="tt" style="font-size:15px">${esc(x.name)}</div><div class="st">${esc(kindLine(x))}</div></div><span class="pill ${KIND[x.kind][1]}">${esc(KIND[x.kind][0])}</span></a>`).join(''); b.remove(); }; };
@@ -9174,12 +9193,11 @@ window.KT_ZH_PATTERNS.push(
   };
   // Settings → Alerts: the midday warning for online sales
   K.onlineMiddayCard = (el, st) => {
-    el.innerHTML = `<div class="card" style="max-width:560px;gap:10px;margin-top:14px"><b>Online sales</b>
-      <label class="f">Midday warning time: online sales staff with 0 orders today get a reminder; admin and managers get the names (empty = off)<input class="inp" id="omt" type="time" value="${esc(st.online_midday_time ?? '15:00')}"></label>
+    el.innerHTML = `<div class="card" style="max-width:560px;gap:10px;margin-top:14px"><b>Online customers</b>
       <label class="f">"Hot" customer: Interested and no order for how many days<input class="inp" id="ohd" type="number" min="1" max="60" value="${esc(st.online_hot_days || '3')}"></label>
-      <div class="small muted">Not on Sundays, holidays or for staff on leave. "Silent" customers use the "Sleeping shop" days above.</div>
+      <div class="small muted">"Silent" customers use the "Sleeping shop" days above.</div>
       <button class="btn out" id="omsave">Save</button></div>`;
-    $('#omsave', el).onclick = async e => { const o = { online_midday_time: $('#omt', el).value, online_hot_days: $('#ohd', el).value.trim() };
+    $('#omsave', el).onclick = async e => { const o = { online_hot_days: $('#ohd', el).value.trim() };
       await busy(e.currentTarget, () => api.onlineSettingsSave(o)); Object.assign(st, o); toast('Saved'); };
   };
 })();
@@ -11789,30 +11807,28 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const T = k => ppl.reduce((a, x) => a + +(x[k] || 0), 0), stN = (x, k) => +((x.statuses || {})[k] || 0);
     const ST = [['new', 'New'], ['contacted', 'Contacted'], ['interested', 'Interested'], ['ordered', 'Ordered'], ['not_interested', 'Not interested']];
     const tgt = (v, t) => +t ? `${money(t)}<div class="small" style="color:${colPct(pct(+v, +t))};font-weight:700">${pct(+v, +t)}%</div>` : '<span class="muted">—</span>';
-    const okDays = (n, w) => w ? `<b style="color:${colPct(pct(n, w))}">${n} / ${w}</b>` : '—';
     el.innerHTML = `<div class="kpis">${kpi(n0(T('new_customers')), 'New customers (after the first follow-up)')}${kpi(n0(T('followups')), 'Follow-ups')}${kpi(n0(T('orders')), 'Orders')}${kpi(money(T('orders_amount')), 'Sales (stock orders)')}${kpi(money(T('np_amount')) + ' · ' + T('np_count'), 'No-product sales')}</div>
       <div class="small muted">Stock orders and no-product sales are counted apart, each with its own target.</div>
-      ${table('Online sales people', 'New = customers whose first follow-up was in these dates. Orders and target days count only stock orders. Target days = working days (no Sundays or holidays) when the daily target was reached (today\'s targets). Status and silent = now.',
-        [['Sales person', 'l'], ['New', 'r'], ['Added', 'r'], ['Follow-ups', 'r'], ['Orders', 'r'], ['Sales', 'r'], ['Products target', 'r'], ['Buyers', 'r'], ['No-product sales', 'r'], ['No-product target', 'r'], ['New-customer target days', 'r'], ['Order target days', 'r'], ['Silent', 'r']],
+      ${table('Online sales people', 'New = customers whose first follow-up was in these dates. Orders count only stock orders. Status and silent = now.',
+        [['Sales person', 'l'], ['New', 'r'], ['Added', 'r'], ['Follow-ups', 'r'], ['Orders', 'r'], ['Sales', 'r'], ['Products target', 'r'], ['Buyers', 'r'], ['No-product sales', 'r'], ['No-product target', 'r'], ['Silent', 'r']],
         ppl.map(x => [`<b>${esc(x.full_name)}</b><div class="small muted">${ST.map(([k, l]) => stN(x, k) ? esc(l) + ' ' + stN(x, k) : '').filter(Boolean).join(' · ')}</div>`, x.new_customers, x.added, x.followups,
           x.orders, `<b>${money(x.orders_amount)}</b>`, tgt(x.orders_amount, x.target), x.buyers, x.np_count ? `${x.np_count} · <b>${money(x.np_amount)}</b>` : '<span class="muted">—</span>', tgt(x.np_amount, x.np_target),
-          okDays(x.days_new_ok, x.workdays), okDays(x.days_orders_ok, x.workdays), x.silent ? `<b style="color:var(--or)">${x.silent}</b>` : '0']), 'No online sales people yet')}
+          x.silent ? `<b style="color:var(--or)">${x.silent}</b>` : '0']), 'No online sales people yet')}
       <div class="agrid">
       ${table('By source', 'Where online customers came from. New = added in these dates; buyers and sales = stock orders in these dates.', [['Source', 'l'], ['Customers', 'r'], ['New', 'r'], ['Buyers', 'r'], ['Sales', 'r']],
         src.map(x => [`<b>${esc(K.sourceName(x.source))}</b>`, x.customers, x.new, x.buyers, money(x.sales)]))}
       ${table('Products not in the app', 'From sales without products in these dates (names as staff typed them). Think about adding the popular ones to the app.', [['Product', 'l'], ['Sales', 'r'], ['Pieces', 'r'], ['Amount of those sales', 'r'], ['Last', 'r']],
         prods.map(x => [`<b>${esc(x.name)}</b>`, x.times, x.pieces, money(x.amount), fmtD(x.last_day)]), 'No sales without products in these dates')}
       </div>
-      ${daily ? table('By day', 'Each working day of each online sales person. Orders = stock orders (targets as set now).', [['Day', 'l'], ['Sales person', 'l'], ['New customers', 'r'], ['Orders', 'r'], ['Follow-ups', 'r']],
-        daily.filter(d => +d.new_today || +d.orders_today || +d.followups_today || new Date(d.day + 'T00:00:00').getDay() !== 0).map(d => [fmtD(d.day), esc(d.name), `<b style="color:${+d.new_today >= Math.max(1, +d.target_new) ? 'var(--gr)' : 'inherit'}">${d.new_today} / ${d.target_new}</b>`,
-          `<b style="color:${+d.stock_orders_today >= Math.max(1, +d.target_orders) ? 'var(--gr)' : 'inherit'}">${d.stock_orders_today} / ${d.target_orders}</b>`, d.followups_today]), 'Nothing in these dates')
+      ${daily ? table('By day', 'Each working day of each online sales person. Orders = stock orders.', [['Day', 'l'], ['Sales person', 'l'], ['New customers', 'r'], ['Orders', 'r'], ['Follow-ups', 'r']],
+        daily.filter(d => +d.new_today || +d.orders_today || +d.followups_today || new Date(d.day + 'T00:00:00').getDay() !== 0).map(d => [fmtD(d.day), esc(d.name), d.new_today, d.stock_orders_today, d.followups_today]), 'Nothing in these dates')
         : '<div class="card small muted">Choose 2 months or less to see each day.</div>'}`;
-    const head = ['Sales person', 'New customers', 'Added', 'Follow-ups', 'Orders (stock)', 'Sales (stock orders)', 'Products target', 'Buyers', 'No-product sales (count)', 'No-product sales', 'No-product target', 'Working days', 'New-customer target days', 'Order target days', 'Silent'].concat(ST.map(x => 'Status ' + x[1]));
-    const rows = [head].concat(ppl.map(x => [x.full_name, x.new_customers, x.added, x.followups, x.orders, (+x.orders_amount).toFixed(2), x.target ? (+x.target).toFixed(2) : '', x.buyers, x.np_count, (+x.np_amount).toFixed(2), x.np_target ? (+x.np_target).toFixed(2) : '', x.workdays, x.days_new_ok, x.days_orders_ok, x.silent].concat(ST.map(([k]) => stN(x, k)))));
+    const head = ['Sales person', 'New customers', 'Added', 'Follow-ups', 'Orders (stock)', 'Sales (stock orders)', 'Products target', 'Buyers', 'No-product sales (count)', 'No-product sales', 'No-product target', 'Silent'].concat(ST.map(x => 'Status ' + x[1]));
+    const rows = [head].concat(ppl.map(x => [x.full_name, x.new_customers, x.added, x.followups, x.orders, (+x.orders_amount).toFixed(2), x.target ? (+x.target).toFixed(2) : '', x.buyers, x.np_count, (+x.np_amount).toFixed(2), x.np_target ? (+x.np_target).toFixed(2) : '', x.silent].concat(ST.map(([k]) => stN(x, k)))));
     const sheets = [{ name: 'Online sales people', rows },
       { name: 'By source', rows: [['Source', 'Customers', 'New', 'Buyers', 'Sales']].concat(src.map(x => [K.sourceName(x.source), x.customers, x.new, x.buyers, (+x.sales).toFixed(2)])) },
       { name: 'Products not in the app', rows: [['Product', 'Sales', 'Pieces', 'Amount of those sales', 'Last']].concat(prods.map(x => [x.name, x.times, x.pieces, (+x.amount).toFixed(2), x.last_day])) }]
-      .concat(daily ? [{ name: 'By day', rows: [['Day', 'Sales person', 'New customers', 'Target', 'Orders', 'Target', 'Follow-ups', 'Added']].concat(daily.map(d => [d.day, d.name, d.new_today, d.target_new, d.stock_orders_today, d.target_orders, d.followups_today, d.added_today])) }] : []);
+      .concat(daily ? [{ name: 'By day', rows: [['Day', 'Sales person', 'New customers', 'Orders', 'Follow-ups', 'Added']].concat(daily.map(d => [d.day, d.name, d.new_today, d.stock_orders_today, d.followups_today, d.added_today])) }] : []);
     return { name: 'online-sales', rows, sheets };
   };
 
@@ -12628,7 +12644,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             ${rep.map(r => `<tr><td><a href="javascript:void 0" data-cl="${esc(r.user_id)}">${esc(r.full_name)}</a></td><td style="text-align:right">${money(r.sales)}</td><td style="text-align:right">${r.target ? money(r.target) : '—'}</td><td style="text-align:right">${+r.rate}%${+r.bonus_rate && r.target ? ' + ' + (+r.bonus_rate) + '%' : ''}</td><td style="text-align:right"><b>${money(r.commission)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No sales reps</td></tr>'}
             <tr style="background:var(--bg)"><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>${money(tot)}</b></td></tr></tbody></table></div>
             <div class="small muted">Tap a name to see each order and sale with its %. Each rep sees their own commission in "My dashboard". Sales targets: the button above (or on the Dashboard).</div></div>
-          <div id="otc" style="max-width:640px"></div><div id="ftc" style="max-width:640px;margin-top:14px"></div>`;
+          <div id="ftc" style="max-width:640px"></div>`;
         S2.crep = rep;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
