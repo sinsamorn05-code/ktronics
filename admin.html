@@ -11805,7 +11805,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------- Sales reps ----------
   K.reports.reps = async (el, from, to) => {
     const all = await K.api.reportReps(from, to);
-    const list = all.filter(r => K.SELLERS.includes(r.role) && (['sales', 'online_sales'].includes(r.role) || +r.sales || r.orders || r.visits || +r.collected));
+    // only sales people (Sales, supervisor, agent); admin / managers only when they really sold in the dates (27 Oct 2026, Mr. Lee)
+    const list = all.filter(r => K.SELLERS.includes(r.role) && (['sales', 'online_sales', 'supervisor', 'agent'].includes(r.role) || +r.sales || r.orders));
     const T = k => list.reduce((a, r) => a + +r[k], 0);
     const vis = T('visits'), vo = T('visit_orders');
     el.innerHTML = `<div class="kpis">${kpi(money(T('sales')), 'Team sales')}${kpi(n0(T('orders')), 'Orders')}${kpi(n0(vis), 'Shop visits')}${kpi(pct(vo, vis) + '%', 'Visits that became an order')}${kpi(money(T('collected')), 'Money collected')}</div>
@@ -12551,7 +12552,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     let deptF = q.d || '';
     const inDept = u => !deptF ? true : deptF === 'none' ? !u.department_id : String(u.department_id) === deptF;
     const mineP = u => seeAll || heads.includes(u.department_id);   // a department head only sees their own people
-    let active = activeAll.filter(u => mineP(u) && inDept(u));
+    // the admin (owner) is not counted in Today / Attendance, unless a base salary is set for them (27 Oct 2026, Mr. Lee)
+    const working = u => u.role !== 'admin' || +((hrs || []).find(h => h.user_id === u.id) || {}).base_salary > 0;
+    let active = activeAll.filter(u => mineP(u) && inDept(u) && working(u));
     const deptName = id => (depts.find(d => d.id === id) || {}).name || '';
     const hrOf = id => hrs.find(h => h.user_id === id) || {};
     const onLeave = (id, day) => leave.find(l => l.staff_id === id && l.status === 'approved' && l.from_date <= day && l.to_date >= day);
@@ -12609,7 +12612,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         await busy(b, () => api.deleteDepartment(d.id)); after('Department deleted'); };
     };
     const draw = async () => {
-      active = activeAll.filter(u => mineP(u) && inDept(u));
+      active = activeAll.filter(u => mineP(u) && inDept(u) && working(u));
       const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active).length : 0;
       $('#tabs').innerHTML = tabs.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}${cnt(k) ? ` <span style="opacity:.8">${cnt(k)}</span>` : ''}</button>`).join('');
       $$('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
@@ -12990,7 +12993,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ctx = ctx || {};
     const d0 = new Date();
     let month = K.payMonth || K.monthKey(d0.getDate() <= 10 ? new Date(d0.getFullYear(), d0.getMonth() - 1, 1) : d0), fresh = false, data = null;
-    const load = async () => { el.innerHTML = '<div class="loading"><div class="spin"></div></div>'; data = await api.payrollGet(month, fresh); if (fresh) data.lines.forEach(l => { if (l.status !== 'paid') l.dirty = true; }); draw(); };
+    const load = async () => { el.innerHTML = '<div class="loading"><div class="spin"></div></div>'; data = await api.payrollGet(month, fresh);
+      // the admin (owner) has no payroll line unless a base salary is set or something was paid (27 Oct 2026, Mr. Lee)
+      { const adm = new Set((ctx.staff || []).filter(u => u.role === 'admin').map(u => u.id)); data.lines = data.lines.filter(l => !adm.has(l.user_id) || num(l.base) > 0 || num(l.net) > 0 || l.status === 'paid'); }
+      if (fresh) data.lines.forEach(l => { if (l.status !== 'paid') l.dirty = true; }); draw(); };
     const draw = () => {
       if (!el.isConnected) return;
       const L = data.lines, r = Object.assign({}, K.PAY_DEFAULTS, data.rules), nm = new Date(month + 'T00:00:00');
