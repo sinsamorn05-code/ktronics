@@ -1158,6 +1158,8 @@ window.KT_PERMS = [
   { group: 'Partners', items: [
     ['partners.stock', 'See partner stock', 'How many pieces each partner has. Never their prices, customers or sales'],
     ['partners.request', 'Purchase order request to partner', 'Ask a partner for goods. They wait in Partners → Waiting to receive']] },
+  { group: 'Phzar', items: [
+    ['phzar.order', 'Order in Phzar', 'Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a sale without products when delivered']] },
   { group: 'Shop visits', items: [
     ['visits.create', 'Check in at shops'],
     ['visits.view_all', 'See all staff visits'],
@@ -1180,12 +1182,12 @@ window.KT_PERMS = [
 ];
 window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
-  manager: ['orders.assign', 'orders.see_money', 'orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
+  manager: ['phzar.order', 'orders.assign', 'orders.see_money', 'orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others', 'expenses.office',
     'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main', 'stock.adjust_approve'],
   supervisor: ['orders.see_money', 'orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
-  sales: ['orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
-  online_sales: ['orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  sales: ['phzar.order', 'orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
+  online_sales: ['phzar.order', 'orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   agent: ['orders.see_money', 'orders.create', 'orders.catalog', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   accountant: ['orders.see_money', 'dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
     'expenses.record_others', 'expenses.office', 'purchases.manage', 'chat.create_group'],
@@ -1469,6 +1471,19 @@ window.makeSupabaseApi = function (cfg) {
     listNopSales: (cid, from, to) => q(sb.rpc('nop_sales_list', { p_customer: cid || null, p_from: from || null, p_to: to || null })),
     nopSaleSave: p => q(sb.rpc('nop_sale_save', { p })),
     nopSaleDelete: id => q(sb.rpc('nop_sale_delete', { p_id: id })),
+    // Order in Phzar (28 Oct 2026): everything that talks to Phzar goes through our Edge Function "phzar" (it keeps the secret)
+    async phzarCall(body) {
+      const { data, error } = await sb.functions.invoke('phzar', { body });
+      if (error) {
+        let j = null; try { j = await error.context.json(); } catch (e) { /* no body */ }
+        const err = new Error((j && (j.message || j.error)) || error.message || 'failed');
+        err.code = (j && j.error) || (/Failed to send|fetch/i.test(error.message || '') ? 'no_answer' : 'failed'); err.ref = j && j.ref; err.retry = !!(j && j.retry);
+        throw err;
+      }
+      return data;
+    },
+    phzarOrders: (from, to, rep) => q(sb.rpc('phzar_orders_list', { p_from: from || null, p_to: to || null, p_rep: rep || null })),
+    phzarSettingsSave: p => q(sb.rpc('phzar_settings_save', { p })),
     setOrderCommission: (id, rate) => q(sb.rpc('order_set_commission', { p_order: id, p_rate: rate === '' || rate == null ? null : +rate })),
     commissionLines: (month, uid) => q(sb.rpc('commission_lines', { p_month: month, p_user: uid || null })),
     onlineToday: uid => q(sb.rpc('online_today', { p_user: uid || null })),
@@ -2199,6 +2214,7 @@ window.makeDemoApi = function () {
   const hasRole = (...r) => r.includes(role());
   const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; D.seeMoneyDone = 1; }
     if (!D.assignDone) { ['manager', 'warehouse'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['orders.assign'] = true; }); D.assignDone = 1; }
+    if (!D.phzarPermDone) { ['manager', 'sales', 'online_sales'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['phzar.order'] = true; }); D.phzarPermDone = 1; }   // 28 Oct: Order in Phzar
     if (!D.seeMoneyDone) { Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { if (list.includes('orders.see_money')) (D.rolePerms[r] = D.rolePerms[r] || {})['orders.see_money'] = true; }); D.seeMoneyDone = 1; } };
   const seeMoney = () => allow('orders.see_money');
   const allow = p => {
@@ -3260,6 +3276,75 @@ window.makeDemoApi = function () {
       else { id = list.reduce((a, x) => Math.max(a, x.id), 0) + 1; list.push(Object.assign({ id, sale_no: 'NP-' + String(id).padStart(5, '0'), commission_rate: boss ? rate : null, created_by: me.id, created_at: now() }, row)); }
       if (c.source) c.sales_status = 'ordered';
       save(); return wait(id); },
+    // Order in Phzar (28 Oct 2026): a pretend Phzar for the demo (same rules as phzar_* in the database + the "phzar" Edge Function)
+    async phzarCall(b) {
+      const pzFail = (code, ref, retry) => { const e = new Error(code); e.code = code; e.ref = ref; e.retry = !!retry; throw e; };
+      if (!role()) pzFail('login_needed');
+      const PZ = D.phzar = D.phzar || { seq: 0, orders: [] };
+      const CAT = [
+        { product_id: 'p1', slug: 'airpod-4', name: { en: 'AirPod 4', km: 'AirPod 4', zh: 'AirPod 4' }, brand: 'Apple', min_quantity: 1, image_url: '', options: [{ variant_id: 'v1', name: { en: 'White' }, sku: 'AP4-W', price_cents: 1000, can_order: true }] },
+        { product_id: 'p2', slug: 'cable-c', name: { en: 'USB-C cable 1m', km: 'ខ្សែ USB-C 1m', zh: 'USB-C 数据线 1米' }, brand: 'Phzar', min_quantity: 5, image_url: '', options: [{ variant_id: 'v2', name: { en: 'Black' }, sku: 'UC1-B', price_cents: 150, can_order: true }, { variant_id: 'v3', name: { en: 'White' }, sku: 'UC1-W', price_cents: 150, can_order: false }] },
+        { product_id: 'p3', slug: 'power-bank', name: { en: 'Power bank 10000mAh', km: 'ថ្មបម្រុង 10000mAh', zh: '充电宝 10000mAh' }, brand: 'Phzar', min_quantity: 1, image_url: '', options: [{ variant_id: 'v4', name: { en: 'Blue' }, sku: 'PB10-BL', price_cents: 850, can_order: true }] },
+        { product_id: 'p4', slug: 'face-serum', name: { en: 'Face serum 30ml', km: 'សេរ៉ូមមុខ 30ml', zh: '面部精华 30ml' }, brand: 'Phzar', min_quantity: 2, image_url: '', options: [{ variant_id: 'v5', name: { en: '30ml' }, sku: 'FS30', price_cents: 600, can_order: true }] }];
+      const variant = id => { for (const p of CAT) for (const v of p.options) if (v.variant_id === id) return { p, v }; return null; };
+      const mineOrBoss = o => o && (o.sales_rep_id === me.id || o.created_by === me.id || isBoss() || inMyTeam(o.sales_rep_id));
+      const toNop = o => {   // delivered → a sale without products for the rep; otherwise removed
+        D.nopSales = D.nopSales || [];
+        if (o.status === 'delivered' && o.delivered_cents > 0) {
+          if (o.nop_sale_id && D.nopSales.some(x => x.id === o.nop_sale_id)) return;
+          const id = D.nopSales.reduce((a2, x) => Math.max(a2, x.id), 0) + 1;
+          D.nopSales.push({ id, sale_no: 'NP-' + String(id).padStart(5, '0'), customer_id: o.customer_id, sales_rep_id: o.sales_rep_id, amount: o.delivered_cents / 100, invoice_no: o.checkout_number, sale_date: localDay(now()),
+            products: o.items.map(i => i.name + (i.option ? ' (' + i.option + ')' : '') + ' ×' + i.quantity).join(', '), note: 'Order in Phzar ' + o.ref, commission_rate: null, created_by: o.sales_rep_id, created_at: now() });
+          o.nop_sale_id = id;
+          const c = D.customers.find(x => x.id === o.customer_id); if (c && c.source) c.sales_status = 'ordered';
+        } else if (o.nop_sale_id) { D.nopSales = D.nopSales.filter(x => x.id !== o.nop_sale_id); o.nop_sale_id = null; }
+      };
+      if (b.action === 'products' || b.action === 'provinces') {
+        if (!allow('phzar.order')) pzFail('not_your_permission');
+        if (b.action === 'provinces') return wait({ provinces: [{ code: 'phnom-penh', name: { en: 'Phnom Penh', km: 'ភ្នំពេញ', zh: '金边' } }, { code: 'kandal', name: { en: 'Kandal', km: 'កណ្ដាល', zh: '干丹' } }, { code: 'siem-reap', name: { en: 'Siem Reap', km: 'សៀមរាប', zh: '暹粒' } }] });
+        const t = String(b.search || '').trim().toLowerCase();
+        return wait({ products: clone(CAT.filter(p => !t || Object.values(p.name).some(n => n.toLowerCase().includes(t)) || p.options.some(v => v.sku.toLowerCase() === t))) });
+      }
+      if (b.action === 'place') {
+        if (!allow('phzar.order')) fail('You are not allowed to order in Phzar');
+        const p = b.order || {}, c = D.customers.find(x => x.id === +p.customer_id);
+        if (!c || c.status === 'rejected' || !(isBoss() || allow('customers.view_all') || c.assigned_to === me.id || c.created_by === me.id || inMyTeam(c.assigned_to))) fail('Choose the customer');
+        const items = (p.items || []).map(i => ({ variant_id: i.variant_id, quantity: Math.round(+i.quantity || 0), name: i.name || '', option: i.option || '', price_cents: i.price_cents, image_url: i.image_url || '' }));
+        if (!items.length) fail('Add at least one product'); if (items.some(i => !i.variant_id || i.quantity <= 0)) fail('Check the products and quantities');
+        const dt = p.deliver_to || {}; if (!String(dt.name || '').trim() || !String(dt.phone || '').trim() || !String(dt.address_line || '').trim()) fail('Fill in "Deliver to": name, phone and address');
+        if (!String(p.province_code || '').trim()) fail('Choose the province');
+        const id = ++PZ.seq, ref = 'KT-PZ-' + String(id).padStart(6, '0');
+        const o = { id, ref, sales_rep_id: me.id, customer_id: c.id, end_customer: p.end_customer || null, note: p.note || null, deliver_to: dt, province_code: p.province_code, items, status: 'sending', delivered_cents: 0, created_by: me.id, created_at: now() };
+        PZ.orders.push(o);
+        for (const i of items) { const x = variant(i.variant_id); if (!x || !x.v.can_order) { o.status = 'failed'; o.error = 'item_unavailable'; save(); pzFail('item_unavailable', ref); }
+          if (i.quantity < (x.p.min_quantity || 1)) { o.status = 'failed'; o.error = 'below_minimum_order'; save(); pzFail('below_minimum_order', ref); } }
+        o.total_cents = items.reduce((a2, i) => a2 + variant(i.variant_id).v.price_cents * i.quantity, 0); o.total_riel = o.total_cents * 41;
+        o.checkout_number = 'PZ-DEMO-' + String(id).padStart(5, '0'); o.status = 'pending'; o.status_at = now();
+        o.sent_items = items.map(i => ({ name: { en: i.name }, option: { en: i.option }, quantity: i.quantity, line_total_cents: variant(i.variant_id).v.price_cents * i.quantity }));
+        save(); return wait({ ok: true, ref, answer: { checkout_id: 'demo', checkout_number: o.checkout_number, total_cents: o.total_cents, total_riel: o.total_riel, items: o.sent_items, already_sent: false } });
+      }
+      const o = PZ.orders.find(x => x.ref === b.ref);
+      if (!mineOrBoss(o)) fail('Order not found');
+      if (b.action === 'resend') { if (o.status !== 'sending') fail('This order was already answered by Phzar'); o.status = 'pending'; save(); return wait({ ok: true, ref: o.ref, answer: { checkout_number: o.checkout_number } }); }
+      if (b.action === 'cancel') {
+        if (!String(b.reason || '').trim()) pzFail('reason_required');
+        if (!['pending', 'confirmed'].includes(o.status)) pzFail('too_late_to_cancel');
+        o.status = 'cancelled'; o.cancel_reason = String(b.reason).trim(); o.status_at = now(); toNop(o); save(); return wait({ ok: true, state: { ref: o.ref, status: o.status } });
+      }
+      if (b.action === 'refresh') {   // demo: Phzar staff move it one step forward
+        const NEXT = { sending: 'pending', pending: 'confirmed', confirmed: 'packed', packed: 'shipping', shipping: 'delivered' };
+        if (NEXT[o.status]) { o.status = NEXT[o.status]; o.status_at = now(); if (o.status === 'delivered') o.delivered_cents = o.total_cents; }
+        toNop(o); save(); return wait({ ok: true, state: { ref: o.ref, status: o.status } });
+      }
+      pzFail('unknown_action');
+    },
+    async phzarOrders(from, to, rep) { if (!role()) return wait([]);
+      const see = o => o.sales_rep_id === me.id || o.created_by === me.id || isBoss() || allow('reports.view') || inMyTeam(o.sales_rep_id);
+      return wait(((D.phzar || {}).orders || []).filter(o => see(o) && (!from || localDay(o.created_at) >= from) && (!to || localDay(o.created_at) <= to) && (!rep || o.sales_rep_id === rep))
+        .sort((a2, b2) => b2.id - a2.id).map(o => Object.assign(clone(o), { customer_name: shopName(o.customer_id), rep_name: (user(o.sales_rep_id) || {}).full_name }))); },
+    async phzarSettingsSave(p) { if (!hasRole('admin')) fail('Only the admin can change settings');
+      if (p.phzar_function_url && !/^https:\/\/[A-Za-z0-9.-]+\/functions\/v1\/[A-Za-z0-9_-]+$/.test(p.phzar_function_url)) fail('The function address is not valid');
+      D.settings = Object.assign(D.settings || {}, p); save(); return wait(null); },
     async nopSaleDelete(id) { if (!isBoss()) fail('Only admin or a manager can delete a sale without products');
       const n = (D.nopSales || []).length; D.nopSales = (D.nopSales || []).filter(x => x.id !== id); if (D.nopSales.length === n) fail('Sale not found'); save(); return wait(null); },
     // step 3: daily targets and "Follow up today" (same rules as online_today in the database)
@@ -3979,17 +4064,21 @@ window.makeDemoApi = function () {
       const absent = from > upto ? 0 : days(from, upto).filter(d => !isSun(d) && !isHol(d) && !att.some(a => a.work_date === d) && !D.leave.some(l => l.staff_id === uid && l.status === 'approved' && d >= l.from_date && d <= l.to_date)).length;
       return { days_worked: att.length, late_days: late, sunday_days: sun, holiday_days: hol, ot_hours: Math.round(otm / 60 * 100) / 100, unpaid_days: unpaid, absent_days: absent };
     },
+    // same as payroll_start_share in the database: working days (Monday – Saturday) from the start date ÷ working days in the month
+    _startShare(st, m0, m1) { if (!st || st <= m0) return 1; if (st > m1) return 0;
+      const wd = (a, b) => { let n = 0; for (let d = new Date(a + 'T00:00:00'); localDay0(d) <= b; d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n++; return n; };
+      return wd(st, m1) / Math.max(wd(m0, m1), 1); },
     async payrollGet(month, fresh) { if (!allow('hr.manage')) fail('You are not allowed to see payroll'); api._pay();
       const m0 = month.slice(0, 8) + '01', y = +m0.slice(0, 4), mo = +m0.slice(5, 7) - 1, m1 = localDay0(new Date(y, mo + 1, 0)), R = Object.assign({}, window.KT.PAY_DEFAULTS, D.payRules);
       const com = await api.commissionReport(m0), lines = [];
-      D.users.filter(u => (u.active && !['guest', 'partner'].includes(u.role) && (u.role !== 'admin' || +((D.hr || {})[u.id] || {}).base_salary > 0)) || D.payLines.some(l => l.user_id === u.id && l.month === m0))
+      D.users.filter(u => (u.active && !['guest', 'partner'].includes(u.role) && (u.role !== 'admin' || +((D.hr || {})[u.id] || {}).base_salary > 0) && !(((D.hr || {})[u.id] || {}).start_date > m1)) || D.payLines.some(l => l.user_id === u.id && l.month === m0))
         .sort((a, b) => a.full_name.localeCompare(b.full_name)).forEach(u => { const h = (D.hr || {})[u.id] || {}, pl = D.payLines.find(l => l.user_id === u.id && l.month === m0);
           const adv = D.advances.filter(a => a.user_id === u.id && (a.payroll_month === m0 || (!a.payroll_month && a.given_on <= m1))).reduce((s, a) => s + +a.amount, 0);
           let x;
           if (pl && (pl.status === 'paid' || !fresh)) x = Object.assign(clone(pl), { saved: true, advances_now: adv });
-          else x = window.KT.payMoney(Object.assign(api._payCounts(u.id, m0), { user_id: u.id, month: m0, status: 'draft', base: +h.base_salary || 0, allowance: +h.allowance || 0,
+          else x = window.KT.payMoney(Object.assign(api._payCounts(u.id, m0), { user_id: u.id, month: m0, status: 'draft', base: Math.round((+h.base_salary || 0) * api._startShare(h.start_date, m0, m1) * 100) / 100, allowance: +h.allowance || 0,
             commission: +((com.find(c => c.user_id === u.id) || {}).commission || 0), advances: adv, bonus: pl ? pl.bonus : 0, tax: pl ? pl.tax : 0, other_deduct: pl ? pl.other_deduct : 0, note: pl ? pl.note : null, id: pl ? pl.id : null, saved: !!pl, advances_now: adv }), R);
-          lines.push(Object.assign(x, { full_name: u.full_name, role: u.role, position: h.position || null, bank_account: h.bank_account || null })); });
+          lines.push(Object.assign(x, { full_name: u.full_name, role: u.role, position: h.position || null, bank_account: h.bank_account || null, start_date: h.start_date || null, full_base: +h.base_salary || 0 })); });
       return wait({ month: m0, rules: R, lines, holidays: D.holidays.filter(h => h.day >= m0 && h.day <= m1).sort((a, b) => a.day.localeCompare(b.day)) }); },
     async payrollSave(month, lines) { if (!allow('hr.manage')) fail('You are not allowed to save payroll'); api._pay();
       const m0 = month.slice(0, 8) + '01', y = +m0.slice(0, 4), mo = +m0.slice(5, 7) - 1, m1 = localDay0(new Date(y, mo + 1, 0)), R = Object.assign({}, window.KT.PAY_DEFAULTS, D.payRules); let n = 0;
@@ -6505,6 +6594,81 @@ window.KT_KM_PATTERNS.push(
 
 );
 
+// Order in Phzar (28 Oct 2026)
+Object.assign(window.KT_KM, {
+  "Order in Phzar": "បញ្ជាទិញក្នុង Phzar",
+  "🛒 Order in Phzar": "🛒 បញ្ជាទិញក្នុង Phzar",
+  "Phzar": "Phzar",
+  "Phzar products for your customers": "ផលិតផល Phzar សម្រាប់អតិថិជនរបស់អ្នក",
+  "Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a sale without products when delivered": "បញ្ជាទិញផលិតផល Phzar ឱ្យអតិថិជន។ Phzar ដឹកមក K-TRONiCS បង់ប្រាក់ពេលដឹកដល់។ រាប់ជាការលក់គ្មានផលិតផល ពេលដឹកដល់",
+  "New Phzar order": "ការបញ្ជាទិញ Phzar ថ្មី",
+  "All statuses": "ស្ថានភាពទាំងអស់",
+  "orders": "ការបញ្ជាទិញ",
+  "No Phzar orders for these dates": "គ្មានការបញ្ជាទិញ Phzar សម្រាប់ថ្ងៃទាំងនេះ",
+  "Phzar prices, cash on delivery to K-TRONiCS. When Phzar marks an order Delivered, it is counted as a sale without products for the sales rep (own target and commission %). Cancelled = not counted; returned = removed again.": "តម្លៃ Phzar បង់ប្រាក់ពេលដឹកដល់ K-TRONiCS។ ពេល Phzar សម្គាល់ថាដឹកដល់ហើយ វារាប់ជាការលក់គ្មានផលិតផលរបស់អ្នកលក់ (គោលដៅ និង % កម្រៃជើងសារផ្ទាល់ខ្លួន)។ បានលុបចោល = មិនរាប់; ប្រគល់ត្រឡប់ = ដកចេញវិញ។",
+  "Sending…": "កំពុងផ្ញើ…",
+  "Not sent": "មិនទាន់ផ្ញើ",
+  "Waiting for Phzar": "រង់ចាំ Phzar",
+  "Delivered · counted": "ដឹកដល់ហើយ · បានរាប់",
+  "Counted in sales": "បានរាប់ក្នុងការលក់",
+  "For": "សម្រាប់",
+  "Deliver to": "ដឹកទៅ",
+  "Send again": "ផ្ញើម្ដងទៀត",
+  "Safe: Phzar never makes a second order.": "សុវត្ថិភាព: Phzar មិនបង្កើតការបញ្ជាទិញទីពីរទេ។",
+  "Check status with Phzar": "ពិនិត្យស្ថានភាពជាមួយ Phzar",
+  "Cancel this order": "លុបចោលការបញ្ជាទិញនេះ",
+  "Make a new order with these products": "បង្កើតការបញ្ជាទិញថ្មីជាមួយផលិតផលទាំងនេះ",
+  "Demo: \"Check status\" moves the order one step forward, like Phzar staff would.": "សាកល្បង: \"ពិនិត្យស្ថានភាព\" រំកិលការបញ្ជាទិញទៅមុខមួយជំហាន ដូចបុគ្គលិក Phzar ធ្វើ។",
+  "Cancel this order?": "លុបចោលការបញ្ជាទិញនេះ?",
+  "Only before Phzar packs it. Phzar staff will see your reason.": "បានតែមុនពេល Phzar វេចខ្ចប់។ បុគ្គលិក Phzar នឹងឃើញមូលហេតុរបស់អ្នក។",
+  "Why?": "ហេតុអ្វី?",
+  "Cancel the order": "លុបចោលការបញ្ជាទិញ",
+  "Phzar prices · cash on delivery": "តម្លៃ Phzar · បង់ប្រាក់ពេលដឹកដល់",
+  "Phzar products": "ផលិតផល Phzar",
+  "Your order": "ការបញ្ជាទិញរបស់អ្នក",
+  "pcs": "គ្រឿង",
+  "min.": "អប្បបរមា",
+  "Minimum": "អប្បបរមា",
+  "No products yet. Search above and tap Add.": "មិនទាន់មានផលិតផល។ ស្វែងរកខាងលើ ហើយចុច បន្ថែម។",
+  "Total (today's price)": "សរុប (តម្លៃថ្ងៃនេះ)",
+  "Phzar delivers to K-TRONiCS; you then serve your customer. Cash on delivery.": "Phzar ដឹកមក K-TRONiCS; បន្ទាប់មកអ្នកបម្រើអតិថិជនរបស់អ្នក។ បង់ប្រាក់ពេលដឹកដល់។",
+  "Note for the driver (optional)": "កំណត់ចំណាំសម្រាប់អ្នកដឹក (មិនចាំបាច់)",
+  "Note for the driver": "កំណត់ចំណាំសម្រាប់អ្នកដឹក",
+  "Who is it for? (optional)": "សម្រាប់អ្នកណា? (មិនចាំបាច់)",
+  "Send to Phzar": "ផ្ញើទៅ Phzar",
+  "Prices are today's Phzar prices. Phzar works out the final total. It counts in your sales when Phzar marks it Delivered.": "តម្លៃជាតម្លៃ Phzar ថ្ងៃនេះ។ Phzar គណនាសរុបចុងក្រោយ។ វារាប់ក្នុងការលក់របស់អ្នក ពេល Phzar សម្គាល់ថាដឹកដល់ហើយ។",
+  "No Phzar products found": "រកមិនឃើញផលិតផល Phzar",
+  "Order in Phzar · Settings": "បញ្ជាទិញក្នុង Phzar · ការកំណត់",
+  "Where Phzar delivers K-TRONiCS orders. Reps see this filled in and can change it on an order.": "កន្លែងដែល Phzar ដឹកការបញ្ជាទិញរបស់ K-TRONiCS។ អ្នកលក់ឃើញវាបំពេញរួច ហើយអាចប្ដូរនៅលើការបញ្ជាទិញ។",
+  "Province code": "កូដខេត្ត",
+  "Our function address (for the nightly check)": "អាសយដ្ឋានមុខងាររបស់យើង (សម្រាប់ការពិនិត្យពេលយប់)",
+  "The Phzar secret is NOT here: it is only in Supabase → Edge Functions → Secrets.": "លេខសម្ងាត់ Phzar មិននៅទីនេះទេ: វាមានតែក្នុង Supabase → Edge Functions → Secrets។",
+  "Updated": "បានធ្វើបច្ចុប្បន្នភាព",
+  "Phzar did not accept our key. Tell the admin (the secret in Supabase may be wrong).": "Phzar មិនទទួលសោរបស់យើង។ ប្រាប់អ្នកគ្រប់គ្រង (លេខសម្ងាត់ក្នុង Supabase ប្រហែលខុស)។",
+  "Phzar is not set up yet. Tell the admin.": "Phzar មិនទាន់រៀបចំរួច។ ប្រាប់អ្នកគ្រប់គ្រង។",
+  "The Phzar secret is not set in our Supabase yet. Tell the admin.": "លេខសម្ងាត់ Phzar មិនទាន់ដាក់ក្នុង Supabase របស់យើង។ ប្រាប់អ្នកគ្រប់គ្រង។",
+  "You are not allowed to order in Phzar.": "អ្នកមិនមានសិទ្ធិបញ្ជាទិញក្នុង Phzar ទេ។",
+  "Please log in again.": "សូមចូលម្ដងទៀត។",
+  "Something is missing. Please try again.": "ខ្វះអ្វីមួយ។ សូមព្យាយាមម្ដងទៀត។",
+  "Fill in the name in \"Deliver to\".": "បំពេញឈ្មោះក្នុង \"ដឹកទៅ\"។",
+  "The phone in \"Deliver to\" is not valid.": "ទូរស័ព្ទក្នុង \"ដឹកទៅ\" មិនត្រឹមត្រូវ។",
+  "Fill in the address in \"Deliver to\".": "បំពេញអាសយដ្ឋានក្នុង \"ដឹកទៅ\"។",
+  "Phzar does not deliver to this province. Choose another one.": "Phzar មិនដឹកទៅខេត្តនេះទេ។ ជ្រើសខេត្តផ្សេង។",
+  "Phzar does not deliver to this province now. Choose another one.": "Phzar មិនដឹកទៅខេត្តនេះទេពេលនេះ។ ជ្រើសខេត្តផ្សេង។",
+  "Phzar has cash on delivery switched off for this area.": "Phzar បានបិទការបង់ប្រាក់ពេលដឹកដល់សម្រាប់តំបន់នេះ។",
+  "Add at least one product.": "បន្ថែមផលិតផលយ៉ាងហោចមួយ។",
+  "Check the quantities.": "ពិនិត្យចំនួន។",
+  "Some products have a minimum quantity. Add more pieces.": "ផលិតផលខ្លះមានចំនួនអប្បបរមា។ បន្ថែមចំនួនទៀត។",
+  "A product is not available in Phzar now. Remove it and try again.": "ផលិតផលមួយមិនមានក្នុង Phzar ពេលនេះ។ ដកចេញ ហើយព្យាយាមម្ដងទៀត។",
+  "Phzar does not know this order.": "Phzar មិនស្គាល់ការបញ្ជាទិញនេះ។",
+  "Write why the order is cancelled.": "សរសេរមូលហេតុលុបចោលការបញ្ជាទិញ។",
+  "Too late to cancel here: Phzar has already packed it. Ask Phzar staff (or return it after delivery).": "យឺតពេលលុបចោលនៅទីនេះ: Phzar បានវេចខ្ចប់រួច។ សួរបុគ្គលិក Phzar (ឬប្រគល់ត្រឡប់ក្រោយដឹកដល់)។",
+  "Phzar did not answer (internet). Tap \"Send again\" — it will never make a second order.": "Phzar មិនឆ្លើយ (អ៊ីនធឺណិត)។ ចុច \"ផ្ញើម្ដងទៀត\" — វានឹងមិនបង្កើតការបញ្ជាទិញទីពីរទេ។",
+  "Something went wrong. Try again; if it happens again, tell the admin.": "មានបញ្ហា។ ព្យាយាមម្ដងទៀត; បើកើតម្ដងទៀត ប្រាប់អ្នកគ្រប់គ្រង។",
+  "This order never reached Phzar.": "ការបញ្ជាទិញនេះមិនបានទៅដល់ Phzar ទេ។",
+  "Choose the customer": "ជ្រើសអតិថិជន"
+});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8241,6 +8405,81 @@ window.KT_ZH_PATTERNS.push(
 
 );
 
+// Order in Phzar (28 Oct 2026)
+Object.assign(window.KT_ZH, {
+  "Order in Phzar": "在 Phzar 下单",
+  "🛒 Order in Phzar": "🛒 在 Phzar 下单",
+  "Phzar": "Phzar",
+  "Phzar products for your customers": "为您的客户订购 Phzar 产品",
+  "Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a sale without products when delivered": "为客户订购 Phzar 产品。Phzar 送货到 K-TRONiCS，货到付款。送达后计为无产品销售",
+  "New Phzar order": "新的 Phzar 订单",
+  "All statuses": "所有状态",
+  "orders": "订单",
+  "No Phzar orders for these dates": "这些日期没有 Phzar 订单",
+  "Phzar prices, cash on delivery to K-TRONiCS. When Phzar marks an order Delivered, it is counted as a sale without products for the sales rep (own target and commission %). Cancelled = not counted; returned = removed again.": "Phzar 价格，货到 K-TRONiCS 付款。Phzar 标记“已送达”后，计为该销售员的无产品销售（单独的目标和提成%）。已取消 = 不计；已退回 = 再次移除。",
+  "Sending…": "发送中…",
+  "Not sent": "未发送",
+  "Waiting for Phzar": "等待 Phzar",
+  "Delivered · counted": "已送达 · 已计入",
+  "Counted in sales": "已计入销售",
+  "For": "给",
+  "Deliver to": "送货到",
+  "Send again": "再次发送",
+  "Safe: Phzar never makes a second order.": "放心：Phzar 不会重复下单。",
+  "Check status with Phzar": "向 Phzar 查询状态",
+  "Cancel this order": "取消此订单",
+  "Make a new order with these products": "用这些产品重新下单",
+  "Demo: \"Check status\" moves the order one step forward, like Phzar staff would.": "演示：“查询状态”会把订单向前推进一步，就像 Phzar 员工操作一样。",
+  "Cancel this order?": "取消此订单？",
+  "Only before Phzar packs it. Phzar staff will see your reason.": "仅在 Phzar 打包前可以取消。Phzar 员工会看到您的原因。",
+  "Why?": "原因？",
+  "Cancel the order": "取消订单",
+  "Phzar prices · cash on delivery": "Phzar 价格 · 货到付款",
+  "Phzar products": "Phzar 产品",
+  "Your order": "您的订单",
+  "pcs": "件",
+  "min.": "最少",
+  "Minimum": "最少",
+  "No products yet. Search above and tap Add.": "还没有产品。请在上方搜索并点“添加”。",
+  "Total (today's price)": "合计（今日价格）",
+  "Phzar delivers to K-TRONiCS; you then serve your customer. Cash on delivery.": "Phzar 送货到 K-TRONiCS，然后由您服务客户。货到付款。",
+  "Note for the driver (optional)": "给司机的备注（可选）",
+  "Note for the driver": "给司机的备注",
+  "Who is it for? (optional)": "给谁的？（可选）",
+  "Send to Phzar": "发送到 Phzar",
+  "Prices are today's Phzar prices. Phzar works out the final total. It counts in your sales when Phzar marks it Delivered.": "价格为 Phzar 今日价格。最终合计由 Phzar 计算。Phzar 标记“已送达”后计入您的销售。",
+  "No Phzar products found": "没有找到 Phzar 产品",
+  "Order in Phzar · Settings": "在 Phzar 下单 · 设置",
+  "Where Phzar delivers K-TRONiCS orders. Reps see this filled in and can change it on an order.": "Phzar 配送 K-TRONiCS 订单的地址。销售员会看到已填好，并可在订单中修改。",
+  "Province code": "省份代码",
+  "Our function address (for the nightly check)": "我们的函数地址（用于夜间检查）",
+  "The Phzar secret is NOT here: it is only in Supabase → Edge Functions → Secrets.": "Phzar 密钥不在这里：只在 Supabase → Edge Functions → Secrets 中。",
+  "Updated": "已更新",
+  "Phzar did not accept our key. Tell the admin (the secret in Supabase may be wrong).": "Phzar 不接受我们的密钥。请告诉管理员（Supabase 中的密钥可能有误）。",
+  "Phzar is not set up yet. Tell the admin.": "Phzar 尚未设置。请告诉管理员。",
+  "The Phzar secret is not set in our Supabase yet. Tell the admin.": "我们的 Supabase 里还没有设置 Phzar 密钥。请告诉管理员。",
+  "You are not allowed to order in Phzar.": "您没有在 Phzar 下单的权限。",
+  "Please log in again.": "请重新登录。",
+  "Something is missing. Please try again.": "缺少信息。请再试一次。",
+  "Fill in the name in \"Deliver to\".": "请填写“送货到”的姓名。",
+  "The phone in \"Deliver to\" is not valid.": "“送货到”的电话无效。",
+  "Fill in the address in \"Deliver to\".": "请填写“送货到”的地址。",
+  "Phzar does not deliver to this province. Choose another one.": "Phzar 不送货到这个省份。请选择其他省份。",
+  "Phzar does not deliver to this province now. Choose another one.": "Phzar 目前不送货到这个省份。请选择其他省份。",
+  "Phzar has cash on delivery switched off for this area.": "Phzar 已关闭此地区的货到付款。",
+  "Add at least one product.": "请至少添加一个产品。",
+  "Check the quantities.": "请检查数量。",
+  "Some products have a minimum quantity. Add more pieces.": "部分产品有最低数量。请增加数量。",
+  "A product is not available in Phzar now. Remove it and try again.": "有一个产品目前在 Phzar 无货。请移除后再试。",
+  "Phzar does not know this order.": "Phzar 没有这个订单。",
+  "Write why the order is cancelled.": "请写明取消订单的原因。",
+  "Too late to cancel here: Phzar has already packed it. Ask Phzar staff (or return it after delivery).": "这里已来不及取消：Phzar 已经打包。请联系 Phzar 员工（或送达后退货）。",
+  "Phzar did not answer (internet). Tap \"Send again\" — it will never make a second order.": "Phzar 没有回应（网络）。请点“再次发送”——不会重复下单。",
+  "Something went wrong. Try again; if it happens again, tell the admin.": "出了点问题。请再试一次；如果再次发生，请告诉管理员。",
+  "This order never reached Phzar.": "此订单没有到达 Phzar。",
+  "Choose the customer": "请选择客户"
+});
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -8592,6 +8831,7 @@ window.KT_ZH_PATTERNS.push(
         ${window.L && K.allow('visits.view_all') ? item('#/routemap', 'nav', 'Route map', 'Where each sales rep went today', 'var(--bls)', 'var(--bl)') : ''}
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
+        ${K.canSeePhzar && K.canSeePhzar() ? item('#/phzar', 'order', 'Order in Phzar', 'Phzar products for your customers', 'var(--ps)', 'var(--p)') : ''}
         ${K.guideTopics ? item('#/guide', 'book', 'How to use the app', 'Short guides with pictures', 'var(--bls)', 'var(--bl)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
         ${item('#/payslips', 'cash', 'My payslips', 'My salary each month, advances', 'var(--grs)', 'var(--gr)')}
@@ -9150,7 +9390,7 @@ window.KT_ZH_PATTERNS.push(
   // "🔁 Exchange" sits in the status chips of Orders (Mr. Lee, 21 Oct 2026)
   const exChip = on => K.canFindExchange && K.canFindExchange() ? `<a class="chip ${on ? 'on' : ''}" href="#/exchange" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🔁 Exchange</a>` : '';
   // "🧾 No products" = sales without products (online sales, 22 Oct 2026)
-  const npChip = on => `<a class="chip ${on ? 'on' : ''}" href="#/nopsales" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🧾 No products</a>`;
+  const npChip = on => `<a class="chip ${on ? 'on' : ''}" href="#/nopsales" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🧾 No products</a>` + (K.canSeePhzar && K.canSeePhzar() ? `<a class="chip" href="#/phzar" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🛒 Order in Phzar</a>` : '');
   route(/^\/nopsales$/, async (_, q, current) => {
     const P = K.period, st = { p: q.p || 'month', from: q.from || P.range('custom')[0], to: q.to || P.today() };
     const main = page({ title: 'Sales without products', sub: 'Products not in the app', back: '#/orders', tab: 'order',
@@ -11004,6 +11244,248 @@ window.KT_ZH_PATTERNS.push(
     $('#omsave', el).onclick = async e => { const o = { online_hot_days: $('#ohd', el).value.trim() };
       await busy(e.currentTarget, () => api.onlineSettingsSave(o)); Object.assign(st, o); toast('Saved'); };
   };
+})();
+
+// Order in Phzar (28 Oct 2026, Mr. Lee): sales reps order Phzar products for a customer from inside this app.
+// Phzar prices, cash on delivery, Phzar delivers to K-TRONiCS. Everything that talks to Phzar goes through our Edge Function
+// "phzar" (api.phzarCall) — the shared secret is never in this page. Delivered = a sale without products for the rep.
+// Pages: #/phzar (list) and #/phzar/new (new order), in the staff app and the admin web.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy } = K;
+  const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
+  const ADMIN = !!(window.KT_CONFIG || {}).ADMIN;
+  const usd = c => K.money((+c || 0) / 100);
+  const dayTxt = d => d ? new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
+  const nm = o => { if (!o) return ''; if (typeof o === 'string') return o; const l = K.lang ? K.lang() : 'en'; return o[l] || o.en || o.km || o.zh || ''; };
+  const isBoss = () => !!K.S.me && ['admin', 'manager'].includes(K.S.me.role);
+  K.canPhzar = () => K.allow('phzar.order');
+  K.canSeePhzar = () => K.canPhzar() || isBoss() || K.allow('reports.view');
+
+  // friendly words for Phzar's answers
+  const ERR = {
+    not_allowed: 'Phzar did not accept our key. Tell the admin (the secret in Supabase may be wrong).',
+    not_configured: 'Phzar is not set up yet. Tell the admin.', secret_missing: 'The Phzar secret is not set in our Supabase yet. Tell the admin.',
+    not_your_permission: 'You are not allowed to order in Phzar.', login_needed: 'Please log in again.',
+    ref_missing: 'Something is missing. Please try again.', rep_missing: 'Something is missing. Please try again.',
+    address_name_missing: 'Fill in the name in "Deliver to".', address_phone_invalid: 'The phone in "Deliver to" is not valid.', address_line_missing: 'Fill in the address in "Deliver to".',
+    province_not_found: 'Phzar does not deliver to this province. Choose another one.', zone_inactive: 'Phzar does not deliver to this province now. Choose another one.',
+    cod_not_allowed: 'Phzar has cash on delivery switched off for this area.', payment_method_disabled: 'Phzar has cash on delivery switched off for this area.',
+    empty_cart: 'Add at least one product.', invalid_quantity: 'Check the quantities.', below_minimum_order: 'Some products have a minimum quantity. Add more pieces.',
+    item_not_found: 'A product is not available in Phzar now. Remove it and try again.', item_unavailable: 'A product is not available in Phzar now. Remove it and try again.',
+    order_not_found: 'Phzar does not know this order.', reason_required: 'Write why the order is cancelled.',
+    too_late_to_cancel: 'Too late to cancel here: Phzar has already packed it. Ask Phzar staff (or return it after delivery).',
+    no_answer: 'Phzar did not answer (internet). Tap "Send again" — it will never make a second order.',
+    failed: 'Something went wrong. Try again; if it happens again, tell the admin.', not_sent: 'This order never reached Phzar.'
+  };
+  K.phzarMsg = e => ERR[(e && e.code) || e] || (e && e.message) || ERR.failed;
+  const ST = { sending: ['Sending…', 'gy'], failed: ['Not sent', 'rd'], pending: ['Waiting for Phzar', 'or'], confirmed: ['Confirmed', 'bl'], packed: ['Packed', 'bl'],
+    shipping: ['On the way', 'bl'], delivered: ['Delivered · counted', 'gr'], cancelled: ['Cancelled', 'gy'], returned: ['Returned', 'rd'] };
+  const pill = s => { const x = ST[s] || [s, 'gy']; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; };
+  const itemsTxt = o => (o.items || []).map(i => `${nm(i.name) || 'Product'}${nm(i.option) ? ' (' + nm(i.option) + ')' : ''} ×${i.quantity}`).join(', ');
+  const total = o => o.total_cents != null ? o.total_cents : (o.items || []).reduce((a, i) => a + (+i.price_cents || 0) * (+i.quantity || 0), 0);
+  const row = (o, opt) => `<button class="list-item" data-pz="${o.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
+      <div class="ic-av sq" style="background:var(--ps)">🛒</div><div class="grow"><div class="tt">${esc(o.checkout_number || o.ref)} · ${esc(o.customer_name || '')}</div>
+      <div class="st">${dayTxt(o.created_at)}${opt && opt.rep ? ' · ' + esc(o.rep_name || '') : ''} · ${esc(itemsTxt(o))}</div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${usd(total(o))}</b>${pill(o.status)}</div></button>`;
+
+  // ---------- the list ----------
+  K.route(/^\/phzar$/, async (_, q, current) => {
+    if (!K.canSeePhzar()) return K.go(ADMIN ? '#/dashboard' : '#/home');
+    const P = K.period, st = { p: q.p || 'month', from: q.from || P.range('custom')[0], to: q.to || P.today() };
+    let staffF = '', stF = '';
+    const newBtn = K.canPhzar() ? `<a class="btn sm" href="#/phzar/new" style="text-decoration:none">${icon('plus', 18)}<span class="hide-sm">New Phzar order</span></a>` : '';
+    const setBtn = K.S.me.role === 'admin' ? `<button class="btn sm out" id="pzset">${icon('pen', 16)}<span class="hide-sm">Settings</span></button>` : '';
+    const main = ADMIN ? K.adm.shell('orders', 'Order in Phzar', setBtn + newBtn) : K.page({ title: 'Order in Phzar', sub: 'Phzar products for your customers', back: '#/orders' });
+    const staff = isBoss() || K.allow('reports.view') ? await K.data.staff().catch(() => []) : [];
+    if (!current()) return;
+    main.innerHTML = `${ADMIN ? `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">All orders</a><a class="chip" href="#/nopsales" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">🧾 No products</a><span class="chip on" style="display:inline-flex;align-items:center">🛒 Order in Phzar</span></div>` : ''}
+      <div class="${ADMIN ? 'apad' : 'pad'}">
+      ${!ADMIN && K.canPhzar() ? `<a class="btn block" href="#/phzar/new" style="text-decoration:none">${icon('plus', 18)}New Phzar order</a>` : ''}
+      <div class="filters" style="display:flex;gap:8px;flex-wrap:wrap">${staff.length ? `<select class="inp" id="pzsf" aria-label="Filter by staff" style="width:auto;min-width:150px"><option value="">All staff</option>${staff.filter(u => u.active && K.SELLERS.includes(u.role)).map(u => `<option value="${esc(u.id)}">${esc(u.full_name)}</option>`).join('')}</select>` : ''}
+        <select class="inp" id="pzst" aria-label="Filter by status" style="width:auto;min-width:150px"><option value="">All statuses</option>${Object.entries(ST).map(([k, v]) => `<option value="${k}">${esc(v[0])}</option>`).join('')}</select></div>
+      <div id="pzper" style="display:flex;flex-direction:column;gap:10px"></div><div class="row small muted" id="pzsum"></div><div class="card flush" id="pzlist"></div>
+      <div class="small muted">Phzar prices, cash on delivery to K-TRONiCS. When Phzar marks an order Delivered, it is counted as a sale without products for the sales rep (own target and commission %). Cancelled = not counted; returned = removed again.</div></div>`;
+    if ($('#pzset')) $('#pzset').onclick = () => settingsSheet();
+    const draw = async () => {
+      const [a, b] = P.range(st.p, st.from, st.to);
+      $('#pzper').innerHTML = P.html(st.p, st.from, st.to) + `<div class="small muted">${esc(P.label(st))}</div>`;
+      P.bind($('#pzper'), st, () => draw());
+      $('#pzlist').innerHTML = K.loading;
+      const all = await api.phzarOrders(a, b, null).catch(e => { toast(e.message); return []; });
+      if (!current()) return;
+      const list = all.filter(o => (!staffF || o.sales_rep_id === staffF) && (!stF || o.status === stF));
+      const del = list.filter(o => o.status === 'delivered');
+      $('#pzsum').innerHTML = `<span class="grow">${list.length} <span>orders</span> · <span>Delivered</span> ${usd(del.reduce((t, o) => t + (+o.delivered_cents || 0), 0))}</span>`;
+      $('#pzlist').innerHTML = list.length ? list.map(o => row(o, { rep: !!staff.length })).join('') : K.emptyBox('order', 'No Phzar orders for these dates');
+      $$('[data-pz]', $('#pzlist')).forEach(btn => btn.onclick = () => detailSheet(list.find(o => o.id === +btn.dataset.pz), () => draw()));
+    };
+    if ($('#pzsf')) $('#pzsf').onchange = e => { staffF = e.target.value; draw(); };
+    $('#pzst').onchange = e => { stF = e.target.value; draw(); };
+    draw();
+  });
+
+  // ---------- one order ----------
+  function detailSheet(o, onDone) {
+    const s = K.sheet(o.checkout_number || o.ref, '');
+    const mine = o.sales_rep_id === K.S.me.id || isBoss();
+    const lines = (o.sent_items && o.sent_items.length ? o.sent_items : o.items || []);
+    $('.sb', s.el).innerHTML = `<div class="card" style="gap:8px"><div class="row"><b class="grow">${esc(o.customer_name || '')}</b>${pill(o.status)}</div>
+        <div class="small muted">${esc(o.ref)}${o.checkout_number ? ' · Phzar ' + esc(o.checkout_number) : ''} · ${dayTxt(o.created_at)} · ${esc(o.rep_name || '')}</div>
+        ${lines.map(i => `<div class="row small"><span class="grow">${esc(nm(i.name) || 'Product')}${nm(i.option) ? ' (' + esc(nm(i.option)) + ')' : ''} ×${esc(i.quantity)}</span><b>${i.line_total_cents != null ? usd(i.line_total_cents) : i.price_cents != null ? usd(i.price_cents * i.quantity) : ''}</b></div>`).join('')}
+        <div class="row"><b class="grow">Total</b><b style="font-size:18px">${usd(total(o))}</b></div>
+        ${o.total_riel ? `<div class="small muted" style="text-align:right">${Number(o.total_riel).toLocaleString('en-US')} ៛</div>` : ''}
+        ${o.status === 'delivered' ? `<div class="small" style="color:var(--gr);font-weight:700"><span>Counted in sales</span>: ${usd(o.delivered_cents)}</div>` : ''}
+        ${o.error ? `<div class="small" style="color:var(--rd)">${esc(K.phzarMsg(o.error))}</div>` : ''}
+        ${o.cancel_reason ? `<div class="small muted"><span>Reason</span>: ${esc(o.cancel_reason)}</div>` : ''}</div>
+      <div class="card" style="gap:4px"><div class="small muted">Deliver to</div><b>${esc((o.deliver_to || {}).name || '')}</b>
+        <div class="small">${esc((o.deliver_to || {}).phone || '')} · ${esc((o.deliver_to || {}).address_line || '')}${(o.deliver_to || {}).note ? ' · ' + esc(o.deliver_to.note) : ''}</div>
+        ${o.end_customer ? `<div class="small"><span>For</span>: ${esc(o.end_customer)}</div>` : ''}${o.note ? `<div class="small muted">${esc(o.note)}</div>` : ''}</div>
+      ${mine && o.status === 'sending' ? `<button class="btn block" id="pzre">Send again</button><div class="small muted">Safe: Phzar never makes a second order.</div>` : ''}
+      ${mine && ['pending', 'confirmed', 'packed', 'shipping', 'delivered', 'sending'].includes(o.status) ? `<button class="btn out block" id="pzrf">${icon('refresh', 16)}Check status with Phzar</button>` : ''}
+      ${mine && ['pending', 'confirmed'].includes(o.status) ? `<button class="btn out block" id="pzcx" style="color:var(--rd)">Cancel this order</button>` : ''}
+      ${mine && o.status === 'failed' && K.canPhzar() ? `<button class="btn out block" id="pzcp">Make a new order with these products</button>` : ''}
+      ${!K.live ? '<div class="demo-note">Demo: "Check status" moves the order one step forward, like Phzar staff would.</div>' : ''}`;
+    const after = msg => { s.close(); if (msg) toast(msg); K.forget('customers'); onDone && onDone(); };
+    if ($('#pzre', s.el)) $('#pzre', s.el).onclick = async e => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const r = await api.phzarCall({ action: 'resend', ref: o.ref }); after('Sent: ' + ((r.answer || {}).checkout_number || o.ref)); }
+      catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
+    };
+    if ($('#pzrf', s.el)) $('#pzrf', s.el).onclick = async e => {
+      const b = e.currentTarget; b.disabled = true;
+      try { await api.phzarCall({ action: 'refresh', ref: o.ref }); after('Updated'); }
+      catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
+    };
+    if ($('#pzcx', s.el)) $('#pzcx', s.el).onclick = () => {
+      const c = K.sheet('Cancel this order?', `<div class="small muted">Only before Phzar packs it. Phzar staff will see your reason.</div>
+        <label class="f">Why?<input class="inp" id="pzrs" maxlength="300" placeholder="e.g. Customer changed mind"></label><button class="btn red block" id="pzcok">Cancel the order</button>`);
+      $('#pzcok', c.el).onclick = async e => {
+        const reason = $('#pzrs', c.el).value.trim(); if (!reason) return toast(ERR.reason_required);
+        const b = e.currentTarget; b.disabled = true;
+        try { await api.phzarCall({ action: 'cancel', ref: o.ref, reason }); c.close(); after('Cancelled'); }
+        catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
+      };
+    };
+    if ($('#pzcp', s.el)) $('#pzcp', s.el).onclick = () => { CART.customer_id = o.customer_id; CART.lines = (o.items || []).map(i => Object.assign({}, i)); s.close(); K.go('#/phzar/new'); };
+  }
+
+  // ---------- new order ----------
+  const CART = { customer_id: null, lines: [] };   // kept while the app is open
+  K.route(/^\/phzar\/new$/, async (_, q, current) => {
+    if (!K.canPhzar()) return K.go('#/phzar');
+    const main = ADMIN ? K.adm.shell('orders', 'New Phzar order', `<a class="btn sm out" href="#/phzar" style="text-decoration:none">Back</a>`) : K.page({ title: 'New Phzar order', sub: 'Phzar prices · cash on delivery', back: '#/phzar' });
+    const [shops, st] = await Promise.all([K.data.customers().catch(() => []), api.getSettings().catch(() => ({}))]);
+    if (!current()) return;
+    const mine = shops.filter(c => c.status !== 'rejected');
+    let results = [], provinces = [];
+    main.innerHTML = `<div class="${ADMIN ? 'apad' : 'pad'}" style="display:flex;flex-direction:column;gap:12px">
+      <label class="f">Customer<select class="inp" id="pzc"><option value="">Choose…</option>${mine.map(c => `<option value="${c.id}" ${c.id === CART.customer_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      <div class="card" style="gap:10px"><b>Phzar products</b>
+        <div class="row" style="gap:8px"><input class="inp grow" id="pzq" placeholder="Search name or code" enterkeyhint="search"><button class="btn sm" id="pzgo">${icon('search', 16)}Search</button></div>
+        <div id="pzres" style="display:flex;flex-direction:column;gap:10px"></div></div>
+      <div class="card" style="gap:8px" id="pzcart"></div>
+      <div class="card" style="gap:10px"><b>Deliver to</b><div class="small muted">Phzar delivers to K-TRONiCS; you then serve your customer. Cash on delivery.</div>
+        <label class="f">Name<input class="inp" id="dtn" value="${esc(st.phzar_deliver_name || 'K-TRONiCS office')}"></label>
+        <label class="f">Phone<input class="inp" id="dtp" inputmode="tel" value="${esc(st.phzar_deliver_phone || st.company_phone || '')}"></label>
+        <label class="f">Address<input class="inp" id="dta" value="${esc(st.phzar_deliver_address || st.company_address || '')}"></label>
+        <label class="f">Note for the driver (optional)<input class="inp" id="dto" value="${esc(st.phzar_deliver_note || '')}"></label>
+        <label class="f">Province<select class="inp" id="dtv"><option value="${esc(st.phzar_province || 'phnom-penh')}">${esc(st.phzar_province || 'phnom-penh')}</option></select></label></div>
+      <label class="f">Who is it for? (optional)<input class="inp" id="pze" maxlength="200" placeholder="e.g. Sokha 012 345 678"></label>
+      <label class="f">Note (optional)<input class="inp" id="pzn" maxlength="500"></label>
+      <button class="btn block" id="pzsend">Send to Phzar</button>
+      <div class="small muted">Prices are today's Phzar prices. Phzar works out the final total. It counts in your sales when Phzar marks it Delivered.</div></div>`;
+    $('#pzc').onchange = e => { CART.customer_id = +e.target.value || null; };
+    const drawCart = () => {
+      const t = CART.lines.reduce((a, l) => a + (+l.price_cents || 0) * l.quantity, 0);
+      $('#pzcart').innerHTML = `<div class="row"><b class="grow">Your order</b><span class="small muted">${CART.lines.reduce((a, l) => a + l.quantity, 0)} <span>pcs</span></span></div>` + (CART.lines.length
+        ? CART.lines.map((l, i) => `<div class="row" style="gap:8px;align-items:center"><div class="grow"><div class="tt" style="font-size:14px">${esc(nm(l.name))}${nm(l.option) ? ' · ' + esc(nm(l.option)) : ''}</div>
+            <div class="st">${usd(l.price_cents)} × ${l.quantity}${l.min_quantity > 1 ? ` · <span>min.</span> ${l.min_quantity}` : ''}</div></div>
+            <button class="btn sm out" data-dec="${i}" aria-label="Less">−</button><input class="inp" data-qty="${i}" type="number" inputmode="numeric" min="1" value="${l.quantity}" style="width:64px;text-align:center" aria-label="Quantity">
+            <button class="btn sm out" data-inc="${i}" aria-label="More">+</button><button class="ib" data-rm="${i}" aria-label="Remove">${icon('x', 18)}</button></div>`).join('') + `<div class="row"><b class="grow">Total (today's price)</b><b>${usd(t)}</b></div>`
+        : '<div class="small muted">No products yet. Search above and tap Add.</div>');
+      const set = (i, v) => { CART.lines[i].quantity = Math.max(1, Math.min(9999, Math.round(+v || 1))); drawCart(); };
+      $$('[data-inc]', $('#pzcart')).forEach(b => b.onclick = () => set(+b.dataset.inc, CART.lines[+b.dataset.inc].quantity + 1));
+      $$('[data-dec]', $('#pzcart')).forEach(b => b.onclick = () => set(+b.dataset.dec, CART.lines[+b.dataset.dec].quantity - 1));
+      $$('[data-qty]', $('#pzcart')).forEach(b => b.onchange = () => set(+b.dataset.qty, b.value));
+      $$('[data-rm]', $('#pzcart')).forEach(b => b.onclick = () => { CART.lines.splice(+b.dataset.rm, 1); drawCart(); });
+    };
+    const drawResults = () => {
+      $('#pzres').innerHTML = results.length ? results.map((p, pi) => `<div class="row" style="gap:10px;align-items:flex-start;border-top:1px solid var(--line);padding-top:10px">
+          ${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:10px;flex:none;background:var(--chatbg)">` : '<div class="ic-av sq" style="width:56px;height:56px">🛒</div>'}
+          <div class="grow" style="display:flex;flex-direction:column;gap:6px"><div class="tt" style="font-size:15px">${esc(nm(p.name))}</div>
+            <div class="st">${esc(p.brand || '')}${p.min_quantity > 1 ? ` · <span>Minimum</span> ${p.min_quantity}` : ''}</div>
+            ${(p.options || []).map((v, vi) => `<div class="row" style="gap:8px;align-items:center"><span class="grow small">${esc(nm(v.name) || '—')}${v.sku ? ' · ' + esc(v.sku) : ''}</span><b class="small">${usd(v.price_cents)}</b>
+              ${v.can_order ? `<button class="btn sm" data-add="${pi}:${vi}">${icon('plus', 14)}Add</button>` : '<span class="pill gy">Not available</span>'}</div>`).join('')}</div></div>`).join('')
+        : '';
+      $$('[data-add]', $('#pzres')).forEach(b => b.onclick = () => {
+        const [pi, vi] = b.dataset.add.split(':').map(Number), p = results[pi], v = p.options[vi];
+        const have = CART.lines.find(l => l.variant_id === v.variant_id);
+        if (have) have.quantity += 1;
+        else CART.lines.push({ variant_id: v.variant_id, quantity: Math.max(1, +p.min_quantity || 1), min_quantity: +p.min_quantity || 1, name: nm(p.name), option: nm(v.name), price_cents: v.price_cents, image_url: p.image_url || '' });
+        drawCart(); toast('Added');
+      });
+    };
+    const search = async btn => {
+      const term = $('#pzq').value.trim();
+      $('#pzres').innerHTML = K.loading;
+      try { const r = await api.phzarCall({ action: 'products', search: term, limit: 50 }); results = (r && r.products) || []; }
+      catch (err) { results = []; $('#pzres').innerHTML = `<div class="small" style="color:var(--rd)">${esc(K.phzarMsg(err))}</div>`; return; }
+      if (!current()) return;
+      drawResults(); if (!results.length) $('#pzres').innerHTML = `<div class="small muted">No Phzar products found</div>`;
+    };
+    $('#pzgo').onclick = e => search(e.currentTarget);
+    $('#pzq').onkeydown = e => { if (e.key === 'Enter') search(); };
+    drawCart();
+    api.phzarCall({ action: 'provinces' }).then(r => {
+      provinces = (r && r.provinces) || []; if (!provinces.length || !current() || !$('#dtv')) return;
+      const cur = st.phzar_province || 'phnom-penh';
+      $('#dtv').innerHTML = provinces.map(p => `<option value="${esc(p.code)}" ${p.code === cur ? 'selected' : ''}>${esc(nm(p.name) || p.code)}</option>`).join('');
+    }).catch(() => {});
+    $('#pzsend').onclick = async e => {
+      const v = id => ($('#' + id) || {}).value || '';
+      const order = { customer_id: CART.customer_id || +v('pzc') || null, end_customer: v('pze'), note: v('pzn'), province_code: v('dtv'),
+        deliver_to: { name: v('dtn'), phone: v('dtp'), address_line: v('dta'), note: v('dto') },
+        items: CART.lines.map(l => ({ variant_id: l.variant_id, quantity: l.quantity, name: l.name, option: l.option, price_cents: l.price_cents, image_url: l.image_url })) };
+      if (!order.customer_id) return toast('Choose the customer');
+      if (!order.items.length) return toast(ERR.empty_cart);
+      const low = CART.lines.find(l => l.quantity < (l.min_quantity || 1));
+      if (low) return toast(ERR.below_minimum_order);
+      const b = e.currentTarget; b.disabled = true; const old = b.innerHTML; b.innerHTML = '<div class="spin" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></div>';
+      try {
+        const r = await api.phzarCall({ action: 'place', order });
+        CART.lines = []; CART.customer_id = null;
+        toast('Sent to Phzar: ' + ((r.answer || {}).checkout_number || r.ref)); K.go('#/phzar');
+      } catch (err) {
+        if (b.isConnected) { b.disabled = false; b.innerHTML = old; }
+        if (err.ref && err.retry) { CART.lines = []; CART.customer_id = null; toast(ERR.no_answer); K.go('#/phzar'); return; }   // saved as "sending": the list shows "Send again"
+        toast(K.phzarMsg(err));
+        if (err.ref) { CART.lines = []; K.go('#/phzar'); }   // refused by Phzar: saved as "Not sent" with the reason
+      }
+    };
+  });
+
+  // ---------- admin: settings ----------
+  function settingsSheet() {
+    const s = K.sheet('Order in Phzar · Settings', K.loading);
+    api.getSettings().then(st => {
+      if (!s.el.isConnected) return;
+      $('.sb', s.el).innerHTML = `<div class="small muted">Where Phzar delivers K-TRONiCS orders. Reps see this filled in and can change it on an order.</div>
+        <label class="f">Name<input class="inp" id="sn" value="${esc(st.phzar_deliver_name || 'K-TRONiCS office')}"></label>
+        <label class="f">Phone<input class="inp" id="sp" inputmode="tel" value="${esc(st.phzar_deliver_phone || '')}"></label>
+        <label class="f">Address<input class="inp" id="sa" value="${esc(st.phzar_deliver_address || '')}"></label>
+        <label class="f">Note for the driver<input class="inp" id="so" value="${esc(st.phzar_deliver_note || '')}"></label>
+        <label class="f">Province code<input class="inp" id="sv" value="${esc(st.phzar_province || 'phnom-penh')}"></label>
+        <label class="f">Our function address (for the nightly check)<input class="inp" id="su" value="${esc(st.phzar_function_url || '')}" placeholder="https://….supabase.co/functions/v1/phzar"></label>
+        <div class="small muted">The Phzar secret is NOT here: it is only in Supabase → Edge Functions → Secrets.</div>
+        <button class="btn block" id="sok">Save</button>`;
+      $('#sok', s.el).onclick = async e => {
+        const v = id => $('#' + id, s.el).value.trim();
+        await busy(e.currentTarget, () => api.phzarSettingsSave({ phzar_deliver_name: v('sn'), phzar_deliver_phone: v('sp'), phzar_deliver_address: v('sa'), phzar_deliver_note: v('so'), phzar_province: v('sv'), phzar_function_url: v('su') }));
+        s.close(); toast('Saved');
+      };
+    }).catch(e => toast(e.message));
+  }
 })();
 
 // Field staff daily targets (24 Oct 2026, Mr. Lee): shop visits and new shops a day — the rep's Home card and the
@@ -13590,7 +14072,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ${fresh ? '<div class="card" style="background:var(--ors)"><b>Counted again from attendance.</b><div class="small">Check the numbers, then tap <b>Save payroll</b>. Paid salaries are not changed.</div></div>' : ''}
           ${unsaved && !fresh ? `<div class="small" style="color:var(--or);font-weight:700">${unsaved} not saved yet. Numbers can still change while staff work this month. Tap Save payroll when the month is finished.</div>` : ''}
           <div class="tbl"><table style="font-size:13px"><thead><tr>${th('Staff', 1)}${th('Net pay')}${th('', 1)}${th('Base')}${th('Allowance')}${th('Commission')}${th('Overtime')}${th('Sunday')}${th('Holiday')}${th('Bonus')}${th('Late')}${th('Unpaid leave')}${th('Absent')}${th('Advance')}${th('NSSF / tax')}${th('Other')}${th('Expenses to pay back')}</tr></thead><tbody>
-          ${L.map(l => `<tr data-pln="${esc(l.user_id)}" style="cursor:pointer"><td style="min-width:150px"><b>${esc(l.full_name)}</b><div class="small muted" style="white-space:nowrap">${dz(l.days_worked, 'days at work') || 'no attendance'}</div>${ctx.hrs ? `<div class="small muted" style="white-space:nowrap">${leftOf(l.user_id)} d leave left</div>` : ''}</td>
+          ${L.map(l => `<tr data-pln="${esc(l.user_id)}" style="cursor:pointer"><td style="min-width:150px"><b>${esc(l.full_name)}</b><div class="small muted" style="white-space:nowrap">${dz(l.days_worked, 'days at work') || 'no attendance'}</div>${ctx.hrs ? `<div class="small muted" style="white-space:nowrap">${leftOf(l.user_id)} d leave left</div>` : ''}${l.start_date && l.start_date > month && l.start_date.slice(0, 7) === month.slice(0, 7) ? `<div class="small" style="white-space:nowrap;color:var(--or)">started ${esc(K.poDate ? K.poDate(l.start_date) : l.start_date)} · part of ${money(l.full_base)}</div>` : ''}</td>
             <td style="text-align:right;white-space:nowrap"><b style="font-size:15px">${money(l.net)}</b></td><td>${st(l)}</td>
             <td style="text-align:right">${money(l.base)}</td><td style="text-align:right">${c(l.allowance)}</td><td style="text-align:right">${c(l.commission)}</td>
             <td style="text-align:right">${c(l.ot_pay, l.ot_hours, 'h')}</td><td style="text-align:right">${c(l.sunday_pay, l.sunday_days, 'day(s)')}</td><td style="text-align:right">${c(l.holiday_pay, l.holiday_days, 'day(s)')}</td>
