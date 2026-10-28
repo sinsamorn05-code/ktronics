@@ -4171,15 +4171,8 @@ window.makeDemoApi = function () {
           const ms = []; for (let d = new Date(a.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= b; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= a && m1 <= b) ms.push(m0); }
           return { salaries: r2(D.payLines.filter(l => ms.includes(l.month)).reduce((x, l) => x + +l.gross, 0)), salary_months: ms.length, salary_missing: ms.filter(m => !D.payLines.some(l => l.month === m)) }; })() }); },
     async moneyOnHand(from, to) { if (!hasRole('admin')) fail('Only the admin can see money on hand'); api._office(); api._owner(); api._pay();
-      const a = from < to ? from : to, b = from < to ? to : from, inR = d => d && d >= a && d <= b, r2 = n => +(+n).toFixed(2), sum = (l, f) => r2(l.reduce((x, y) => x + +(f(y) || 0), 0));
-      const ms = []; for (let d = new Date(a.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= b; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= a && m1 <= b) ms.push(m0); }
-      const col = sum(D.payments.filter(p => p.status === 'confirmed' && inR(localDay(p.received_at))), p => p.amount_usd), stx = sum(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on)), e => e.amount_usd),
-        ofx = sum(D.office.filter(e => inR(e.spent_on)), e => e.amount_usd), sal = sum(D.payLines.filter(l => ms.includes(l.month)), l => l.gross),
-        ot = sum(D.owner.filter(x => x.kind === 'take' && inR(x.day)), x => x.amount_usd), ob = sum(D.owner.filter(x => x.kind === 'return' && inR(x.day)), x => x.amount_usd),
-        sp = sum((D.spays || []).filter(x => x.kind !== 'refund' && inR(x.paid_on)), x => x.amount), sr = sum((D.spays || []).filter(x => x.kind === 'refund' && inR(x.paid_on)), x => x.amount);
-      return wait({ from: a, to: b, collected: col, waiting: sum(D.payments.filter(p => p.status === 'pending' && inR(localDay(p.received_at))), p => p.amount_usd),
-        staff_exp: stx, office: ofx, salaries: sal, salary_months: ms.length, opex: r2(stx + ofx + sal), owner_took: ot, owner_back: ob, owner: r2(ot - ob),
-        suppliers_paid: sp, supplier_refunds: sr, suppliers: r2(sp - sr), on_hand: r2(col - (stx + ofx + sal) - (ot - ob) - (sp - sr)) }); },
+      const a = from < to ? from : to, b = from < to ? to : from, m = api._cashMoves(a, b);
+      return wait(Object.assign({}, m, { from: a, to: b, net: api._cashNet(m) })); },
     async dashboardCash() { if (!hasRole('admin')) fail('Only the admin can see cash on hand'); api._owner();
       const t = localDay0(new Date()), m0 = t.slice(0, 8) + '01', o = D.cashOpening || null, month = api._cashMoves(m0, t), since = o ? api._cashMoves(o.day, t) : null;
       return wait({ today: t, month_from: m0, month, month_net: api._cashNet(month), opening_set: !!o, opening_day: o && o.day, opening_cash: o && o.cash, opening_bank: o && o.bank,
@@ -6466,14 +6459,18 @@ Object.assign(window.KT_KM, {
 
 // Money on hand (28 Oct 2026)
 Object.assign(window.KT_KM, {
-  "Paid to suppliers": "បានបង់អ្នកផ្គត់ផ្គង់",
-  "= Money on hand": "= ប្រាក់នៅក្នុងដៃ",
-  "collected − expenses − owner − suppliers": "បានប្រមូល − ចំណាយ − ម្ចាស់ − អ្នកផ្គត់ផ្គង់",
-  "Only money that moved in these dates. It does not include money you had before these dates.": "តែប្រាក់ដែលចេញចូលក្នុងថ្ងៃទាំងនេះ។ មិនរួមប្រាក់ដែលអ្នកមានមុនថ្ងៃទាំងនេះទេ។"
+  "Money on hand now ›": "ប្រាក់នៅក្នុងដៃឥឡូវ ›",
+  "Money on hand now": "ប្រាក់នៅក្នុងដៃឥឡូវ",
+  "cash + ABA + bank": "សាច់ប្រាក់ + ABA + ធនាគារ",
+  "Money on hand now: enter your starting money ›": "ប្រាក់នៅក្នុងដៃឥឡូវ: បញ្ចូលប្រាក់ចាប់ផ្តើម ›",
+  "real cash, on the day it moved": "សាច់ប្រាក់ពិត តាមថ្ងៃដែលវាចេញចូល",
+  "= Money in − money out": "= ប្រាក់ចូល − ប្រាក់ចេញ",
+  "Money in": "ប្រាក់ចូល",
+  "Money out": "ប្រាក់ចេញ"
 });
 window.KT_KM_PATTERNS.push(
-  [/^Money on hand (.+) ›$/, 'ប្រាក់នៅក្នុងដៃ $1 ›'],
-  [/^Money on hand · (.+)$/, 'ប្រាក់នៅក្នុងដៃ · $1']
+  [/^Money in − out (.+) ›$/, 'ប្រាក់ចូល − ចេញ $1 ›'],
+  [/^Money in − out · (.+)$/, 'ប្រាក់ចូល − ចេញ · $1']
 );
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
@@ -8314,14 +8311,18 @@ Object.assign(window.KT_ZH, {
 
 // Money on hand (28 Oct 2026)
 Object.assign(window.KT_ZH, {
-  "Paid to suppliers": "已付供应商",
-  "= Money on hand": "= 手头现金",
-  "collected − expenses − owner − suppliers": "收款 − 费用 − 老板 − 供应商",
-  "Only money that moved in these dates. It does not include money you had before these dates.": "只计算这些日期内进出的钱，不包括这些日期之前已有的钱。"
+  "Money on hand now ›": "现在手头现金 ›",
+  "Money on hand now": "现在手头现金",
+  "cash + ABA + bank": "现金 + ABA + 银行",
+  "Money on hand now: enter your starting money ›": "现在手头现金：输入起始金额 ›",
+  "real cash, on the day it moved": "真实现金，按进出当天计算",
+  "= Money in − money out": "= 收入 − 支出",
+  "Money in": "收入",
+  "Money out": "支出"
 });
 window.KT_ZH_PATTERNS.push(
-  [/^Money on hand (.+) ›$/, '手头现金 $1 ›'],
-  [/^Money on hand · (.+)$/, '手头现金 · $1']
+  [/^Money in − out (.+) ›$/, '收入 − 支出 $1 ›'],
+  [/^Money in − out · (.+)$/, '收入 − 支出 · $1']
 );
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -8823,9 +8824,9 @@ window.KT_ZH_PATTERNS.push(
   K.cashBoxes = (c, kpi) => {
     const owes = +c.owner_owes;
     const cashBox = c.opening_set
-      ? `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b><span>Cash & bank now ›</span></button>`
-      : `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit;border-style:dashed"><b style="color:var(--p)">Set up</b><span>Cash & bank: enter your starting money ›</span></button>`;
-    return kpi(owes > 0.004 ? money(owes) : '$0.00', owes > 0.004 ? 'Owner owes the company · took ' + money(c.owner_took) + ' this month' : 'Owner\'s account · all paid back', owes > 0.004 ? 'var(--rd)' : 'var(--gr)', '#/owner');
+      ? `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b><span>Money on hand now ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">cash + ABA + bank</em></button>`
+      : `<button class="stat" id="cashbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit;border-style:dashed"><b style="color:var(--p)">Set up</b><span>Money on hand now: enter your starting money ›</span></button>`;
+    return cashBox + kpi(owes > 0.004 ? money(owes) : '$0.00', owes > 0.004 ? 'Owner owes the company · took ' + money(c.owner_took) + ' this month' : 'Owner\'s account · all paid back', owes > 0.004 ? 'var(--rd)' : 'var(--gr)', '#/owner');
   };
   const dLong = d => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const movesHtml = m => {
@@ -8836,6 +8837,7 @@ window.KT_ZH_PATTERNS.push(
       ${ln('Paid to suppliers', m.suppliers_paid, '-', '#/purchases')}${ln('Salaries paid', m.salaries_paid, '-', '#/hr?t=payroll')}${ln('Salary advances given', m.advances, '-', '#/hr?t=payroll')}
       ${ln('Staff expenses paid back', m.staff_paid, '-', '#/expenses')}${ln('Office expenses', m.office, '-', '#/office')}${ln('Owner took', m.owner_took, '-', '#/owner')}${+m.shop_refunds ? ln('Refunded to shops (returned orders)', m.shop_refunds, '-', '#/orders') : ''}`;
   };
+  K.cashMovesHtml = movesHtml;
   K.cashOpeningSheet = (c, onDone) => {
     const s = K.sheet('Starting money', `<div class="small muted" style="line-height:1.5">Choose a day and write how much money the business had at the <b>start of that day</b>: count the cash in the box and look at the ABA / bank balance. From that day the app adds every payment in and takes away every payment out, so the number stays right. Only you can see this.</div>
       <label class="f">Start day<input class="inp" id="cod" type="date" value="${esc(c.opening_day || c.month_from)}" max="${esc(c.today)}"></label>
@@ -8849,11 +8851,11 @@ window.KT_ZH_PATTERNS.push(
   };
   K.cashSheet = (c, onDone) => {
     if (!c.opening_set) return K.cashOpeningSheet(c, onDone);
-    const s = K.sheet('Cash & bank now', `<div class="small muted">Cash + ABA + bank together · counted from ${esc(dLong(c.opening_day))} to today</div>
+    const s = K.sheet('Money on hand now', `<div class="small muted">Cash + ABA + bank together · counted from ${esc(dLong(c.opening_day))} to today</div>
       <div class="card" style="gap:2px">
         <div class="row small" style="padding:3px 0"><span class="grow">Starting money on ${esc(dLong(c.opening_day))} <span class="muted">(cash ${money(c.opening_cash)} · bank ${money(c.opening_bank)})</span></span><b>${money(+c.opening_cash + +c.opening_bank)}</b></div>
         ${movesHtml(c.since)}
-        <div class="row" style="border-top:1px solid var(--line);padding-top:8px;margin-top:4px;font-size:17px"><b class="grow">Cash & bank now</b><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b></div></div>
+        <div class="row" style="border-top:1px solid var(--line);padding-top:8px;margin-top:4px;font-size:17px"><b class="grow">Money on hand now</b><b style="color:${+c.balance < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.balance)}</b></div></div>
       ${+c.since.waiting ? `<div class="card" style="background:var(--ors)"><div class="small"><b>${money(c.since.waiting)}</b> collected by staff is still <b>waiting for a manager to check</b>. It is added when it is confirmed.</div></div>` : ''}
       <div class="card" style="gap:2px"><b style="font-size:14px">This month only (${esc(dLong(c.month_from))} – today)</b>${movesHtml(c.month)}
         <div class="row small" style="border-top:1px solid var(--line);padding-top:6px;margin-top:4px"><b class="grow">Money in − money out this month</b><b style="color:${+c.month_net < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(c.month_net)}</b></div></div>
@@ -11135,19 +11137,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return `<button class="stat" id="expbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b>${money(total)}</b><span>${sal != null || off != null ? 'Operating expenses' : 'Staff expenses'} ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">${esc(parts.join(' · '))}</em>${note}</button>`;
   };
 
-  // Money on hand (28 Oct, admin only): collected (confirmed) − operating expenses − owner (took − put back) − suppliers (paid − money back)
-  K.mohBox = (m, pName) => `<button class="stat" id="mohbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+m.on_hand < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.on_hand)}</b><span>Money on hand ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">collected − expenses − owner − suppliers</em></button>`;
-  K.mohSheet = (m, title) => {
-    const line = (l, v, sign, href, sub) => `<a class="row" href="${href}" style="text-decoration:none;color:inherit;padding:6px 0;border-bottom:1px solid var(--line)"><span class="grow"><b>${sign} ${l}</b>${sub ? `<span class="small muted" style="display:block">${sub}</span>` : ''}</span><b>${money(v)}</b></a>`;
-    const s = sheet(title, `<div style="display:flex;flex-direction:column;gap:2px">
-      ${line('Money collected', m.collected, '+', '#/payments?t=all', 'Confirmed payments only' + (+m.waiting ? ' · ' + money(m.waiting) + ' still waiting check, not counted' : ''))}
-      ${line('Operating expenses', m.opex, '−', '#/expenses', 'staff ' + money(m.staff_exp) + ' · office ' + money(m.office) + ' · salaries ' + (m.salary_months ? money(m.salaries) : '— (whole months only)'))}
-      ${line('Owner\'s account', m.owner, '−', '#/owner', 'took ' + money(m.owner_took) + ' · put back ' + money(m.owner_back))}
-      ${line('Paid to suppliers', m.suppliers, '−', '#/purchases?t=suppliers', 'paid ' + money(m.suppliers_paid) + (+m.supplier_refunds ? ' · money back ' + money(m.supplier_refunds) : ''))}
-      <div class="row" style="font-size:18px;padding-top:10px"><b class="grow">= Money on hand</b><b style="color:${+m.on_hand < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.on_hand)}</b></div>
-      <div class="small muted" style="margin-top:6px">Only money that moved in these dates. It does not include money you had before these dates.</div></div>`);
-    return s;
-  };
+  // Money on hand for the chosen dates (28 Oct, admin only): real money in − money out, on the day the money moved
+  K.mohBox = (m, pName) => `<button class="stat" id="mohbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+m.net < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.net)}</b><span>Money in − out ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">real cash, on the day it moved</em></button>`;
+  K.mohSheet = (m, title) => sheet(title, `<div class="card" style="gap:2px">${K.cashMovesHtml(m)}
+      <div class="row" style="border-top:1px solid var(--line);padding-top:8px;margin-top:4px;font-size:17px"><b class="grow">= Money in − money out</b><b style="color:${+m.net < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.net)}</b></div></div>
+    ${+m.waiting ? `<div class="card" style="background:var(--ors)"><div class="small"><b>${money(m.waiting)}</b> collected by staff is still <b>waiting for a manager to check</b>. It is added when it is confirmed.</div></div>` : ''}
+    <div class="small muted" style="line-height:1.5">Real money only, on the day it moved: staff expenses when paid back, salaries on the day paid, salary advances when given. Money you had before these dates is not here: see "Money on hand now". The owner's money is its own line, never mixed with sales.</div>`);
 
   // ---------------- Dashboard ----------------
   route(/^\/(home|dashboard)$/, async (_, __, current) => {
@@ -11198,7 +11193,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     K.exchangeWaitingCard($('#xwait'));
     if ($('#dper')) P.bind($('#dper'), dst, () => K.render());
     if ($('#expbox') && per) $('#expbox').onclick = () => (K.opexSheet && K.allow('reports.view') && K.allow('purchases.manage')) ? K.opexSheet(per.from, per.to, 'Operating expenses · ' + pName) : go('#/expenses');
-    if ($('#mohbox') && moh) $('#mohbox').onclick = () => K.mohSheet(moh, 'Money on hand · ' + pName);
+    if ($('#mohbox') && moh) $('#mohbox').onclick = () => K.mohSheet(moh, 'Money in − out · ' + pName);
     if ($('#tg')) $('#tg').onclick = () => K.targetsSheet(() => K.render());
     if ($('#rkme') && K.rankingMeSheet) $('#rkme').onclick = () => K.rankingMeSheet();
     if (K.fieldTeamBox) K.fieldTeamBox($('#ftd'));
