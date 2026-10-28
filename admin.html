@@ -1482,7 +1482,7 @@ window.makeSupabaseApi = function (cfg) {
       }
       return data;
     },
-    phzarOrders: (from, to, rep) => q(sb.rpc('phzar_orders_list', { p_from: from || null, p_to: to || null, p_rep: rep || null })),
+    phzarOrders: (from, to, rep) => q(sb.rpc('phzar_orders_list2', { p_from: from || null, p_to: to || null, p_rep: rep || null })),
     phzarSettingsSave: p => q(sb.rpc('phzar_settings_save', { p })),
     setOrderCommission: (id, rate) => q(sb.rpc('order_set_commission', { p_order: id, p_rate: rate === '' || rate == null ? null : +rate })),
     commissionLines: (month, uid) => q(sb.rpc('commission_lines', { p_month: month, p_user: uid || null })),
@@ -3330,6 +3330,23 @@ window.makeDemoApi = function () {
         if (!String(b.reason || '').trim()) pzFail('reason_required');
         if (!['pending', 'confirmed'].includes(o.status)) pzFail('too_late_to_cancel');
         o.status = 'cancelled'; o.cancel_reason = String(b.reason).trim(); o.status_at = now(); toNop(o); save(); return wait({ ok: true, state: { ref: o.ref, status: o.status } });
+      }
+      if (b.action === 'request_cancel') {
+        if (!String(b.reason || '').trim()) pzFail('reason_required');
+        if (['pending', 'confirmed'].includes(o.status)) pzFail('cancel_request_not_needed');
+        if (!['packed', 'shipping', 'delivered'].includes(o.status)) pzFail('already_cancelled');
+        if (o.cancel_request === 'pending') pzFail('already_requested');
+        o.cancel_request = 'pending'; o.cancel_request_reason = String(b.reason).trim(); o.cancel_request_note = null; o.cancel_request_at = now();
+        save(); return wait({ ok: true, state: { ref: o.ref, status: o.status, cancel_request: 'pending' } });
+      }
+      if (b.action === 'delete') {
+        if (!['failed', 'cancelled', 'returned'].includes(o.status)) fail('Only a cancelled, returned or not-sent order can be deleted. Cancel it first (or ask Phzar to cancel it).');
+        if (o.nop_sale_id) D.nopSales = (D.nopSales || []).filter(x => x.id !== o.nop_sale_id);
+        PZ.orders = PZ.orders.filter(x => x !== o); save(); return wait({ ok: true });
+      }
+      if (b.action === 'refresh' && o.cancel_request === 'pending') {   // demo: Phzar staff approve the cancel request
+        o.status = 'cancelled'; o.delivered_cents = 0; o.cancel_reason = o.cancel_request_reason; o.cancel_request = null; o.status_at = now(); toNop(o); save();
+        return wait({ ok: true, state: { ref: o.ref, status: o.status } });
       }
       if (b.action === 'refresh') {   // demo: Phzar staff move it one step forward
         const NEXT = { sending: 'pending', pending: 'confirmed', confirmed: 'packed', packed: 'shipping', shipping: 'delivered' };
@@ -6411,6 +6428,31 @@ Object.assign(window.KT_KM, {
   "Choose the customer": "ជ្រើសអតិថិជន"
 });
 
+// Order in Phzar: cancel request + delete (28 Oct 2026)
+Object.assign(window.KT_KM, {
+  "Cancel asked": "បានស្នើលុបចោល",
+  "Cancel request waiting for Phzar": "សំណើលុបចោលកំពុងរង់ចាំ Phzar",
+  "Phzar refused to cancel": "Phzar មិនយល់ព្រមលុបចោល",
+  "Cancel and delete": "លុបចោល និងលុបចេញ",
+  "Ask Phzar to cancel": "ស្នើ Phzar លុបចោល",
+  "Phzar has packed it already, so Phzar staff must approve. When they approve, you can delete it.": "Phzar បានវេចខ្ចប់រួចហើយ ដូច្នេះបុគ្គលិក Phzar ត្រូវយល់ព្រម។ ពេលពួកគេយល់ព្រម អ្នកអាចលុបវាចេញបាន។",
+  "Delete this order": "លុបការបញ្ជាទិញនេះ",
+  "Cancel and delete?": "លុបចោល និងលុបចេញ?",
+  "Phzar has not packed it yet, so it is cancelled at Phzar at once (no approval), then deleted completely from this app. Phzar staff will see your reason.": "Phzar មិនទាន់វេចខ្ចប់ ដូច្នេះវាត្រូវលុបចោលនៅ Phzar ភ្លាមៗ (មិនចាំបាច់យល់ព្រម) ហើយលុបចេញទាំងស្រុងពីកម្មវិធីនេះ។ បុគ្គលិក Phzar នឹងឃើញមូលហេតុរបស់អ្នក។",
+  "Ask Phzar to cancel?": "ស្នើ Phzar លុបចោល?",
+  "Phzar staff will see your reason and approve or refuse. You get a message either way. After they approve, the order is not counted any more and you can delete it.": "បុគ្គលិក Phzar នឹងឃើញមូលហេតុរបស់អ្នក ហើយយល់ព្រម ឬបដិសេធ។ អ្នកនឹងទទួលសារទោះយ៉ាងណាក៏ដោយ។ ក្រោយពួកគេយល់ព្រម ការបញ្ជាទិញនឹងមិនត្រូវរាប់ទៀតទេ ហើយអ្នកអាចលុបវាចេញបាន។",
+  "Send the request": "ផ្ញើសំណើ",
+  "Delete this order?": "លុបការបញ្ជាទិញនេះ?",
+  "It is removed completely from this app: the list, the reports and the sales without products. This cannot be undone.": "វានឹងត្រូវលុបចេញទាំងស្រុងពីកម្មវិធីនេះ: បញ្ជី របាយការណ៍ និងការលក់គ្មានផលិតផល។ មិនអាចត្រឡប់វិញបានទេ។",
+  "Cancelled and deleted": "បានលុបចោល និងលុបចេញ",
+  "Request sent to Phzar": "បានផ្ញើសំណើទៅ Phzar",
+  "Deleted": "បានលុប",
+  "Phzar has not packed it yet: use Cancel and delete.": "Phzar មិនទាន់វេចខ្ចប់: ប្រើ លុបចោល និងលុបចេញ។",
+  "This order is already cancelled.": "ការបញ្ជាទិញនេះត្រូវបានលុបចោលរួចហើយ។",
+  "You already asked Phzar to cancel this order.": "អ្នកបានស្នើ Phzar លុបចោលការបញ្ជាទិញនេះរួចហើយ។",
+  "Demo: \"Check status\" moves the order one step forward, like Phzar staff would (and approves a cancel request).": "សាកល្បង: \"ពិនិត្យស្ថានភាព\" រំកិលការបញ្ជាទិញទៅមុខមួយជំហាន ដូចបុគ្គលិក Phzar ធ្វើ (ហើយយល់ព្រមសំណើលុបចោល)។"
+});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8222,6 +8264,31 @@ Object.assign(window.KT_ZH, {
   "Choose the customer": "请选择客户"
 });
 
+// Order in Phzar: cancel request + delete (28 Oct 2026)
+Object.assign(window.KT_ZH, {
+  "Cancel asked": "已申请取消",
+  "Cancel request waiting for Phzar": "取消申请等待 Phzar 处理",
+  "Phzar refused to cancel": "Phzar 拒绝取消",
+  "Cancel and delete": "取消并删除",
+  "Ask Phzar to cancel": "申请 Phzar 取消",
+  "Phzar has packed it already, so Phzar staff must approve. When they approve, you can delete it.": "Phzar 已经打包，需要 Phzar 员工批准。批准后您就可以删除。",
+  "Delete this order": "删除此订单",
+  "Cancel and delete?": "取消并删除？",
+  "Phzar has not packed it yet, so it is cancelled at Phzar at once (no approval), then deleted completely from this app. Phzar staff will see your reason.": "Phzar 还没打包，所以会立即在 Phzar 取消（无需批准），然后从本应用中完全删除。Phzar 员工会看到您的原因。",
+  "Ask Phzar to cancel?": "申请 Phzar 取消？",
+  "Phzar staff will see your reason and approve or refuse. You get a message either way. After they approve, the order is not counted any more and you can delete it.": "Phzar 员工会看到您的原因并批准或拒绝。无论结果如何您都会收到消息。批准后该订单不再计入，您可以删除它。",
+  "Send the request": "发送申请",
+  "Delete this order?": "删除此订单？",
+  "It is removed completely from this app: the list, the reports and the sales without products. This cannot be undone.": "将从本应用中完全删除：列表、报表和无产品销售。无法恢复。",
+  "Cancelled and deleted": "已取消并删除",
+  "Request sent to Phzar": "申请已发送给 Phzar",
+  "Deleted": "已删除",
+  "Phzar has not packed it yet: use Cancel and delete.": "Phzar 还没打包：请用“取消并删除”。",
+  "This order is already cancelled.": "此订单已取消。",
+  "You already asked Phzar to cancel this order.": "您已经申请 Phzar 取消此订单。",
+  "Demo: \"Check status\" moves the order one step forward, like Phzar staff would (and approves a cancel request).": "演示：“查询状态”会把订单向前推进一步，就像 Phzar 员工操作一样（并批准取消申请）。"
+});
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -9503,6 +9570,7 @@ Object.assign(window.KT_ZH, {
     order_not_found: 'Phzar does not know this order.', reason_required: 'Write why the order is cancelled.',
     too_late_to_cancel: 'Too late to cancel here: Phzar has already packed it. Ask Phzar staff (or return it after delivery).',
     no_answer: 'Phzar did not answer (internet). Tap "Send again" — it will never make a second order.',
+    cancel_request_not_needed: 'Phzar has not packed it yet: use Cancel and delete.', already_cancelled: 'This order is already cancelled.', already_requested: 'You already asked Phzar to cancel this order.',
     failed: 'Something went wrong. Try again; if it happens again, tell the admin.', not_sent: 'This order never reached Phzar.'
   };
   K.phzarMsg = e => ERR[(e && e.code) || e] || (e && e.message) || ERR.failed;
@@ -9514,7 +9582,7 @@ Object.assign(window.KT_ZH, {
   const row = (o, opt) => `<button class="list-item" data-pz="${o.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
       <div class="ic-av sq" style="background:var(--ps)">🛒</div><div class="grow"><div class="tt">${esc(o.checkout_number || o.ref)} · ${esc(o.customer_name || '')}</div>
       <div class="st">${dayTxt(o.created_at)}${opt && opt.rep ? ' · ' + esc(o.rep_name || '') : ''} · ${esc(itemsTxt(o))}</div></div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${usd(total(o))}</b>${pill(o.status)}</div></button>`;
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${usd(total(o))}</b>${pill(o.status)}${o.cancel_request === 'pending' ? '<span class="pill or">Cancel asked</span>' : ''}</div></button>`;
 
   // ---------- the list ----------
   K.route(/^\/phzar$/, async (_, q, current) => {
@@ -9555,7 +9623,7 @@ Object.assign(window.KT_ZH, {
   // ---------- one order ----------
   function detailSheet(o, onDone) {
     const s = K.sheet(o.checkout_number || o.ref, '');
-    const mine = o.sales_rep_id === K.S.me.id || isBoss();
+    const mine = o.sales_rep_id === K.S.me.id || o.created_by === K.S.me.id || isBoss();
     const lines = (o.sent_items && o.sent_items.length ? o.sent_items : o.items || []);
     $('.sb', s.el).innerHTML = `<div class="card" style="gap:8px"><div class="row"><b class="grow">${esc(o.customer_name || '')}</b>${pill(o.status)}</div>
         <div class="small muted">${esc(o.ref)}${o.checkout_number ? ' · Phzar ' + esc(o.checkout_number) : ''} · ${dayTxt(o.created_at)} · ${esc(o.rep_name || '')}</div>
@@ -9564,15 +9632,19 @@ Object.assign(window.KT_ZH, {
         ${o.total_riel ? `<div class="small muted" style="text-align:right">${Number(o.total_riel).toLocaleString('en-US')} ៛</div>` : ''}
         ${o.status === 'delivered' ? `<div class="small" style="color:var(--gr);font-weight:700"><span>Counted in sales</span>: ${usd(o.delivered_cents)}</div>` : ''}
         ${o.error ? `<div class="small" style="color:var(--rd)">${esc(K.phzarMsg(o.error))}</div>` : ''}
-        ${o.cancel_reason ? `<div class="small muted"><span>Reason</span>: ${esc(o.cancel_reason)}</div>` : ''}</div>
+        ${o.cancel_reason ? `<div class="small muted"><span>Reason</span>: ${esc(o.cancel_reason)}</div>` : ''}
+        ${o.cancel_request === 'pending' ? `<div class="small" style="color:var(--or);font-weight:700"><span>Cancel request waiting for Phzar</span>${o.cancel_request_reason ? ' · ' + esc(o.cancel_request_reason) : ''}</div>` : ''}
+        ${o.cancel_request === 'refused' ? `<div class="small" style="color:var(--rd)"><span>Phzar refused to cancel</span>${o.cancel_request_note ? ': ' + esc(o.cancel_request_note) : ''}</div>` : ''}</div>
       <div class="card" style="gap:4px"><div class="small muted">Deliver to</div><b>${esc((o.deliver_to || {}).name || '')}</b>
         <div class="small">${esc((o.deliver_to || {}).phone || '')} · ${esc((o.deliver_to || {}).address_line || '')}${(o.deliver_to || {}).note ? ' · ' + esc(o.deliver_to.note) : ''}</div>
         ${o.end_customer ? `<div class="small"><span>For</span>: ${esc(o.end_customer)}</div>` : ''}${o.note ? `<div class="small muted">${esc(o.note)}</div>` : ''}</div>
       ${mine && o.status === 'sending' ? `<button class="btn block" id="pzre">Send again</button><div class="small muted">Safe: Phzar never makes a second order.</div>` : ''}
       ${mine && ['pending', 'confirmed', 'packed', 'shipping', 'delivered', 'sending'].includes(o.status) ? `<button class="btn out block" id="pzrf">${icon('refresh', 16)}Check status with Phzar</button>` : ''}
-      ${mine && ['pending', 'confirmed'].includes(o.status) ? `<button class="btn out block" id="pzcx" style="color:var(--rd)">Cancel this order</button>` : ''}
+      ${mine && ['pending', 'confirmed'].includes(o.status) ? `<button class="btn out block" id="pzcx" style="color:var(--rd)">Cancel and delete</button>` : ''}
+      ${mine && ['packed', 'shipping', 'delivered'].includes(o.status) && o.cancel_request !== 'pending' ? `<button class="btn out block" id="pzrq" style="color:var(--rd)">Ask Phzar to cancel</button><div class="small muted">Phzar has packed it already, so Phzar staff must approve. When they approve, you can delete it.</div>` : ''}
+      ${mine && ['failed', 'cancelled', 'returned'].includes(o.status) ? `<button class="btn out block" id="pzdel" style="color:var(--rd)">${icon('x', 16)}Delete this order</button>` : ''}
       ${mine && o.status === 'failed' && K.canPhzar() ? `<button class="btn out block" id="pzcp">Make a new order with these products</button>` : ''}
-      ${!K.live ? '<div class="demo-note">Demo: "Check status" moves the order one step forward, like Phzar staff would.</div>' : ''}`;
+      ${!K.live ? '<div class="demo-note">Demo: "Check status" moves the order one step forward, like Phzar staff would (and approves a cancel request).</div>' : ''}`;
     const after = msg => { s.close(); if (msg) toast(msg); K.forget('customers'); onDone && onDone(); };
     if ($('#pzre', s.el)) $('#pzre', s.el).onclick = async e => {
       const b = e.currentTarget; b.disabled = true;
@@ -9585,14 +9657,33 @@ Object.assign(window.KT_ZH, {
       catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
     };
     if ($('#pzcx', s.el)) $('#pzcx', s.el).onclick = () => {
-      const c = K.sheet('Cancel this order?', `<div class="small muted">Only before Phzar packs it. Phzar staff will see your reason.</div>
-        <label class="f">Why?<input class="inp" id="pzrs" maxlength="300" placeholder="e.g. Customer changed mind"></label><button class="btn red block" id="pzcok">Cancel the order</button>`);
+      const c = K.sheet('Cancel and delete?', `<div class="small muted">Phzar has not packed it yet, so it is cancelled at Phzar at once (no approval), then deleted completely from this app. Phzar staff will see your reason.</div>
+        <label class="f">Why?<input class="inp" id="pzrs" maxlength="300" placeholder="e.g. Customer changed mind"></label><button class="btn red block" id="pzcok">Cancel and delete</button>`);
       $('#pzcok', c.el).onclick = async e => {
         const reason = $('#pzrs', c.el).value.trim(); if (!reason) return toast(ERR.reason_required);
         const b = e.currentTarget; b.disabled = true;
-        try { await api.phzarCall({ action: 'cancel', ref: o.ref, reason }); c.close(); after('Cancelled'); }
+        try { await api.phzarCall({ action: 'cancel', ref: o.ref, reason }); }
+        catch (err) { b.disabled = false; return toast(K.phzarMsg(err)); }
+        try { await api.phzarCall({ action: 'delete', ref: o.ref }); c.close(); after('Cancelled and deleted'); }
+        catch (err) { c.close(); after(); toast(K.phzarMsg(err)); }
+      };
+    };
+    if ($('#pzrq', s.el)) $('#pzrq', s.el).onclick = () => {
+      const c = K.sheet('Ask Phzar to cancel?', `<div class="small muted">Phzar staff will see your reason and approve or refuse. You get a message either way. After they approve, the order is not counted any more and you can delete it.</div>
+        <label class="f">Why?<input class="inp" id="pzrs" maxlength="300" placeholder="e.g. Customer changed mind"></label><button class="btn red block" id="pzrok">Send the request</button>`);
+      $('#pzrok', c.el).onclick = async e => {
+        const reason = $('#pzrs', c.el).value.trim(); if (!reason) return toast(ERR.reason_required);
+        const b = e.currentTarget; b.disabled = true;
+        try { await api.phzarCall({ action: 'request_cancel', ref: o.ref, reason }); c.close(); after('Request sent to Phzar'); }
         catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
       };
+    };
+    if ($('#pzdel', s.el)) $('#pzdel', s.el).onclick = async e => {
+      const b = e.currentTarget;
+      if (!(await K.confirmSheet('Delete this order?', 'It is removed completely from this app: the list, the reports and the sales without products. This cannot be undone.', 'Delete', true))) return;
+      b.disabled = true;
+      try { await api.phzarCall({ action: 'delete', ref: o.ref }); after('Deleted'); }
+      catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
     };
     if ($('#pzcp', s.el)) $('#pzcp', s.el).onclick = () => { CART.customer_id = o.customer_id; CART.lines = (o.items || []).map(i => Object.assign({}, i)); s.close(); K.go('#/phzar/new'); };
   }
