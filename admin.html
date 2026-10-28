@@ -1765,6 +1765,7 @@ window.makeSupabaseApi = function (cfg) {
     ownerDelete: id => q(sb.rpc('owner_delete', { p_id: id })),
     dashboardCash: () => q(sb.rpc('dashboard_cash')),
     dashboardPeriod: (from, to) => q(sb.rpc('dashboard_period', { p_from: from, p_to: to })),
+    moneyOnHand: (from, to) => q(sb.rpc('money_on_hand', { p_from: from, p_to: to })),
     cashOpeningSave: (day, cash, bank) => q(sb.rpc('cash_opening_save', { p_day: day, p_cash: cash, p_bank: bank })),
     // payroll
     payrollGet: (month, fresh) => q(sb.rpc('payroll_get', { p_month: month, p_fresh: !!fresh })),
@@ -4169,6 +4170,16 @@ window.makeDemoApi = function () {
         ...(() => { if (!(hasRole('admin') || allow('hr.manage'))) return { salaries: null, salary_months: null, salary_missing: null }; api._pay();
           const ms = []; for (let d = new Date(a.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= b; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= a && m1 <= b) ms.push(m0); }
           return { salaries: r2(D.payLines.filter(l => ms.includes(l.month)).reduce((x, l) => x + +l.gross, 0)), salary_months: ms.length, salary_missing: ms.filter(m => !D.payLines.some(l => l.month === m)) }; })() }); },
+    async moneyOnHand(from, to) { if (!hasRole('admin')) fail('Only the admin can see money on hand'); api._office(); api._owner(); api._pay();
+      const a = from < to ? from : to, b = from < to ? to : from, inR = d => d && d >= a && d <= b, r2 = n => +(+n).toFixed(2), sum = (l, f) => r2(l.reduce((x, y) => x + +(f(y) || 0), 0));
+      const ms = []; for (let d = new Date(a.slice(0, 7) + '-01T00:00:00'); localDay0(d) <= b; d.setMonth(d.getMonth() + 1)) { const m0 = localDay0(d), m1 = localDay0(new Date(d.getFullYear(), d.getMonth() + 1, 0)); if (m0 >= a && m1 <= b) ms.push(m0); }
+      const col = sum(D.payments.filter(p => p.status === 'confirmed' && inR(localDay(p.received_at))), p => p.amount_usd), stx = sum(D.expenses.filter(e => ['approved', 'paid'].includes(e.status) && inR(e.spent_on)), e => e.amount_usd),
+        ofx = sum(D.office.filter(e => inR(e.spent_on)), e => e.amount_usd), sal = sum(D.payLines.filter(l => ms.includes(l.month)), l => l.gross),
+        ot = sum(D.owner.filter(x => x.kind === 'take' && inR(x.day)), x => x.amount_usd), ob = sum(D.owner.filter(x => x.kind === 'return' && inR(x.day)), x => x.amount_usd),
+        sp = sum((D.spays || []).filter(x => x.kind !== 'refund' && inR(x.paid_on)), x => x.amount), sr = sum((D.spays || []).filter(x => x.kind === 'refund' && inR(x.paid_on)), x => x.amount);
+      return wait({ from: a, to: b, collected: col, waiting: sum(D.payments.filter(p => p.status === 'pending' && inR(localDay(p.received_at))), p => p.amount_usd),
+        staff_exp: stx, office: ofx, salaries: sal, salary_months: ms.length, opex: r2(stx + ofx + sal), owner_took: ot, owner_back: ob, owner: r2(ot - ob),
+        suppliers_paid: sp, supplier_refunds: sr, suppliers: r2(sp - sr), on_hand: r2(col - (stx + ofx + sal) - (ot - ob) - (sp - sr)) }); },
     async dashboardCash() { if (!hasRole('admin')) fail('Only the admin can see cash on hand'); api._owner();
       const t = localDay0(new Date()), m0 = t.slice(0, 8) + '01', o = D.cashOpening || null, month = api._cashMoves(m0, t), since = o ? api._cashMoves(o.day, t) : null;
       return wait({ today: t, month_from: m0, month, month_net: api._cashNet(month), opening_set: !!o, opening_day: o && o.day, opening_cash: o && o.cash, opening_bank: o && o.bank,
@@ -6453,6 +6464,18 @@ Object.assign(window.KT_KM, {
   "Demo: \"Check status\" moves the order one step forward, like Phzar staff would (and approves a cancel request).": "សាកល្បង: \"ពិនិត្យស្ថានភាព\" រំកិលការបញ្ជាទិញទៅមុខមួយជំហាន ដូចបុគ្គលិក Phzar ធ្វើ (ហើយយល់ព្រមសំណើលុបចោល)។"
 });
 
+// Money on hand (28 Oct 2026)
+Object.assign(window.KT_KM, {
+  "Paid to suppliers": "បានបង់អ្នកផ្គត់ផ្គង់",
+  "= Money on hand": "= ប្រាក់នៅក្នុងដៃ",
+  "collected − expenses − owner − suppliers": "បានប្រមូល − ចំណាយ − ម្ចាស់ − អ្នកផ្គត់ផ្គង់",
+  "Only money that moved in these dates. It does not include money you had before these dates.": "តែប្រាក់ដែលចេញចូលក្នុងថ្ងៃទាំងនេះ។ មិនរួមប្រាក់ដែលអ្នកមានមុនថ្ងៃទាំងនេះទេ។"
+});
+window.KT_KM_PATTERNS.push(
+  [/^Money on hand (.+) ›$/, 'ប្រាក់នៅក្នុងដៃ $1 ›'],
+  [/^Money on hand · (.+)$/, 'ប្រាក់នៅក្នុងដៃ · $1']
+);
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8288,6 +8311,18 @@ Object.assign(window.KT_ZH, {
   "You already asked Phzar to cancel this order.": "您已经申请 Phzar 取消此订单。",
   "Demo: \"Check status\" moves the order one step forward, like Phzar staff would (and approves a cancel request).": "演示：“查询状态”会把订单向前推进一步，就像 Phzar 员工操作一样（并批准取消申请）。"
 });
+
+// Money on hand (28 Oct 2026)
+Object.assign(window.KT_ZH, {
+  "Paid to suppliers": "已付供应商",
+  "= Money on hand": "= 手头现金",
+  "collected − expenses − owner − suppliers": "收款 − 费用 − 老板 − 供应商",
+  "Only money that moved in these dates. It does not include money you had before these dates.": "只计算这些日期内进出的钱，不包括这些日期之前已有的钱。"
+});
+window.KT_ZH_PATTERNS.push(
+  [/^Money on hand (.+) ›$/, '手头现金 $1 ›'],
+  [/^Money on hand · (.+)$/, '手头现金 · $1']
+);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -11100,6 +11135,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return `<button class="stat" id="expbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b>${money(total)}</b><span>${sal != null || off != null ? 'Operating expenses' : 'Staff expenses'} ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">${esc(parts.join(' · '))}</em>${note}</button>`;
   };
 
+  // Money on hand (28 Oct, admin only): collected (confirmed) − operating expenses − owner (took − put back) − suppliers (paid − money back)
+  K.mohBox = (m, pName) => `<button class="stat" id="mohbox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b style="color:${+m.on_hand < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.on_hand)}</b><span>Money on hand ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">collected − expenses − owner − suppliers</em></button>`;
+  K.mohSheet = (m, title) => {
+    const line = (l, v, sign, href, sub) => `<a class="row" href="${href}" style="text-decoration:none;color:inherit;padding:6px 0;border-bottom:1px solid var(--line)"><span class="grow"><b>${sign} ${l}</b>${sub ? `<span class="small muted" style="display:block">${sub}</span>` : ''}</span><b>${money(v)}</b></a>`;
+    const s = sheet(title, `<div style="display:flex;flex-direction:column;gap:2px">
+      ${line('Money collected', m.collected, '+', '#/payments?t=all', 'Confirmed payments only' + (+m.waiting ? ' · ' + money(m.waiting) + ' still waiting check, not counted' : ''))}
+      ${line('Operating expenses', m.opex, '−', '#/expenses', 'staff ' + money(m.staff_exp) + ' · office ' + money(m.office) + ' · salaries ' + (m.salary_months ? money(m.salaries) : '— (whole months only)'))}
+      ${line('Owner\'s account', m.owner, '−', '#/owner', 'took ' + money(m.owner_took) + ' · put back ' + money(m.owner_back))}
+      ${line('Paid to suppliers', m.suppliers, '−', '#/purchases?t=suppliers', 'paid ' + money(m.suppliers_paid) + (+m.supplier_refunds ? ' · money back ' + money(m.supplier_refunds) : ''))}
+      <div class="row" style="font-size:18px;padding-top:10px"><b class="grow">= Money on hand</b><b style="color:${+m.on_hand < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(m.on_hand)}</b></div>
+      <div class="small muted" style="margin-top:6px">Only money that moved in these dates. It does not include money you had before these dates.</div></div>`);
+    return s;
+  };
+
   // ---------------- Dashboard ----------------
   route(/^\/(home|dashboard)$/, async (_, __, current) => {
     if (!K.allow('dashboard.view')) {      // office roles without the dashboard: open their first page
@@ -11109,7 +11158,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     await refreshCounts();
     const main = shell('dashboard', 'Main Dashboard', `<a class="btn sm" href="#/announce">${icon('mega', 18)}<span class="hide-sm">Announce</span></a>`, new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }));
     const P = K.period, dst = K.dashSt || (K.dashSt = { p: 'today', from: P.range('custom')[0], to: P.today() }), [pf, pt] = P.range(dst.p, dst.from, dst.to);
-    const [d, orders, products, visits, team, cash, per] = await Promise.all([api.dashboard(), loadOrders(true), data.products(true), api.listVisits(), api.teamSales(K.monthKey()), S.me.role === 'admin' && api.dashboardCash ? api.dashboardCash().catch(() => null) : null, api.dashboardPeriod ? api.dashboardPeriod(pf, pt).catch(() => null) : null]);
+    const [d, orders, products, visits, team, cash, per, moh] = await Promise.all([api.dashboard(), loadOrders(true), data.products(true), api.listVisits(), api.teamSales(K.monthKey()), S.me.role === 'admin' && api.dashboardCash ? api.dashboardCash().catch(() => null) : null, api.dashboardPeriod ? api.dashboardPeriod(pf, pt).catch(() => null) : null, S.me.role === 'admin' && api.moneyOnHand ? api.moneyOnHand(pf, pt).catch(() => null) : null]);
     if (!current()) return;
     const days = per && per.days ? per.days : d.last7, max = Math.max(1, ...days.map(x => +x.total));
     const pName = { today: 'today', wk: 'this week', month: 'this month', last: 'last month' }[dst.p] || P.label(dst);
@@ -11123,7 +11172,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div id="dper" style="display:flex;flex-direction:column;gap:8px">${P.html(dst.p, dst.from, dst.to, P.DASH)}<div class="small muted">${esc(P.label(dst))}</div></div>
       <div class="sec">For ${esc(pName)}</div>
       <div class="kpis big">${per ? kpi(money(per.sales), 'Sales ' + pName, null, '#/reports') + kpi(per.orders, 'Orders ' + pName, null, '#/orders') + kpi(money(per.collected), 'Collected ' + pName, +per.collected ? 'var(--gr)' : null, '#/payments?t=all')
-          + kpi(per.visits, 'Shop visits ' + pName, null, '#/visits') + K.dashExpBox(per, pName) + kpi(per.new_shops, 'New shops ' + pName, null, '#/customers')
+          + kpi(per.visits, 'Shop visits ' + pName, null, '#/visits') + K.dashExpBox(per, pName) + (moh ? K.mohBox(moh, pName) : '') + kpi(per.new_shops, 'New shops ' + pName, null, '#/customers')
         : kpi(money(d.sales_today), 'Sales today', null, '#/reports') + kpi(d.orders_today, 'Orders today', null, '#/orders') + kpi(money(d.collected_today || 0), 'Collected today', d.collected_today ? 'var(--gr)' : null, '#/payments?t=all') + kpi(d.visits_today, 'Shop visits today', null, '#/visits')}</div>
       <div class="sec">Right now</div>
       <div class="kpis small">${cash ? K.cashBoxes(cash, kpi) : ''}
@@ -11149,6 +11198,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     K.exchangeWaitingCard($('#xwait'));
     if ($('#dper')) P.bind($('#dper'), dst, () => K.render());
     if ($('#expbox') && per) $('#expbox').onclick = () => (K.opexSheet && K.allow('reports.view') && K.allow('purchases.manage')) ? K.opexSheet(per.from, per.to, 'Operating expenses · ' + pName) : go('#/expenses');
+    if ($('#mohbox') && moh) $('#mohbox').onclick = () => K.mohSheet(moh, 'Money on hand · ' + pName);
     if ($('#tg')) $('#tg').onclick = () => K.targetsSheet(() => K.render());
     if ($('#rkme') && K.rankingMeSheet) $('#rkme').onclick = () => K.rankingMeSheet();
     if (K.fieldTeamBox) K.fieldTeamBox($('#ftd'));
