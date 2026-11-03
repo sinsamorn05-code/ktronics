@@ -1159,7 +1159,7 @@ window.KT_PERMS = [
     ['partners.stock', 'See partner stock', 'How many pieces each partner has. Never their prices, customers or sales'],
     ['partners.request', 'Purchase order request to partner', 'Ask a partner for goods. They wait in Partners → Waiting to receive']] },
   { group: 'Phzar', items: [
-    ['phzar.order', 'Order in Phzar', 'Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a sale without products when delivered']] },
+    ['phzar.order', 'Order in Phzar', 'Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a Phzar sale (own target and commission %) when delivered']] },
   { group: 'Shop visits', items: [
     ['visits.create', 'Check in at shops'],
     ['visits.view_all', 'See all staff visits'],
@@ -1171,6 +1171,7 @@ window.KT_PERMS = [
     ['expenses.office', 'Record office expenses', 'Company costs: rent, electricity, internet, supplies…']] },
   { group: 'HR & attendance', items: [
     ['attendance.view', 'See everyone\'s attendance and leave'],
+    ['attendance.record_others', 'Record attendance and leave for other staff', 'Start / finish work and fix times for a staff member (no selfie), and write leave for them'],
     ['hr.manage', 'Staff details, salary, leave approval, commission', 'Sensitive: salary']] },
   { group: 'Chat', items: [
     ['chat.announce', 'Post in the announcements channel'],
@@ -1184,7 +1185,7 @@ window.KT_PERM_KEYS = window.KT_PERMS.flatMap(g => g.items.map(i => i[0]));
 window.KT_PERM_DEFAULTS = {
   manager: ['phzar.order', 'orders.assign', 'orders.see_money', 'orders.create', 'orders.view_all', 'orders.approve', 'orders.deliver', 'orders.paid', 'orders.cancel', 'orders.edit_any', 'customers.view_all', 'customers.create',
     'customers.approve', 'customers.manage', 'stock.manage', 'visits.create', 'visits.view_all', 'expenses.create', 'expenses.approve', 'expenses.record_others', 'expenses.office',
-    'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'visits.manage', 'stock.view_main', 'stock.adjust_approve'],
+    'chat.announce', 'chat.create_group', 'chat.create_channel', 'dashboard.view', 'reports.view', 'payments.collect', 'payments.confirm', 'purchases.manage', 'purchases.receive', 'attendance.view', 'attendance.record_others', 'visits.manage', 'stock.view_main', 'stock.adjust_approve'],
   supervisor: ['orders.see_money', 'orders.create', 'orders.approve', 'customers.create', 'customers.approve', 'visits.create', 'expenses.create', 'chat.create_group', 'stock.view_main'],
   sales: ['phzar.order', 'orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
   online_sales: ['phzar.order', 'orders.see_money', 'orders.create', 'customers.create', 'visits.create', 'expenses.create', 'chat.create_group'],
@@ -1192,7 +1193,7 @@ window.KT_PERM_DEFAULTS = {
   accountant: ['orders.see_money', 'dashboard.view', 'reports.view', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'expenses.approve',
     'expenses.record_others', 'expenses.office', 'purchases.manage', 'chat.create_group'],
   cashier: ['orders.see_money', 'orders.view_all', 'orders.paid', 'customers.view_all', 'payments.collect', 'payments.confirm', 'expenses.create', 'chat.create_group'],
-  hr: ['orders.see_money', 'hr.manage', 'attendance.view', 'expenses.create', 'chat.announce', 'chat.create_group'],
+  hr: ['orders.see_money', 'hr.manage', 'attendance.view', 'attendance.record_others', 'expenses.create', 'chat.announce', 'chat.create_group'],
   purchasing: ['orders.see_money', 'purchases.manage', 'purchases.receive', 'stock.view_main', 'expenses.create', 'chat.create_group'],
   warehouse: ['orders.assign', 'orders.view_all', 'orders.deliver', 'customers.view_all', 'stock.manage', 'expenses.create', 'chat.create_group', 'purchases.receive'],
   driver: ['orders.view_all', 'orders.deliver', 'customers.view_all', 'expenses.create', 'chat.create_group']
@@ -1394,6 +1395,7 @@ window.makeSupabaseApi = function (cfg) {
 
     // staff
     listStaff: async () => (await q(sb.from('profiles').select('*').order('active', { ascending: true }).order('full_name'))).filter(u => u.role !== 'guest'),
+    deleteUser: id => q(sb.rpc('admin_delete_user', { p_id: id })),
     updateStaff: (id, role, active, fullName, phone) => q(sb.rpc('admin_update_staff', { p_id: id, p_role: role, p_active: active, p_full_name: fullName || null, p_phone: phone === undefined ? null : (phone || '') })),
 
     // stock
@@ -1638,6 +1640,8 @@ window.makeSupabaseApi = function (cfg) {
     listAttendance: (from, to) => all(() => sb.from('attendance').select('*, profiles(full_name)').gte('work_date', from).lte('work_date', to).order('work_date', { ascending: false }).order('id', { ascending: false }), 10000),
     async todayAttendance() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return q(sb.from('attendance').select('*').eq('staff_id', me.id).eq('work_date', d.toISOString().slice(0, 10)).maybeSingle()); },
     async clockIn(lat, lng, photo, note) { const url = photo ? await api.uploadPhoto(photo, 'attendance') : null; return q(sb.rpc('clock_in', { p_lat: lat, p_lng: lng, p_photo: url, p_note: note || null })); },
+    attRecord: p => q(sb.rpc('att_record', { p })),
+    leaveFor: p => q(sb.rpc('leave_for', { p })),
     clockOut: (lat, lng, note) => q(sb.rpc('clock_out', { p_lat: lat, p_lng: lng, p_note: note || null })),
     listLeave: () => all(() => sb.from('leave_requests').select('*, profiles!leave_requests_staff_id_fkey(full_name)').order('id', { ascending: false }), 5000),
     askLeave: x => q(sb.from('leave_requests').insert({ staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || null }).select().single()),
@@ -2215,6 +2219,7 @@ window.makeDemoApi = function () {
   const hasRole = (...r) => r.includes(role());
   const ensurePerms = () => { if (!D.rolePerms) { D.rolePerms = {}; Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { D.rolePerms[r] = {}; list.forEach(p => { D.rolePerms[r][p] = true; }); }); D.userPerms = {}; D.seeMoneyDone = 1; }
     if (!D.assignDone) { ['manager', 'warehouse'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['orders.assign'] = true; }); D.assignDone = 1; }
+    if (!D.attRecPermDone) { ['manager', 'hr'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['attendance.record_others'] = true; }); D.attRecPermDone = 1; }   // 2 Nov: attendance and leave for staff
     if (!D.phzarPermDone) { ['manager', 'sales', 'online_sales'].forEach(r => { (D.rolePerms[r] = D.rolePerms[r] || {})['phzar.order'] = true; }); D.phzarPermDone = 1; }   // 28 Oct: Order in Phzar
     if (!D.seeMoneyDone) { Object.entries(window.KT_PERM_DEFAULTS).forEach(([r, list]) => { if (list.includes('orders.see_money')) (D.rolePerms[r] = D.rolePerms[r] || {})['orders.see_money'] = true; }); D.seeMoneyDone = 1; } };
   const seeMoney = () => allow('orders.see_money');
@@ -2429,6 +2434,8 @@ window.makeDemoApi = function () {
   const dist = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
   const SOLD = ['approved', 'packed', 'delivering', 'delivered', 'paid'];
   // sales without products (online sales, step 2): p_uid null = everyone
+  // 2 Nov 2026 (Mr. Lee): only Order in Phzar makes sales without products; the hand-made ones are deleted
+  if (D && D.nopSales && !D.nopPhzarOnly) { D.nopSales = D.nopSales.filter(x => String(x.note || '').startsWith('Order in Phzar ')); D.nopPhzarOnly = 1; }
   const nopOf = (uid, f, t) => (D.nopSales || []).filter(x => (!uid || x.sales_rep_id === uid) && x.sale_date >= f && x.sale_date <= t);
   const nopSum = (uid, f, t) => +nopOf(uid, f, t).reduce((a, x) => a + +x.amount, 0).toFixed(2);
   // price on an order line: the typed price (0 = free), otherwise the product price
@@ -2810,6 +2817,9 @@ window.makeDemoApi = function () {
       const v = String(username || '').trim().replace(/^@/, '').toLowerCase(); if (!/^[a-z0-9._]{3,24}$/.test(v)) fail('Username: 3–24 letters or numbers, no spaces');
       const u = D.users.find(x => x.id === id); if (!u) fail('Staff not found'); if (u.username === v) return wait(v);
       if (D.users.some(x => x.username === v)) fail('The username "' + v + '" is already used'); u.username = v; if (me && me.id === id) me.username = v; save(); return wait(v); },
+    async deleteUser(id) { if (!hasRole('admin')) fail('Only the admin can delete users'); if (id === me.id) fail('You cannot delete yourself');
+      const u = user(id); if (!u) fail('User not found'); if (u.deleted_at) return wait(null);
+      Object.assign(u, { active: false, deleted_at: now(), username: 'deleted.' + String(u.id).replace(/-/g, '').slice(0, 12), password: Math.random().toString(36) }); save(); return wait(null); },
     async updateStaff(id, r, active, fullName, phone) {
       if (!hasRole('admin')) fail('Only the admin can manage staff');
       if (id === me.id && (r !== 'admin' || !active)) fail('You cannot remove your own admin access');
@@ -3258,7 +3268,7 @@ window.makeDemoApi = function () {
       const see = x => x.sales_rep_id === me.id || x.created_by === me.id || isBoss() || allow('reports.view') || allow('dashboard.view') || allow('hr.manage') || inMyTeam(x.sales_rep_id);
       return wait((D.nopSales || []).filter(x => see(x) && (!cid || x.customer_id === cid) && (!from || x.sale_date >= from) && (!to || x.sale_date <= to))
         .sort((a, b) => b.sale_date.localeCompare(a.sale_date) || b.id - a.id).map(x => Object.assign(clone(x), { customer_name: shopName(x.customer_id), rep_name: (user(x.sales_rep_id) || {}).full_name, creator_name: (user(x.created_by) || {}).full_name }))); },
-    async nopSaleSave(p) { if (!role()) fail('Your account is not active');
+    async nopSaleSave(p) { fail('Sales without products are made only by Order in Phzar');
       const boss = isBoss(), list = D.nopSales = D.nopSales || [], old = p.id ? list.find(x => x.id === +p.id) : null;
       if (p.id) { if (!boss) fail('Only admin or a manager can change a sale without products'); if (!old) fail('Sale not found'); }
       else if (!(boss || allow('orders.create'))) fail('You are not allowed to add sales');
@@ -3283,10 +3293,10 @@ window.makeDemoApi = function () {
       if (!role()) pzFail('login_needed');
       const PZ = D.phzar = D.phzar || { seq: 0, orders: [] };
       const CAT = [
-        { product_id: 'p1', slug: 'airpod-4', name: { en: 'AirPod 4', km: 'AirPod 4', zh: 'AirPod 4' }, brand: 'Apple', min_quantity: 1, image_url: '', options: [{ variant_id: 'v1', name: { en: 'White' }, sku: 'AP4-W', price_cents: 1000, can_order: true }] },
-        { product_id: 'p2', slug: 'cable-c', name: { en: 'USB-C cable 1m', km: 'ខ្សែ USB-C 1m', zh: 'USB-C 数据线 1米' }, brand: 'Phzar', min_quantity: 5, image_url: '', options: [{ variant_id: 'v2', name: { en: 'Black' }, sku: 'UC1-B', price_cents: 150, can_order: true }, { variant_id: 'v3', name: { en: 'White' }, sku: 'UC1-W', price_cents: 150, can_order: false }] },
-        { product_id: 'p3', slug: 'power-bank', name: { en: 'Power bank 10000mAh', km: 'ថ្មបម្រុង 10000mAh', zh: '充电宝 10000mAh' }, brand: 'Phzar', min_quantity: 1, image_url: '', options: [{ variant_id: 'v4', name: { en: 'Blue' }, sku: 'PB10-BL', price_cents: 850, can_order: true }] },
-        { product_id: 'p4', slug: 'face-serum', name: { en: 'Face serum 30ml', km: 'សេរ៉ូមមុខ 30ml', zh: '面部精华 30ml' }, brand: 'Phzar', min_quantity: 2, image_url: '', options: [{ variant_id: 'v5', name: { en: '30ml' }, sku: 'FS30', price_cents: 600, can_order: true }] }];
+        { product_id: 'p1', category: 'audio', slug: 'airpod-4', name: { en: 'AirPod 4', km: 'AirPod 4', zh: 'AirPod 4' }, brand: 'Apple', min_quantity: 1, image_url: '', options: [{ variant_id: 'v1', name: { en: 'White' }, sku: 'AP4-W', price_cents: 1000, can_order: true }] },
+        { product_id: 'p2', category: 'cables', slug: 'cable-c', name: { en: 'USB-C cable 1m', km: 'ខ្សែ USB-C 1m', zh: 'USB-C 数据线 1米' }, brand: 'Phzar', min_quantity: 5, image_url: '', options: [{ variant_id: 'v2', name: { en: 'Black' }, sku: 'UC1-B', price_cents: 150, can_order: true }, { variant_id: 'v3', name: { en: 'White' }, sku: 'UC1-W', price_cents: 150, can_order: false }] },
+        { product_id: 'p3', category: 'power', slug: 'power-bank', name: { en: 'Power bank 10000mAh', km: 'ថ្មបម្រុង 10000mAh', zh: '充电宝 10000mAh' }, brand: 'Phzar', min_quantity: 1, image_url: '', options: [{ variant_id: 'v4', name: { en: 'Blue' }, sku: 'PB10-BL', price_cents: 850, can_order: true }] },
+        { product_id: 'p4', category: 'beauty', slug: 'face-serum', name: { en: 'Face serum 30ml', km: 'សេរ៉ូមមុខ 30ml', zh: '面部精华 30ml' }, brand: 'Phzar', min_quantity: 2, image_url: '', options: [{ variant_id: 'v5', name: { en: '30ml' }, sku: 'FS30', price_cents: 600, can_order: true }] }];
       const variant = id => { for (const p of CAT) for (const v of p.options) if (v.variant_id === id) return { p, v }; return null; };
       const mineOrBoss = o => o && (o.sales_rep_id === me.id || o.created_by === me.id || isBoss() || inMyTeam(o.sales_rep_id));
       const toNop = o => {   // delivered → a sale without products for the rep; otherwise removed
@@ -3300,11 +3310,15 @@ window.makeDemoApi = function () {
           const c = D.customers.find(x => x.id === o.customer_id); if (c && c.source) c.sales_status = 'ordered';
         } else if (o.nop_sale_id) { D.nopSales = D.nopSales.filter(x => x.id !== o.nop_sale_id); o.nop_sale_id = null; }
       };
+      if (b.action === 'categories') { if (!allow('phzar.order')) pzFail('not_your_permission');
+        const CN = { audio: ['Audio', 'សំឡេង', '音频'], cables: ['Cables', 'ខ្សែ', '数据线'], power: ['Power banks', 'ថ្មបម្រុង', '充电宝'], beauty: ['Beauty', 'សម្រស់', '美妆'] };
+        return wait({ categories: Object.entries(CN).map(([k, n]) => ({ category_id: k, slug: k, name: { en: n[0], km: n[1], zh: n[2] }, product_count: CAT.filter(p => p.category === k).length })) }); }
       if (b.action === 'products' || b.action === 'provinces') {
         if (!allow('phzar.order')) pzFail('not_your_permission');
         if (b.action === 'provinces') return wait({ provinces: [{ code: 'phnom-penh', name: { en: 'Phnom Penh', km: 'ភ្នំពេញ', zh: '金边' } }, { code: 'kandal', name: { en: 'Kandal', km: 'កណ្ដាល', zh: '干丹' } }, { code: 'siem-reap', name: { en: 'Siem Reap', km: 'សៀមរាប', zh: '暹粒' } }] });
         const t = String(b.search || '').trim().toLowerCase();
-        return wait({ products: clone(CAT.filter(p => !t || Object.values(p.name).some(n => n.toLowerCase().includes(t)) || p.options.some(v => v.sku.toLowerCase() === t))) });
+        const found = CAT.filter(p => (!b.category || p.category === b.category) && (!t || Object.values(p.name).some(n => n.toLowerCase().includes(t)) || p.options.some(v => v.sku.toLowerCase() === t))), off = +b.offset || 0;
+        return wait({ products: clone(found.slice(off, off + (+b.limit || 50))), has_more: found.length > off + (+b.limit || 50) });
       }
       if (b.action === 'place') {
         if (!allow('phzar.order')) fail('You are not allowed to order in Phzar');
@@ -4574,6 +4588,22 @@ window.makeDemoApi = function () {
     },
     async clockOut(lat, lng, note) { const t = localDay0(new Date()), a = D.attendance.find(x => x.staff_id === me.id && x.work_date === t && !x.check_out_at); if (!a) fail('You have not started work today');
       Object.assign(a, { check_out_at: now(), out_lat: lat, out_lng: lng, note: note || a.note }); attAlert(a, true); save(); return wait(null); },
+    async attRecord(p) { if (!allow('attendance.record_others')) fail('You are not allowed to record attendance for other staff');
+      const u = user(p.staff_id); if (!u || u.active === false || ['guest', 'partner'].includes(u.role)) fail('Choose an active staff member');
+      if (!p.day) fail('Choose the day'); if (p.day > localDay0(new Date())) fail('The day cannot be in the future');
+      if (!/^\d{1,2}:\d{2}$/.test(p.in || '')) fail('Write the start time (e.g. 08:00)');
+      const at = (d, t) => new Date(d + 'T' + t.padStart(5, '0') + ':00+07:00').toISOString(), tin = at(p.day, p.in), tout = p.out ? at(p.day, p.out) : null;
+      if (p.out && !/^\d{1,2}:\d{2}$/.test(p.out)) fail('Write the finish time (e.g. 17:30)'); if (tout && tout <= tin) fail('The finish time must be after the start time');
+      if (new Date(tin) > Date.now() + 300000 || (tout && new Date(tout) > Date.now() + 300000)) fail('The time cannot be in the future');
+      let a = D.attendance.find(x => x.staff_id === u.id && x.work_date === p.day); const was = !!a;
+      if (!a) { a = { id: ++D.seq.att, staff_id: u.id, work_date: p.day, in_lat: null, in_lng: null, photo_url: null, note: '' }; D.attendance.push(a); }
+      Object.assign(a, { check_in_at: tin, check_out_at: tout, note: (p.note || '').trim() || a.note, recorded_by: me.id, recorded_at: now() });
+      notify(u.id, 'Your attendance for ' + p.day + ' was ' + (was ? 'changed' : 'recorded') + ' by ' + me.full_name, 'Start ' + p.in + (p.out ? ' · finish ' + p.out : ' · no finish yet'), '#/attendance'); save(); return wait(a.id); },
+    async leaveFor(x) { if (!allow('attendance.record_others')) fail('You are not allowed to write leave for other staff');
+      const u = user(x.staff_id); if (!u || u.active === false || ['guest', 'partner'].includes(u.role)) fail('Choose an active staff member');
+      if (!x.from_date || !x.to_date) fail('Choose the dates'); if (x.to_date < x.from_date) fail('The end date is before the start date'); if (!(+x.days > 0)) fail('Enter the number of days');
+      const l = { id: ++D.seq.leave, staff_id: u.id, kind: x.kind || 'annual', from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now(), created_by: me.id };
+      D.leave.push(l); notifyPerm('hr.manage', 'Leave request', u.full_name + ' · ' + l.days + ' day(s) · written by ' + me.full_name, '#/leave'); save(); return wait(l.id); },
     async listLeave() { if (!role()) return []; return wait(D.leave.filter(l => l.staff_id === me.id || allow('hr.manage') || allow('attendance.view') || headOf(l.staff_id)).sort((a, b) => b.id - a.id).map(l => Object.assign(clone(l), { profiles: { full_name: (user(l.staff_id) || {}).full_name } }))); },
     async askLeave(x) { if (!role()) fail('Your account is not active'); if (!(+x.days > 0)) fail('Enter the number of days'); if (x.to_date < x.from_date) fail('The end date is before the start date');
       const l = { id: ++D.seq.leave, staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now() };
@@ -5179,7 +5209,7 @@ window.makeDemoApi = function () {
   const provinceOptions = (sel, blank) => (blank ? `<option value="">${blank}</option>` : '') + PROVINCES.map(p => `<option ${p === sel ? 'selected' : ''}>${p}</option>`).join('');
   const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', supervisor: 'Sales supervisor', sales: 'Sales', online_sales: 'Online sales', agent: 'Sales rep (main stock)', accountant: 'Accountant', cashier: 'Cashier', hr: 'HR officer', purchasing: 'Purchasing', warehouse: 'Warehouse', driver: 'Driver', guest: 'Chat user', partner: 'Partner' };
   const SELLERS = ['sales', 'online_sales', 'supervisor', 'agent', 'manager', 'admin'];   // people who can look after shops
-  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops. Sells from their own stock, plus the stocks you tick below.', online_sales: 'Like Sales, for customers who buy online (Facebook, TikTok, Telegram): quick customers (name, phone, Telegram, source), follow-ups and sales without products.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
+  const ROLE_HINTS = { sales: 'Takes orders, visits shops, chat. Sees only their own shops. Sells from their own stock, plus the stocks you tick below.', online_sales: 'Like Sales, for customers who buy online (Facebook, TikTok, Telegram): quick customers (name, phone, Telegram, source), follow-ups and Order in Phzar.', agent: 'A sales rep with no stock of their own (own shops, visits, chat). Sells from the main stock: sees all products and prices without quantities and orders only products switched On. Goods come from the main warehouse after approval.', supervisor: 'Team leader: sells, and sees and approves the orders, shops and visits of their team (choose the team leader on each sales rep).',
     accountant: 'Money from shops, payments, reports, staff and office expenses, paying suppliers. No payroll.', cashier: 'Receives and confirms payments, sees what shops owe.',
     hr: 'Staff details, attendance, leave, payroll and payslips. No sales money.', purchasing: 'Suppliers, purchase orders and receiving goods.',
     warehouse: 'Packs orders, stock in/out, products.', driver: 'Picks up and delivers orders.', partner: 'A partner business: uses only the partner app and sees only its own partner (never K-TRONiCS stock, shops, orders, prices, staff or chat).', manager: 'Approves orders, sees everything, posts announcements.', admin: 'Everything, plus staff and roles.' };
@@ -6730,6 +6760,77 @@ window.KT_KM_PATTERNS.push(
   [/^Money in − out (.+) ›$/, 'ប្រាក់ចូល − ចេញ $1 ›'],
   [/^Money in − out · (.+)$/, 'ប្រាក់ចូល − ចេញ · $1']
 );
+
+// Attendance and leave for staff (2 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Record attendance and leave for other staff": "កត់វត្តមាន និងច្បាប់ឈប់ជំនួសបុគ្គលិកផ្សេង",
+  "Start / finish work and fix times for a staff member (no selfie), and write leave for them": "ចាប់ផ្តើម / បញ្ចប់ការងារ និងកែម៉ោងជំនួសបុគ្គលិក (មិនចាំបាច់ថតរូប) និងសរសេរច្បាប់ឈប់ជំនួស",
+  "Leave for staff": "ច្បាប់ឈប់សម្រាប់បុគ្គលិក",
+  "Staff member": "បុគ្គលិក",
+  "Choose…": "ជ្រើសរើស…",
+  "It waits for approval, like a request from the staff member. They get a message.": "វារង់ចាំការអនុម័ត ដូចសំណើពីបុគ្គលិកផ្ទាល់។ ពួកគេនឹងទទួលសារ។",
+  "Save leave request": "រក្សាទុកសំណើច្បាប់ឈប់",
+  "Leave request saved": "បានរក្សាទុកសំណើច្បាប់ឈប់",
+  "Choose the staff member": "សូមជ្រើសបុគ្គលិក",
+  "Attendance for staff": "វត្តមានសម្រាប់បុគ្គលិក",
+  "Day": "ថ្ងៃ",
+  "Start work": "ចាប់ផ្តើមការងារ",
+  "Finish work (empty = not yet)": "បញ្ចប់ការងារ (ទទេ = មិនទាន់)",
+  "Note (optional)": "កំណត់ចំណាំ (មិនចាំបាច់)",
+  "Write the start time": "សូមសរសេរម៉ោងចាប់ផ្តើម",
+  "Attendance saved": "បានរក្សាទុកវត្តមាន",
+  "Nothing saved for this day yet. The staff member gets a message that you recorded it.": "មិនទាន់មានអ្វីរក្សាទុកសម្រាប់ថ្ងៃនេះ។ បុគ្គលិកនឹងទទួលសារថាអ្នកបានកត់ត្រា។",
+  "Record start / finish for staff": "កត់ការចាប់ផ្តើម / បញ្ចប់សម្រាប់បុគ្គលិក",
+  "or tap a person": "ឬចុចលើបុគ្គលិក",
+  "Record / fix a day": "កត់ / កែមួយថ្ងៃ",
+  "Record / fix attendance": "កត់ / កែវត្តមាន",
+  "Tap a day to record or fix its start and finish. ✍ = recorded by the office.": "ចុចលើថ្ងៃ ដើម្បីកត់ ឬកែម៉ោងចាប់ផ្តើម និងបញ្ចប់។ ✍ = កត់ដោយការិយាល័យ។"
+});
+
+// Inventory: one way for each job (2 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Transfer": "ផ្ទេរ",
+  "New transfer (move stock)": "ផ្ទេរថ្មី (ផ្លាស់ទីស្តុក)",
+  "Arrived already": "មកដល់រួចហើយ",
+  " · receive it now (quick move, all pieces arrived)": " · ទទួលឥឡូវ (ផ្លាស់ទីរហ័ស មកដល់គ្រប់គ្រឿង)",
+  "Moved · received": "បានផ្លាស់ទី · បានទទួល",
+  "📦 Stock control (move stock, adjustments, counts)": "📦 គ្រប់គ្រងស្តុក (ផ្លាស់ទីស្តុក កែតម្រូវ រាប់)",
+  "📦 Change stock: Stock control (move, adjust, count)": "📦 ប្តូរស្តុក: គ្រប់គ្រងស្តុក (ផ្លាស់ទី កែតម្រូវ រាប់)"
+});
+
+// Only Order in Phzar makes sales without products: "Phzar" words (2 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Phzar": "Phzar",
+  "Phzar %": "Phzar %",
+  "Phzar bonus %": "ប្រាក់រង្វាន់ Phzar %",
+  "Phzar sales": "ការលក់ Phzar",
+  "Phzar sales · this month": "ការលក់ Phzar · ខែនេះ",
+  "Phzar target": "គោលដៅ Phzar",
+  "Phzar sales (count)": "ការលក់ Phzar (ចំនួន)",
+  "Phzar products": "ទំនិញ Phzar",
+  "Phzar products delivered in these dates.": "ទំនិញ Phzar ដែលបានដឹកក្នុងថ្ងៃទាំងនេះ។",
+  "No Phzar sales in these dates": "គ្មានការលក់ Phzar ក្នុងថ្ងៃទាំងនេះ",
+  "Stock orders and Phzar sales are counted apart, each with its own target.": "ការបញ្ជាទិញមានស្តុក និងការលក់ Phzar រាប់ដាច់ដោយឡែក ម្នាក់ៗមានគោលដៅរៀងខ្លួន។",
+  "Each order and Phzar sale (🛒) with its commission %.": "ការបញ្ជាទិញ និងការលក់ Phzar (🛒) នីមួយៗ ជាមួយកម្រៃជើងសារ %។",
+  "Made by Order in Phzar. To change or cancel it, open Order in Phzar.": "បង្កើតដោយ បញ្ជាទិញក្នុង Phzar។ ដើម្បីកែ ឬលុបចោល សូមបើក បញ្ជាទិញក្នុង Phzar។",
+  "Sales without products are made only by Order in Phzar": "ការលក់គ្មានផលិតផល បង្កើតបានតែតាម បញ្ជាទិញក្នុង Phzar",
+  "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for Phzar sales.": "គោលដៅ = ចំនួនដែលអ្នកលក់ម្នាក់ៗគួរលក់ខែនេះ (ការបញ្ជាទិញដែលបានអនុម័ត)។ ទុកទទេ = គ្មានគោលដៅ។ អ្នកលក់ម្នាក់ៗក៏មានគោលដៅទី 2 សម្រាប់ការលក់ Phzar។",
+  "Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a Phzar sale (own target and commission %) when delivered": "បញ្ជាទិញទំនិញ Phzar សម្រាប់អតិថិជន។ Phzar ដឹកមក K-TRONiCS បង់ពេលដឹកដល់។ រាប់ជាការលក់ Phzar (គោលដៅ និងកម្រៃជើងសារ % ផ្ទាល់) ពេលដឹកដល់",
+  "🌐 Online customers (orders, Phzar sales, new online customers, follow-ups, each person who sells online)": "🌐 អតិថិជនអនឡាញ (ការបញ្ជាទិញ ការលក់ Phzar អតិថិជនអនឡាញថ្មី ការតាមដាន អ្នកលក់អនឡាញម្នាក់ៗ)"
+});
+
+// Order in Phzar: categories (2 Nov 2026)
+Object.assign(window.KT_KM, {
+  "All categories": "ប្រភេទទាំងអស់",
+  "Show more products": "បង្ហាញទំនិញបន្ថែម",
+  "products": "ទំនិញ"
+});
+
+// Delete a user (2 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Delete user": "លុបអ្នកប្រើ",
+  "The login is removed for ever: they can never log in again and they disappear from the staff lists. Their name stays on old orders, visits, payroll and reports. This cannot be undone.": "គណនីចូលត្រូវលុបជារៀងរហូត៖ ពួកគេមិនអាចចូលបានទៀតទេ ហើយបាត់ពីបញ្ជីបុគ្គលិក។ ឈ្មោះនៅលើការបញ្ជាទិញ ការចុះហាង ប្រាក់ខែ និងរបាយការណ៍ចាស់ៗ។ មិនអាចត្រឡប់វិញបានទេ។"
+});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8583,6 +8684,77 @@ window.KT_ZH_PATTERNS.push(
   [/^Money in − out · (.+)$/, '收入 − 支出 · $1']
 );
 
+// Attendance and leave for staff (2 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Record attendance and leave for other staff": "为其他员工记录考勤和请假",
+  "Start / finish work and fix times for a staff member (no selfie), and write leave for them": "为员工记录上班 / 下班并修改时间（无需自拍），以及为他们填写请假",
+  "Leave for staff": "为员工请假",
+  "Staff member": "员工",
+  "Choose…": "请选择…",
+  "It waits for approval, like a request from the staff member. They get a message.": "与员工自己的申请一样等待审批。员工会收到消息。",
+  "Save leave request": "保存请假申请",
+  "Leave request saved": "请假申请已保存",
+  "Choose the staff member": "请选择员工",
+  "Attendance for staff": "员工考勤",
+  "Day": "日期",
+  "Start work": "上班",
+  "Finish work (empty = not yet)": "下班（空 = 还没有）",
+  "Note (optional)": "备注（可选）",
+  "Write the start time": "请填写上班时间",
+  "Attendance saved": "考勤已保存",
+  "Nothing saved for this day yet. The staff member gets a message that you recorded it.": "这一天还没有记录。员工会收到您记录的消息。",
+  "Record start / finish for staff": "为员工记录上班 / 下班",
+  "or tap a person": "或点一个人",
+  "Record / fix a day": "记录 / 修改一天",
+  "Record / fix attendance": "记录 / 修改考勤",
+  "Tap a day to record or fix its start and finish. ✍ = recorded by the office.": "点一天来记录或修改上下班时间。✍ = 由办公室记录。"
+});
+
+// Inventory: one way for each job (2 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Transfer": "调拨",
+  "New transfer (move stock)": "新调拨（移动库存）",
+  "Arrived already": "已经到货",
+  " · receive it now (quick move, all pieces arrived)": " · 现在收货（快速移动，全部到齐）",
+  "Moved · received": "已移动 · 已收货",
+  "📦 Stock control (move stock, adjustments, counts)": "📦 库存管理（移动库存、调整、盘点）",
+  "📦 Change stock: Stock control (move, adjust, count)": "📦 更改库存：库存管理（移动、调整、盘点）"
+});
+
+// Only Order in Phzar makes sales without products: "Phzar" words (2 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Phzar": "Phzar",
+  "Phzar %": "Phzar %",
+  "Phzar bonus %": "Phzar 奖金 %",
+  "Phzar sales": "Phzar 销售",
+  "Phzar sales · this month": "Phzar 销售 · 本月",
+  "Phzar target": "Phzar 目标",
+  "Phzar sales (count)": "Phzar 销售（笔数）",
+  "Phzar products": "Phzar 商品",
+  "Phzar products delivered in these dates.": "这些日期内已送达的 Phzar 商品。",
+  "No Phzar sales in these dates": "这些日期没有 Phzar 销售",
+  "Stock orders and Phzar sales are counted apart, each with its own target.": "库存订单和 Phzar 销售分开计算，各有自己的目标。",
+  "Each order and Phzar sale (🛒) with its commission %.": "每个订单和 Phzar 销售（🛒）及其佣金 %。",
+  "Made by Order in Phzar. To change or cancel it, open Order in Phzar.": "由“在 Phzar 下单”生成。要修改或取消，请打开“在 Phzar 下单”。",
+  "Sales without products are made only by Order in Phzar": "无产品销售只能通过“在 Phzar 下单”生成",
+  "Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for Phzar sales.": "目标 = 每个销售员本月应卖的金额（已批准订单）。留空 = 没有目标。每个销售员还有第二个目标：Phzar 销售。",
+  "Order Phzar products for a customer. Phzar delivers to K-TRONiCS, cash on delivery. Counted as a Phzar sale (own target and commission %) when delivered": "为客户订购 Phzar 商品。Phzar 送到 K-TRONiCS，货到付款。送达后计为 Phzar 销售（自己的目标和佣金 %）",
+  "🌐 Online customers (orders, Phzar sales, new online customers, follow-ups, each person who sells online)": "🌐 线上客户（订单、Phzar 销售、新线上客户、跟进、每个线上销售员）"
+});
+
+// Order in Phzar: categories (2 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "All categories": "全部分类",
+  "Show more products": "显示更多商品",
+  "products": "商品"
+});
+
+// Delete a user (2 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Delete user": "删除用户",
+  "The login is removed for ever: they can never log in again and they disappear from the staff lists. Their name stays on old orders, visits, payroll and reports. This cannot be undone.": "登录将被永久删除：此人再也不能登录，并从员工列表中消失。他们的名字仍保留在旧订单、拜访、工资和报表中。此操作无法撤销。"
+});
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -9493,24 +9665,8 @@ window.KT_ZH_PATTERNS.push(
   // "🔁 Exchange" sits in the status chips of Orders (Mr. Lee, 21 Oct 2026)
   const exChip = on => K.canFindExchange && K.canFindExchange() ? `<a class="chip ${on ? 'on' : ''}" href="#/exchange" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🔁 Exchange</a>` : '';
   // "🧾 No products" = sales without products (online sales, 22 Oct 2026)
-  const npChip = on => `<a class="chip ${on ? 'on' : ''}" href="#/nopsales" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🧾 No products</a>` + (K.canSeePhzar && K.canSeePhzar() ? `<a class="chip" href="#/phzar" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🛒 Order in Phzar</a>` : '');
-  route(/^\/nopsales$/, async (_, q, current) => {
-    const P = K.period, st = { p: q.p || 'month', from: q.from || P.range('custom')[0], to: q.to || P.today() };
-    const main = page({ title: 'Sales without products', sub: 'Products not in the app', back: '#/orders', tab: 'order',
-      right: K.canAddNop() ? `<button class="ib" id="npnew" aria-label="Add">${icon('plus')}</button>` : '',
-      top: `<div class="chips">${FILTERS.slice(0, 1).map(([k, l]) => `<a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}${npChip(true)}${exChip(false)}</div>` });
-    if ($('#npnew')) $('#npnew').onclick = () => K.nopSheet(null, () => K.render());
-    const [a, b] = P.range(st.p, st.from, st.to);
-    const list = await api.listNopSales(null, a, b).catch(e => { toast(e.message); return []; });
-    if (!current()) return;
-    const total = list.reduce((s, x) => s + +x.amount, 0);
-    main.innerHTML = `<div class="pad" style="gap:10px">${P.html(st.p, st.from, st.to)}<div class="small muted">${esc(P.label(st))}</div>
-      <div class="row small muted"><span class="grow">${list.length} <span>sales</span></span><b style="color:var(--ink)">${money(total)}</b></div>
-      ${list.length ? `<div class="card flush">${list.map(x => K.nopRow(x, { rep: K.allow('orders.view_all') || K.isBossRole() })).join('')}</div>` : emptyBox('order', 'No sales without products for these dates')}
-      <div class="small muted">Add one from the customer page or with +. Only for products that are not in this app.</div></div>`;
-    P.bind(main, st, s2 => go(`#/nopsales?p=${s2.p}${s2.p === 'custom' ? `&from=${s2.from}&to=${s2.to}` : ''}`));
-    K.bindNopRows(main, list, () => K.render());
-  });
+  const npChip = on => (K.canSeePhzar && K.canSeePhzar() ? `<a class="chip" href="#/phzar" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🛒 Order in Phzar</a>` : '');
+  route(/^\/nopsales$/, () => go('#/phzar'));   // 2 Nov 2026: sales without products are made only by Order in Phzar
   // ---------- list ----------
   // #/orders?p=<period>&from=&to=&f=<status>
   route(/^\/orders$/, async (_, q, current) => {
@@ -9540,9 +9696,9 @@ window.KT_ZH_PATTERNS.push(
       <div class="search">${icon('search', 18)}<input id="osq" placeholder="Search shop, order number or product" aria-label="Search orders" value="${esc(S.oSearch || '')}"></div>
       <div id="olist" style="display:flex;flex-direction:column;gap:10px">${P.html(st.p, st.from, st.to)}
       <div class="small muted">${esc(P.label(st))}</div>
-      ${K.isOnlineSeller() && f === 'all' ? `<div class="stats three"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Stock orders</span></div><div class="stat"><b style="color:var(--bl)">${money(npTotal)}</b><span>No products</span></div><div class="stat"><b>${money(sold + npTotal)}</b><span>Total</span></div></div>${total - sold > 0 ? `<div class="small muted"><span>Waiting approval:</span> ${money(total - sold)}</div>` : ''}`
+      ${K.isOnlineSeller() && f === 'all' ? `<div class="stats three"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Stock orders</span></div><div class="stat"><b style="color:var(--bl)">${money(npTotal)}</b><span>Phzar</span></div><div class="stat"><b>${money(sold + npTotal)}</b><span>Total</span></div></div>${total - sold > 0 ? `<div class="small muted"><span>Waiting approval:</span> ${money(total - sold)}</div>` : ''}`
         : `<div class="stats"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Sales (approved)</span></div><div class="stat"><b style="color:var(--or)">${money(total - sold)}</b><span>Waiting approval</span></div></div>`}`
-      + (list.length || nops.length ? `<div class="row small muted"><span class="grow">${list.length} order${list.length === 1 ? '' : 's'}${nops.length ? ' · ' + nops.length + ' <span>no products</span>' : ''}</span><b style="color:var(--ink)">${money(total + npTotal)}</b></div><div class="card flush">${rowsHtml}</div>`
+      + (list.length || nops.length ? `<div class="row small muted"><span class="grow">${list.length} order${list.length === 1 ? '' : 's'}${nops.length ? ' · ' + nops.length + ' <span>Phzar</span>' : ''}</span><b style="color:var(--ink)">${money(total + npTotal)}</b></div><div class="card flush">${rowsHtml}</div>`
         : emptyBox('order', 'No orders for these dates')) + '</div><div id="osres" style="display:none;flex-direction:column;gap:10px"></div></div>';
     P.bind(main, st, () => go(url()));
     if (nops.length) K.bindNopRows(main, nops, () => K.render());
@@ -9795,13 +9951,11 @@ window.KT_ZH_PATTERNS.push(
       ${warehouses.length > 1 ? `<div class="seg wrap">${[{ id: 0, name: 'All' }].concat(warehouses).map(w => `<button data-w="${w.id}" class="${w.id === wh ? 'on' : ''}">${esc(w.id ? K.whLabel(w) : 'All')}</button>`).join('')}</div>` : ''}
       ${!manage && mine && warehouses.length === 1 ? '<div class="small muted">Your stock: the goods you carry. Ask the warehouse or admin to give you more.</div>' : ''}
       ${K.catalogMode() && mine ? `<a class="btn ghost block" href="#/stock?cat=1">${icon('list', 20)} Product list (order from main warehouse)</a>` : ''}
-      ${manage || K.allow('stock.move') ? `<button class="btn ghost block" id="loadrep">${icon('swap', 20)} Move stock (to a rep, back, or between stocks)</button>` : ''}
-      ${manage || K.allow('stock.move') || mine ? `<a class="btn ghost block" href="#/stockctl" style="text-decoration:none">📦 Stock control (transfers, adjustments, counts)</a>` : ''}
+      ${manage || K.allow('stock.move') || mine ? `<a class="btn ghost block" href="#/stockctl" style="text-decoration:none">📦 Stock control (move stock, adjustments, counts)</a>` : ''}
       ${K.canSeeBroken && K.canSeeBroken() ? `<button class="btn ghost block" id="brk">🔁 Broken goods (pieces shops gave back)</button>` : ''}
       <div class="stats three" id="sum"></div>
       <div class="search">${icon('search', 18)}<input id="ps" placeholder="Search product, SKU or category" aria-label="Search products"></div>
       <div class="btns"><select class="inp" id="pcf" aria-label="Category"><option value="">All categories</option>${[...new Set(products.map(p => p.category).filter(Boolean))].sort().map(c => `<option>${esc(c)}</option>`).join('')}</select>${manage ? `<button class="btn out" id="pcats" style="flex:0 0 auto">${icon('list', 18)}Categories</button>` : ''}</div>
-      ${manage ? `<button class="btn ghost block" id="scount">${icon('check', 20)} Stock count (count and correct many products)</button>` : ''}
       <div class="card flush" id="plist"></div></div>`;
     $('#pcf').onchange = e => { catF = e.target.value; draw(); };
     if ($('#pcats')) $('#pcats').onclick = () => K.productCatsSheet(products, () => K.render());
@@ -9827,36 +9981,12 @@ window.KT_ZH_PATTERNS.push(
       <div class="card"><div class="row"><div class="grow"><div class="small muted">${esc(p.sku)} · ${esc(p.category)}</div><div class="big">${K.sellFrom(warehouses).reduce((a, w) => a + (p.stock[w.id] || 0), 0)} pcs</div></div>${(() => { const [l, c] = level(K.sellFrom(warehouses).reduce((a, w) => a + (p.stock[w.id] || 0), 0), p.min_stock); return `<span class="pill ${c}">${l}</span>`; })()}</div>
         <div class="row small muted"><span class="grow">Price ${money(p.price)}${manage ? ' · cost ' + money(p.cost) : ''}</span><span>Minimum ${p.min_stock}</span></div></div>
       <div class="stats" style="flex-wrap:wrap">${K.sellFrom(warehouses).map(w => `<div class="stat" style="flex:1 0 40%"><b>${p.stock[w.id] || 0}</b><span>${esc(K.whLabel(w))}</span></div>`).join('')}</div>
-      ${manage ? `<div class="btns"><button class="btn green sm" data-act="in">${icon('plus', 18)}Stock in</button><button class="btn red sm" data-act="out">${icon('minus', 18)}Stock out</button></div>
-        <div class="btns"><button class="btn out sm" data-act="adjust">${icon('list', 18)}Fix count</button>${warehouses.length > 1 ? `<button class="btn out sm" data-act="transfer">${icon('swap', 18)}Transfer</button>` : ''}</div>` : ''}
+      ${manage ? `<a class="btn ghost block" href="#/stockctl" style="text-decoration:none">📦 Change stock: Stock control (move, adjust, count)</a>` : ''}
       <div class="sec">History</div>
       <div class="card flush">${(moves = moves.filter(m => K.sellFrom(warehouses).some(w => w.id === m.warehouse_id))).length ? moves.map(m => `<div class="list-item"><div class="ic-av sq" style="background:${m.qty_change > 0 ? 'var(--grs)' : 'var(--rds)'};color:${m.qty_change > 0 ? 'var(--gr)' : 'var(--rd)'}">${icon(m.qty_change > 0 ? 'plus' : 'minus', 18)}</div>
         <div class="grow"><div class="tt" style="font-size:14px">${REASON[m.reason] || m.reason}${m.ref ? ' · ' + esc(m.ref) : ''}</div><div class="st">${esc(m.warehouses.name)} · ${esc(m.profiles ? m.profiles.full_name : '')} · ${when(m.created_at)}${m.note ? ' · ' + esc(m.note) : ''}</div></div>
         <b style="color:${m.qty_change > 0 ? 'var(--gr)' : 'var(--rd)'}">${m.qty_change > 0 ? '+' : ''}${m.qty_change}</b></div>`).join('') : '<div class="empty">No stock changes yet</div>'}</div></div>`;
-    $$('[data-act]').forEach(b => b.onclick = () => stockAction(b.dataset.act, p, warehouses));
   });
-
-  function stockAction(kind, p, warehouses) {
-    const title = { in: 'Stock in', out: 'Stock out', adjust: 'Fix count', transfer: 'Transfer stock' }[kind];
-    const whSel = (id, label) => `<label class="f">${label}<select class="inp" id="${id}">${warehouses.map(w => `<option value="${w.id}">${esc(w.name)} (${p.stock[w.id] || 0})</option>`).join('')}</select></label>`;
-    const s = sheet(title, `<div class="tt">${esc(p.name)}</div>
-      ${kind === 'transfer' ? whSel('from', 'From') + whSel('to', 'To') : whSel('wh', 'Warehouse')}
-      <label class="f">${kind === 'adjust' ? 'Real count now' : 'Quantity'}<input class="inp" id="qn" type="number" inputmode="numeric" min="0"></label>
-      ${kind !== 'transfer' ? `<label class="f">Note<input class="inp" id="nt" placeholder="${kind === 'in' ? 'e.g. supplier delivery' : 'Optional'}"></label>` : ''}
-      <button class="btn block" id="ok">Save</button>`);
-    if (kind === 'transfer' && warehouses[1]) $('#to', s.el).value = warehouses[1].id;
-    $('#ok', s.el).onclick = async e => {
-      const n = Math.floor(+$('#qn', s.el).value);
-      if (!(n >= 0) || (kind !== 'adjust' && n <= 0)) return toast('Enter a quantity');
-      await busy(e.currentTarget, async () => {
-        if (kind === 'transfer') return api.transferStock(p.id, +$('#from', s.el).value, +$('#to', s.el).value, n);
-        const wid = +$('#wh', s.el).value, note = $('#nt', s.el).value;
-        if (kind === 'adjust') { const diff = n - (p.stock[wid] || 0); if (!diff) return; return api.adjustStock(p.id, wid, diff, 'adjust', note); }
-        return api.adjustStock(p.id, wid, kind === 'in' ? n : -n, kind, note);
-      });
-      s.close(); forget('products'); toast('Stock updated'); K.render();
-    };
-  }
 
   async function editProduct(p) {
     p = p || {};
@@ -11221,16 +11351,17 @@ window.KT_ZH_PATTERNS.push(
   // ---- sales without products (step 2): a sale made in the other system, product not in this app ----
   const money = v => K.money(v);
   K.isBossRole = () => !!K.S.me && ['admin', 'manager'].includes(K.S.me.role);
-  K.canAddNop = () => K.isBossRole() || K.allow('orders.create');
+  K.canAddNop = () => false;   // 2 Nov 2026 (Mr. Lee): sales without products are made only by Order in Phzar
   K.nopRow = (x, opt) => `<button class="list-item" data-nop="${x.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit">
-      <div class="ic-av sq" style="background:var(--ps)">🧾</div><div class="grow"><div class="tt">${esc(x.sale_no || 'NP')}${opt && opt.noShop ? '' : ' · ' + esc(x.customer_name || '')}</div>
+      <div class="ic-av sq" style="background:var(--ps)">🛒</div><div class="grow"><div class="tt">${esc(x.sale_no || 'NP')}${opt && opt.noShop ? '' : ' · ' + esc(x.customer_name || '')}</div>
       <div class="st">${dayTxt(x.sale_date)} · inv. ${esc(x.invoice_no)} · ${esc(x.products)}${opt && opt.rep ? ' · ' + esc(x.rep_name || '') : ''}</div></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(x.amount)}</b></div></button>`;
   K.bindNopRows = (el, list, onDone) => $$('[data-nop]', el).forEach(b => b.onclick = () => K.nopSheet(list.find(x => x.id === +b.dataset.nop), onDone));
 
   // add (x = {customer_id, customer_name} or nothing) / see / change (admin, manager) one sale without products
   K.nopSheet = async (x, onDone) => {
-    x = x || {}; const boss = K.isBossRole(), isNew = !x.id, edit = isNew || boss;
+    x = x || {}; if (!x.id) return;   // no new ones by hand (2 Nov 2026)
+    const boss = K.isBossRole(), isNew = false, edit = false;
     const s = K.sheet(isNew ? 'Sale without products' : (x.sale_no || 'Sale'), K.loading);
     const [shops, staff] = await Promise.all([isNew && !x.customer_id ? K.data.customers().catch(() => []) : [], boss ? K.data.staff().catch(() => []) : []]);
     if (!s.el.isConnected) return;
@@ -11238,7 +11369,7 @@ window.KT_ZH_PATTERNS.push(
       $('.sb', s.el).innerHTML = `<div class="card" style="gap:6px"><div class="row"><b class="grow">${esc(x.customer_name || '')}</b><b style="font-size:18px">${money(x.amount)}</b></div>
         <div class="small">${dayTxt(x.sale_date)} · <span>Invoice</span> ${esc(x.invoice_no)}</div><div class="small"><span>Products</span>: ${esc(x.products)}</div>
         ${x.note ? `<div class="small muted">${esc(x.note)}</div>` : ''}<div class="small muted"><span>Sales person</span>: ${esc(x.rep_name || '')}</div></div>
-        <div class="small muted">Only admin or a manager can change or delete it.</div>`;
+        <div class="small muted">Made by Order in Phzar. To change or cancel it, open Order in Phzar.</div><a class="btn out block" href="#/phzar" style="text-decoration:none">🛒 Order in Phzar</a>`;
       return;
     }
     const sellers = staff.filter(u => u.active && K.SELLERS.includes(u.role));
@@ -11271,7 +11402,7 @@ window.KT_ZH_PATTERNS.push(
     if (!box.isConnected) return;
     const canAdd = K.canAddNop() && (c.source || K.isOnlineSeller() || K.isBossRole());
     if (!list.length && !canAdd) return;
-    box.innerHTML = `<div class="sec" style="display:flex;align-items:center;gap:8px"><span class="grow">Sales without products</span>${canAdd ? `<button class="btn sm out" id="npadd">${icon('plus', 16)}Add</button>` : ''}</div>
+    box.innerHTML = `<div class="sec" style="display:flex;align-items:center;gap:8px"><span class="grow">Phzar sales</span>${canAdd ? `<button class="btn sm out" id="npadd">${icon('plus', 16)}Add</button>` : ''}</div>
       <div class="card flush">${list.length ? list.slice(0, 20).map(x => K.nopRow(x, { noShop: true })).join('') : '<div class="empty">None yet</div>'}</div>`;
     if ($('#npadd', box)) $('#npadd', box).onclick = () => K.nopSheet({ customer_id: c.id, customer_name: c.name }, onDone);
     K.bindNopRows(box, list, onDone);
@@ -11299,7 +11430,7 @@ window.KT_ZH_PATTERNS.push(
     const list = await api.commissionLines(month, u.user_id).catch(e => { toast(e.message); return []; });
     if (!s.el.isConnected) return;
     const tot = list.reduce((a, l) => a + +l.commission, 0);
-    $('.sb', s.el).innerHTML = `<div class="small muted">Each order and no-product sale (🧾) with its commission %. <b>Own %</b> = set on that order by admin/manager.</div>
+    $('.sb', s.el).innerHTML = `<div class="small muted">Each order and Phzar sale (🛒) with its commission %. <b>Own %</b> = set on that order by admin/manager.</div>
       <div class="card flush">${list.map(l => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${l.kind === 'nop' ? '🧾 ' : ''}${esc(l.ref_no || '')} · ${esc(l.customer || '')}</div>
         <div class="st">${dayTxt(l.day)} · ${money(l.amount)} × ${+l.rate}%${l.own_rate ? ' <b style="color:var(--p)">(own %)</b>' : ''}</div></div><b>${money(l.commission)}</b></div>`).join('') || '<div class="empty">No sales this month</div>'}</div>
       <div class="row"><b class="grow">Total (without the bonus over target)</b><b>${money(tot)}</b></div>`;
@@ -11404,13 +11535,13 @@ window.KT_ZH_PATTERNS.push(
     const main = ADMIN ? K.adm.shell('orders', 'Order in Phzar', setBtn + newBtn) : K.page({ title: 'Order in Phzar', sub: 'Phzar products for your customers', back: '#/orders' });
     const staff = isBoss() || K.allow('reports.view') ? await K.data.staff().catch(() => []) : [];
     if (!current()) return;
-    main.innerHTML = `${ADMIN ? `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">All orders</a><a class="chip" href="#/nopsales" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">🧾 No products</a><span class="chip on" style="display:inline-flex;align-items:center">🛒 Order in Phzar</span></div>` : ''}
+    main.innerHTML = `${ADMIN ? `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">All orders</a><span class="chip on" style="display:inline-flex;align-items:center">🛒 Order in Phzar</span></div>` : ''}
       <div class="${ADMIN ? 'apad' : 'pad'}">
       ${!ADMIN && K.canPhzar() ? `<a class="btn block" href="#/phzar/new" style="text-decoration:none">${icon('plus', 18)}New Phzar order</a>` : ''}
       <div class="filters" style="display:flex;gap:8px;flex-wrap:wrap">${staff.length ? `<select class="inp" id="pzsf" aria-label="Filter by staff" style="width:auto;min-width:150px"><option value="">All staff</option>${staff.filter(u => u.active && K.SELLERS.includes(u.role)).map(u => `<option value="${esc(u.id)}">${esc(u.full_name)}</option>`).join('')}</select>` : ''}
         <select class="inp" id="pzst" aria-label="Filter by status" style="width:auto;min-width:150px"><option value="">All statuses</option>${Object.entries(ST).map(([k, v]) => `<option value="${k}">${esc(v[0])}</option>`).join('')}</select></div>
       <div id="pzper" style="display:flex;flex-direction:column;gap:10px"></div><div class="row small muted" id="pzsum"></div><div class="card flush" id="pzlist"></div>
-      <div class="small muted">Phzar prices, cash on delivery to K-TRONiCS. When Phzar marks an order Delivered, it is counted as a sale without products for the sales rep (own target and commission %). Cancelled = not counted; returned = removed again.</div></div>`;
+      <div class="small muted">Phzar prices, cash on delivery to K-TRONiCS. When Phzar marks an order Delivered, it is counted as a Phzar sale for the sales rep (own target and commission %). Cancelled = not counted; returned = removed again.</div></div>`;
     if ($('#pzset')) $('#pzset').onclick = () => settingsSheet();
     const draw = async () => {
       const [a, b] = P.range(st.p, st.from, st.to);
@@ -11490,7 +11621,7 @@ window.KT_ZH_PATTERNS.push(
     };
     if ($('#pzdel', s.el)) $('#pzdel', s.el).onclick = async e => {
       const b = e.currentTarget;
-      if (!(await K.confirmSheet('Delete this order?', 'It is removed completely from this app: the list, the reports and the sales without products. This cannot be undone.', 'Delete', true))) return;
+      if (!(await K.confirmSheet('Delete this order?', 'It is removed completely from this app: the list, the reports and the Phzar sales. This cannot be undone.', 'Delete', true))) return;
       b.disabled = true;
       try { await api.phzarCall({ action: 'delete', ref: o.ref }); after('Deleted'); }
       catch (err) { b.disabled = false; toast(K.phzarMsg(err)); }
@@ -11510,8 +11641,9 @@ window.KT_ZH_PATTERNS.push(
     main.innerHTML = `<div class="${ADMIN ? 'apad' : 'pad'}" style="display:flex;flex-direction:column;gap:12px">
       <label class="f">Customer<select class="inp" id="pzc"><option value="">Choose…</option>${mine.map(c => `<option value="${c.id}" ${c.id === CART.customer_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
       <div class="card" style="gap:10px"><b>Phzar products</b>
+        <select class="inp" id="pzcat" aria-label="Phzar category" style="display:none"><option value="">All categories</option></select>
         <div class="row" style="gap:8px"><input class="inp grow" id="pzq" placeholder="Search name or code" enterkeyhint="search"><button class="btn sm" id="pzgo">${icon('search', 16)}Search</button></div>
-        <div id="pzres" style="display:flex;flex-direction:column;gap:10px"></div></div>
+        <div id="pzres" style="display:flex;flex-direction:column;gap:10px"></div><div id="pzmore"></div></div>
       <div class="card" style="gap:8px" id="pzcart"></div>
       <div class="card" style="gap:10px"><b>Deliver to</b><div class="small muted">Phzar delivers to K-TRONiCS; you then serve your customer. Cash on delivery.</div>
         <label class="f">Name<input class="inp" id="dtn" value="${esc(st.phzar_deliver_name || 'K-TRONiCS office')}"></label>
@@ -11554,14 +11686,28 @@ window.KT_ZH_PATTERNS.push(
         drawCart(); toast('Added');
       });
     };
-    const search = async btn => {
+    // search by name / code and / or a Phzar category (2 Nov 2026): a category alone shows all its products, 50 at a time
+    let cat = '', more = false;
+    const search = async (btn, next) => {
       const term = $('#pzq').value.trim();
-      $('#pzres').innerHTML = K.loading;
-      try { const r = await api.phzarCall({ action: 'products', search: term, limit: 50 }); results = (r && r.products) || []; }
-      catch (err) { results = []; $('#pzres').innerHTML = `<div class="small" style="color:var(--rd)">${esc(K.phzarMsg(err))}</div>`; return; }
+      if (!next) { results = []; $('#pzres').innerHTML = K.loading; }
+      $('#pzmore').innerHTML = next ? K.loading : '';
+      let got = [];
+      try { const r = await api.phzarCall(Object.assign({ action: 'products', search: term, limit: 50 }, cat ? { category: cat } : {}, next ? { offset: results.length } : {}));
+        got = (r && r.products) || []; more = r && r.has_more != null ? !!r.has_more : got.length >= 50; }
+      catch (err) { $('#pzmore').innerHTML = ''; if (!next) { results = []; $('#pzres').innerHTML = `<div class="small" style="color:var(--rd)">${esc(K.phzarMsg(err))}</div>`; } else toast(K.phzarMsg(err)); return; }
       if (!current()) return;
+      results = results.concat(got.filter(p => !results.some(x => x.product_id === p.product_id)));
       drawResults(); if (!results.length) $('#pzres').innerHTML = `<div class="small muted">No Phzar products found</div>`;
+      $('#pzmore').innerHTML = more && got.length ? `<button class="btn out block" id="pzmorebtn">Show more products</button>` : results.length ? `<div class="small muted">${results.length} <span>products</span></div>` : '';
+      if ($('#pzmorebtn')) $('#pzmorebtn').onclick = e => search(e.currentTarget, true);
     };
+    $('#pzcat').onchange = e => { cat = e.target.value; if (cat || $('#pzq').value.trim()) search(); else { results = []; drawResults(); $('#pzmore').innerHTML = ''; } };
+    api.phzarCall({ action: 'categories' }).then(r => {   // if Phzar has no categories yet, the list stays hidden
+      const cs = (r && r.categories) || []; if (!cs.length || !current() || !$('#pzcat')) return;
+      $('#pzcat').innerHTML = '<option value="">All categories</option>' + cs.map(c => `<option value="${esc(c.slug || c.category_id)}">${esc(nm(c.name) || c.slug)}${c.product_count != null ? ' (' + c.product_count + ')' : ''}</option>`).join('');
+      $('#pzcat').style.display = '';
+    }).catch(() => {});
     $('#pzgo').onclick = e => search(e.currentTarget);
     $('#pzq').onkeydown = e => { if (e.key === 'Enter') search(); };
     drawCart();
@@ -11938,10 +12084,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const next = new Date(month + 'T00:00:00'); next.setMonth(next.getMonth() + 1);
       const prev = new Date(month + 'T00:00:00'); prev.setMonth(prev.getMonth() - 1);
       K.$('.sb', s.el).innerHTML = `<div class="row"><button class="btn sm out" id="pm">‹</button><b class="grow" style="text-align:center">${K.monthName(month)}</b><button class="btn sm out" id="nm">›</button></div>
-        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for sales without products.</div>
-        <div class="card flush">${rows.map(r => `<div class="list-item" style="flex-wrap:wrap"><div class="grow"><div class="tt" style="font-size:15px">${esc(r.full_name)}</div><div class="st">Sold ${money(r.total)}${online(r.user_id) ? ' · <span>no products</span> ' + money(npSold(r.user_id)) : ''}</div></div>
+        <div class="small muted">Target = how much each sales rep should sell this month (approved orders). Leave empty for no target. Each sales rep also has a 2nd target for Phzar sales.</div>
+        <div class="card flush">${rows.map(r => `<div class="list-item" style="flex-wrap:wrap"><div class="grow"><div class="tt" style="font-size:15px">${esc(r.full_name)}</div><div class="st">Sold ${money(r.total)}${online(r.user_id) ? ' · <span>Phzar</span> ' + money(npSold(r.user_id)) : ''}</div></div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end"><label class="row" style="gap:6px">${online(r.user_id) ? '<span class="small muted">Products</span>' : ''}<span class="muted">$</span><input class="inp" data-t="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${r.target ? +r.target : ''}" style="width:120px;text-align:right"></label>
-          ${online(r.user_id) ? `<label class="row" style="gap:6px"><span class="small muted">No products</span><span class="muted">$</span><input class="inp" data-nt="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${npTarget(r.user_id) ? +npTarget(r.user_id) : ''}" style="width:120px;text-align:right"></label>` : ''}</div></div>`).join('') || '<div class="empty">No active sales reps</div>'}</div>
+          ${online(r.user_id) ? `<label class="row" style="gap:6px"><span class="small muted">Phzar</span><span class="muted">$</span><input class="inp" data-nt="${esc(r.user_id)}" type="number" inputmode="decimal" min="0" placeholder="No target" value="${npTarget(r.user_id) ? +npTarget(r.user_id) : ''}" style="width:120px;text-align:right"></label>` : ''}</div></div>`).join('') || '<div class="empty">No active sales reps</div>'}</div>
         <button class="btn block" id="sv">Save targets</button>`;
       K.$('#pm', s.el).onclick = () => { month = K.monthKey(prev); draw(); };
       K.$('#nm', s.el).onclick = () => { month = K.monthKey(next); draw(); };
@@ -12881,11 +13027,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (current && !current()) return;
       const transit = list.filter(t => t.status === 'sent');
       el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
-        ${canSend() ? `<button class="btn block" id="trnew">${icon('swap', 20)} New transfer (sent → received)</button>` : ''}
+        ${canSend() ? `<button class="btn block" id="trnew">${icon('swap', 20)} New transfer (move stock)</button>` : ''}
         <div class="seg">${[['sent', 'In transit'], ['received', 'Received'], ['all', 'All']].map(([k, l]) => `<button data-tf="${k}" class="${k === f ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
         ${f === 'sent' && transit.length ? `<div class="small muted">${transit.length} <span>in transit</span> · <span>${transit.reduce((a, t) => a + t.pcs, 0)} pcs</span> · ${money(transit.reduce((a, t) => a + +t.value, 0))}. <span>Goods left the first stock and are not in the second stock yet.</span></div>` : ''}
         <div class="card flush">${list.length ? list.map(trRow).join('') : `<div class="empty">${f === 'sent' ? 'Nothing in transit' : 'No transfers'}</div>`}</div>
-        <div class="small muted">The old "Move stock" button still moves at once. A transfer here leaves the first stock when sent and enters the second stock only when someone there taps "Received".</div></div>`;
+        <div class="small muted">A transfer leaves the first stock when sent and enters the second stock when someone there taps "Received" (or tick "Arrived already" when you send it).</div></div>`;
       if ($('#trnew', el)) $('#trnew', el).onclick = () => K.SC.newTransfer(() => draw());
       $$('[data-tf]', el).forEach(b => b.onclick = () => { f = b.dataset.tf; draw(); });
       $$('[data-tr]', el).forEach(b => b.onclick = () => K.SC.transferSheet(+b.dataset.tr, list.find(t => t.id === +b.dataset.tr), () => draw()));
@@ -12899,11 +13045,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (all.length < 2) return toast('Add a second stock first');
     let fromId = all[0].id, toId = all[1].id; const lines = {};
     const opt = sel => all.map(w => `<option value="${w.id}" ${w.id === sel ? 'selected' : ''}>${esc(K.whLabel(w))}</option>`).join('');
-    const s = K.sheet('New transfer', `<div class="small muted">The goods leave the first stock now and wait "in transit" until the second stock taps "Received".</div>
+    const s = K.sheet('New transfer', `<div class="small muted">The goods leave the first stock now and wait "in transit" until the second stock taps "Received". For a quick move, tick "Arrived already".</div>
       <div class="btns"><label class="f">From<select class="inp" id="tf">${opt(fromId)}</select></label><label class="f">To<select class="inp" id="tt">${opt(toId)}</select></label></div>
       <div class="search">${icon('search', 18)}<input id="tq" placeholder="Search product" aria-label="Search product"></div>
       <div class="card flush" id="tl" style="max-height:320px;overflow:auto"></div>
       <label class="f">Note (optional)<input class="inp" id="tn" placeholder="e.g. for this week"></label>
+      <label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" id="tnow"><span><b>Arrived already</b> · receive it now (quick move, all pieces arrived)</span></label>
       <div class="small muted" id="tsum"></div>
       <button class="btn block" id="tok">${icon('swap', 20)} Send</button>`);
     const short = id => K.whLabel(all.find(w => w.id === id) || {});
@@ -12925,8 +13072,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (fromId === toId) return toast('Choose two different stocks');
       const bad = items.find(x => (products.find(p => p.id === x.product_id).stock[fromId] || 0) < x.qty);
       if (bad) return toast('Not enough ' + products.find(p => p.id === bad.product_id).name);
+      const now = $('#tnow', s.el).checked;
       const id = await busy(e.currentTarget, () => api.transferSend(fromId, toId, items, $('#tn', s.el).value.trim()));
-      s.close(); K.forget('products'); toast('Transfer sent'); onDone && onDone(id);
+      let got = false;
+      if (now && id) got = await api.transferReceive(id, items.map(x => ({ product_id: x.product_id, received: x.qty, missing: 0, damaged: 0, reason: '' })), 'Arrived already').then(() => true).catch(err => { toast(err.message || String(err)); return false; });
+      s.close(); K.forget('products'); toast(got ? 'Moved · received' : 'Transfer sent'); onDone && onDone(id);
     };
   };
 
@@ -12985,7 +13135,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="grow"><div class="tt">${esc(a.adj_no)} · ${esc(a.product_name)} <b style="color:${a.qty_change < 0 ? 'var(--rd)' : 'var(--gr)'}">${a.qty_change > 0 ? '+' : ''}${a.qty_change}</b></div>
             <div class="st"><span>${esc(reasonName(a.reason))}</span> · ${esc(a.warehouse_name)} · ${dayTxt(a.created_at)} · ${esc(a.created_name || '')}${a.note ? ' · ' + esc(a.note) : ''}</div></div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>${money(Math.abs(a.value))}</b>${adjPill(a)}</div></button>`).join('') || '<div class="empty">No adjustments</div>'}</div>
-        <div class="small muted">The old "Stock in/out" button still works at once. Here every change has a reason; big changes (above the limit in Settings → Stock control) wait for admin / manager.</div></div>`;
+        <div class="small muted">Every change has a reason; big changes (above the limit in Settings → Stock control) wait for admin / manager.</div></div>`;
       if ($('#adjnew', el)) $('#adjnew', el).onclick = () => K.SC.newAdjust(() => draw());
       $$('[data-af]', el).forEach(b => b.onclick = () => { f = b.dataset.af; draw(); });
       $$('[data-ad]', el).forEach(b => b.onclick = () => K.SC.adjustSheet(list.find(a => a.id === +b.dataset.ad), () => draw()));
@@ -13048,7 +13198,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="grow"><div class="tt">${esc(c.count_no)} · ${esc(c.warehouse_name)}${c.blind ? ' · <span>blind</span>' : ''}${c.kind === 'monthly' ? ' · <span>monthly</span>' : ''}</div>
             <div class="st">${dayTxt(c.started_at)} · ${esc(c.started_name || '')} · ${c.counted}/${c.products} <span>counted</span>${c.diff_products != null && c.status !== 'open' ? ' · ' + c.diff_products + ' <span>differ</span>' : ''}</div></div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${c.diff_value != null && c.status !== 'open' ? `<b style="color:${+c.diff_value < 0 ? 'var(--rd)' : 'inherit'}">${money(c.diff_value)}</b>` : ''}${cntPill(c)}</div></button>`).join('') || '<div class="empty">No count sheets</div>'}</div>
-        <div class="small muted">The old "Stock count" button still changes stock at once. A count sheet changes stock only when admin / manager approves it, and every sheet is kept.</div></div>`;
+        <div class="small muted">A count sheet changes stock only when admin / manager approves it, and every sheet is kept.</div></div>`;
       $('#cntnew', el).onclick = () => K.SC.newCount(id => { draw(); K.SC.countSheet(id, () => draw()); });
       $$('[data-cf]', el).forEach(b => b.onclick = () => { f = b.dataset.cf; draw(); });
       $$('[data-cn]', el).forEach(b => b.onclick = () => K.SC.countSheet(+b.dataset.cn, () => draw()));
@@ -13325,7 +13475,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     h += `<div class="stats three">${tile(money(d.sales_today), 'Today', null, '#/orders?p=today')}${tile(money(d.sales_week), 'Last 7 days', null, '#/orders?p=week')}${tile(d.orders_month, 'Orders this month', null, '#/orders?p=month')}</div>`;
     // online sales: the 2nd target, sales without products (kept apart from the products target above)
     if (+d.np_month || +d.np_target) { const npT = +d.np_target || 0, np = +d.np_month || 0, p = npT ? Math.round(np / npT * 100) : 0, col = p >= 100 ? 'var(--gr)' : p >= 60 ? 'var(--p)' : 'var(--or)';
-      h += `<a class="card" href="#/nopsales" style="text-decoration:none;color:inherit;gap:8px"><div class="row"><b class="grow">🧾 <span>No-product sales · this month</span></b><span class="small muted">${d.np_month_count || 0}</span></div>
+      h += `<a class="card" href="#/phzar" style="text-decoration:none;color:inherit;gap:8px"><div class="row"><b class="grow">🛒 <span>Phzar sales · this month</span></b><span class="small muted">${d.np_month_count || 0}</span></div>
         <div class="row"><b style="font-size:22px" class="grow">${money(np)}</b>${npT ? `<span class="small muted"><span>of</span> ${money(npT)}</span>` : ''}</div>
         ${npT ? `<div class="paybar" style="height:10px"><div style="width:${Math.min(100, p)}%;background:${col}"></div></div><div class="row small"><b style="color:${col}" class="grow">${p}% <span>of target</span></b><span class="muted">${p >= 100 ? 'Target reached' : money(npT - np) + ' to go'}</span></div>` : '<div class="small muted">No target yet.</div>'}</a>`; }
     // commission boost
@@ -13500,22 +13650,41 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.leaveRow = (l, showName) => `<div class="list-item" data-lv="${l.id}"><div class="ic-av sq">${icon('bed', 18)}</div><div class="grow"><div class="tt" style="font-size:14px">${showName ? esc(l.profiles ? l.profiles.full_name : '') + ' · ' : ''}${esc(K.LEAVE_KIND[l.kind])} · ${l.days} day${+l.days === 1 ? '' : 's'}</div>
     <div class="st">${K.poDate ? K.poDate(l.from_date) : l.from_date}${l.to_date !== l.from_date ? ' – ' + (K.poDate ? K.poDate(l.to_date) : l.to_date) : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${l.review_note ? ' · Note: ' + esc(l.review_note) : ''}</div></div>
     <span class="pill ${K.LEAVE_ST[l.status][1]}">${K.LEAVE_ST[l.status][0]}</span></div>`;
-  K.leaveSheet = onDone => {
-    const t = K.period.today();
-    const s = K.sheet('Ask for leave', `<div class="seg" style="flex-wrap:wrap">${Object.entries(K.LEAVE_KIND).map(([k, l], i) => `<button data-lk="${k}" class="${i ? '' : 'on'}" style="flex:1 0 30%">${l}</button>`).join('')}</div>
-      <div class="btns"><label class="f">From<input class="inp" type="date" id="lf" value="${t}" min="${t}"></label><label class="f">To<input class="inp" type="date" id="lt" value="${t}" min="${t}"></label></div>
+  K.leaveSheet = (onDone, opt) => {
+    const t = K.period.today(), forOthers = !!(opt && opt.staff), mn = forOthers ? '' : ` min="${t}"`;
+    const s = K.sheet(forOthers ? 'Leave for staff' : 'Ask for leave', `${forOthers ? `<label class="f">Staff member<select class="inp" id="lw"><option value="">Choose…</option>${opt.staff.map(u => `<option value="${K.esc(u.id)}" ${u.id === opt.who ? 'selected' : ''}>${K.esc(u.full_name)}</option>`).join('')}</select></label>` : ''}<div class="seg" style="flex-wrap:wrap">${Object.entries(K.LEAVE_KIND).map(([k, l], i) => `<button data-lk="${k}" class="${i ? '' : 'on'}" style="flex:1 0 30%">${l}</button>`).join('')}</div>
+      <div class="btns"><label class="f">From<input class="inp" type="date" id="lf" value="${t}"${mn}></label><label class="f">To<input class="inp" type="date" id="lt" value="${t}"${mn}></label></div>
       <label class="f">Days<input class="inp" id="ld" type="number" step="0.5" min="0.5" value="1"></label>
       <label class="f">Reason<input class="inp" id="lr" placeholder="e.g. family wedding in Takeo"></label>
-      <button class="btn block" id="ls">Send request</button>`);
+      ${forOthers ? '<div class="small muted">It waits for approval, like a request from the staff member. They get a message.</div>' : ''}<button class="btn block" id="ls">${forOthers ? 'Save leave request' : 'Send request'}</button>`);
     let kind = 'annual';
     const days = () => { const a = new Date(K.$('#lf', s.el).value), b = new Date(K.$('#lt', s.el).value); if (b >= a) K.$('#ld', s.el).value = Math.round((b - a) / 86400000) + 1; };
     K.$('#lf', s.el).onchange = () => { if (K.$('#lt', s.el).value < K.$('#lf', s.el).value) K.$('#lt', s.el).value = K.$('#lf', s.el).value; days(); };
     K.$('#lt', s.el).onchange = days;
     K.$$('[data-lk]', s.el).forEach(b => b.onclick = () => { kind = b.dataset.lk; K.$$('[data-lk]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
     K.$('#ls', s.el).onclick = async e => {
-      await K.busy(e.currentTarget, () => api.askLeave({ kind, from_date: K.$('#lf', s.el).value, to_date: K.$('#lt', s.el).value, days: K.$('#ld', s.el).value, reason: K.$('#lr', s.el).value.trim() }));
-      s.close(); K.toast('Request sent'); onDone && onDone();
+      const x = { kind, from_date: K.$('#lf', s.el).value, to_date: K.$('#lt', s.el).value, days: K.$('#ld', s.el).value, reason: K.$('#lr', s.el).value.trim() };
+      if (forOthers) { x.staff_id = K.$('#lw', s.el).value; if (!x.staff_id) return K.toast('Choose the staff member'); }
+      await K.busy(e.currentTarget, () => forOthers ? api.leaveFor(x) : api.askLeave(x));
+      s.close(); K.toast(forOthers ? 'Leave request saved' : 'Request sent'); onDone && onDone();
     };
+  };
+  // Record start / finish work for a staff member, or fix the times of a day (2 Nov 2026): permission attendance.record_others
+  K.attRecSheet = (staff, att, pre, onDone) => {
+    const t = K.period.today(), p0 = pre || {}, hhmm = d => d ? new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Phnom_Penh' }) : '';
+    const s = K.sheet('Attendance for staff', `<label class="f">Staff member<select class="inp" id="aw"><option value="">Choose…</option>${staff.map(u => `<option value="${K.esc(u.id)}" ${u.id === p0.staff_id ? 'selected' : ''}>${K.esc(u.full_name)}</option>`).join('')}</select></label>
+      <label class="f">Day<input class="inp" type="date" id="ad" value="${K.esc(p0.day || t)}" max="${t}"></label>
+      <div class="btns"><label class="f">Start work<input class="inp" type="time" id="ai"></label><label class="f">Finish work (empty = not yet)<input class="inp" type="time" id="ao"></label></div>
+      <label class="f">Note (optional)<input class="inp" id="an" placeholder="e.g. phone broken, forgot to start work"></label>
+      <div class="small" id="ax" style="line-height:1.5"></div>
+      <button class="btn block" id="aok">${icon('check', 18)}Save</button>`);
+    const fill = () => { const w = K.$('#aw', s.el).value, d = K.$('#ad', s.el).value, a = (att || []).find(x => x.staff_id === w && x.work_date === d);
+      K.$('#ai', s.el).value = a ? hhmm(a.check_in_at) : (K.SETTINGS || {}).work_start || '08:00'; K.$('#ao', s.el).value = a ? hhmm(a.check_out_at) : '';
+      K.$('#ax', s.el).innerHTML = !w ? '' : a ? `<span style="color:var(--or);font-weight:700">Already saved for this day: ${K.esc(hhmm(a.check_in_at))} – ${K.esc(hhmm(a.check_out_at) || 'no finish')}. Saving changes these times.</span>` : '<span class="muted">Nothing saved for this day yet. The staff member gets a message that you recorded it.</span>'; };
+    K.$('#aw', s.el).onchange = fill; K.$('#ad', s.el).onchange = fill; fill();
+    K.$('#aok', s.el).onclick = async e => { const x = { staff_id: K.$('#aw', s.el).value, day: K.$('#ad', s.el).value, in: K.$('#ai', s.el).value, out: K.$('#ao', s.el).value, note: K.$('#an', s.el).value.trim() };
+      if (!x.staff_id) return K.toast('Choose the staff member'); if (!x.in) return K.toast('Write the start time');
+      await K.busy(e.currentTarget, () => api.attRecord(x)); s.close(); K.toast('Attendance saved'); onDone && onDone(); };
   };
   K.leaveReview = (l, onDone) => {
     const s = K.sheet(l.profiles ? l.profiles.full_name : 'Leave', `${K.leaveRow(l, false)}<input class="inp" id="rn" placeholder="Note (optional)">
@@ -13563,7 +13732,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="btns">${inp('nm', 'Full name (changing it keeps the old name in the history)', u.full_name)}${inp('ph', 'Phone', u.phone, 'tel', '012 345 678')}</div>
         ${boss ? `<div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-r="${r}" class="${u.role === r ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="rh">${hints[role]}</div>
-        <label class="row" id="sonlw" style="gap:10px;align-items:flex-start;cursor:pointer;${['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'display:none'}"><input type="checkbox" id="sonl" ${K.sellsOnline(u) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.</div></span></label>
+        <label class="row" id="sonlw" style="gap:10px;align-items:flex-start;cursor:pointer;${['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'display:none'}"><input type="checkbox" id="sonl" ${K.sellsOnline(u) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from" and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="spw">Which partner<select class="inp" id="spart"><option value="">Loading…</option></select></label>` : ''}
         ${K.allow('stock.access') && u.active ? `<div id="stx" class="card" style="background:var(--bg);gap:6px"><b style="font-size:14px">Can order from these stocks</b><div class="small muted">Loading…</div></div>` : ''}
         ${boss || hr ? `<div id="orgx"><div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
@@ -13581,7 +13750,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${inp('hbk', 'Bank account for salary', hh.bank_account, 'text', 'e.g. ABA 000 123 456 · name')}
         <label class="f">Notes<textarea class="inp" id="hn">${esc(hh.notes || '')}</textarea></label>
         <div class="small muted">Personal details and salary are private: only you and people with the HR permission can see them. Each person sees only their own.</div>` : ''}
-        <div class="btns">${boss && u.active && u.id !== K.S.me.id ? '<button class="btn red" id="dis">Disable</button>' : ''}<button class="btn" id="ok">${u.active ? 'Save' : 'Approve'}</button></div>`);
+        <div class="btns">${boss && u.active && u.id !== K.S.me.id ? '<button class="btn red" id="dis">Disable</button>' : ''}<button class="btn" id="ok">${u.active ? 'Save' : 'Approve'}</button></div>
+        ${boss && u.id !== K.S.me.id ? '<button class="btn out block" id="sdel" style="color:var(--rd)">Delete user</button>' : ''}`);
       // stocks this person may order from (admin): their own stock is always theirs; tick the others
       let stTicks = null, stOrig = [];
       const stShow = () => { const b = K.$('#stx', s.el); if (b) b.style.display = ['admin', 'manager', 'guest', 'partner'].includes(role) ? 'none' : '';
@@ -13630,6 +13800,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (K.$('#sphx', s.el)) K.$('#sphx', s.el).onclick = async e => { await busy(e.currentTarget, () => api.setAvatar(u.id, null)); s.close(); toast('Photo removed'); K.forget('staff'); K.render(); };
         K.$('#srp', s.el).onclick = () => K.resetPasswordSheet(u);
         K.$('#sun', s.el).onclick = () => K.usernameSheet(u, () => { s.close(); K.forget('staff'); return K.render(); }); }
+      if (K.$('#sdel', s.el)) K.$('#sdel', s.el).onclick = async e => { const b = e.currentTarget;
+        if (!(await K.confirmSheet('Delete ' + u.full_name + '?', 'The login is removed for ever: they can never log in again and they disappear from the staff lists. Their name stays on old orders, visits, payroll and reports. This cannot be undone.', 'Delete user', true))) return;
+        await busy(b, () => api.deleteUser(u.id)); s.close(); toast(u.full_name + ' deleted'); K.forget('staff'); K.render(); };
       if (K.$('#dis', s.el)) K.$('#dis', s.el).onclick = async e => { const b = e.currentTarget;
         if (!(await K.confirmSheet('Disable ' + u.full_name + '?', 'They cannot log in any more. Their orders and history stay.', 'Disable', true))) return; saveIt(b, false); };
     }
@@ -13640,7 +13813,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="btns"><label class="f">Username (for login)<input class="inp" id="au" autocapitalize="none" autocorrect="off" placeholder="e.g. rong"></label><label class="f">First password<input class="inp" id="apw" placeholder="at least 8 characters"></label></div>
         <div class="f" style="font-size:13px;font-weight:700;color:var(--mu)">Role</div><div class="seg" style="flex-wrap:wrap">${roles.map(r => `<button data-ar="${r}" class="${r === role ? 'on' : ''}" style="flex:1 0 30%">${K.ROLE_LABEL[r]}</button>`).join('')}</div>
         <div class="small muted" id="arh">${esc(K.ROLE_HINTS.sales)}</div>
-        <label class="row" id="aonlw" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="aonl" style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from", sales without products and online targets. All sales rules stay.</div></span></label>
+        <label class="row" id="aonlw" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="aonl" style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from" and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="apw2" style="display:none">Which partner<select class="inp" id="apart"><option value="">Loading…</option></select></label>
         ${(K.S.cache.departments || []).length ? `<label class="f">Department (optional)<select class="inp" id="adep"><option value="">No department yet</option>${(K.S.cache.departments || []).filter(d => d.active !== false).map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>` : ''}
         <button class="btn block" id="aok">${icon('plus', 18)}Create account</button>`);
@@ -13733,9 +13906,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
     if (!current()) return;
     const att_ = attList;
+    const canRec = K.allow('attendance.record_others'), nameOf = id => (staff.find(u => u.id === id) || {}).full_name || '';
+    const recBy = x => x && x.recorded_by ? ` · ✍ ${esc(nameOf(x.recorded_by) || 'office')}` : '';
     const tabs = [boss && ['staff', 'Staff'], (boss || hr) && ['depts', 'Departments'], att && ['today', 'Today'], att && ['att', 'Attendance'], att && ['leave', 'Leave'], hr && ['payroll', 'Payroll'], boss && ['commission', 'Commission'], boss && ['work', 'Work hours']].filter(Boolean);
     if (q.t === 'pay') q.t = 'payroll';   // "Staff & pay" moved into Payroll (27 Oct 2026, Mr. Lee)
-    let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active) && boss ? 'staff' : tabs[0][0]), cmonth = K.monthKey();
+    let tab = tabs.some(t => t[0] === q.t) ? q.t : (staff.some(u => !u.active && !u.deleted_at) && boss ? 'staff' : tabs[0][0]), cmonth = K.monthKey();
     const S2 = {};
     const reps = staff.filter(u => u.active && ['sales', 'online_sales', 'supervisor', 'agent'].includes(u.role));
     const field = (k, label, ph = '', type = 'text') => `<label class="f">${label}<input class="inp" data-k="${k}" type="${type}" value="${esc(st[k] || '')}" placeholder="${esc(ph)}"></label>`;
@@ -13770,18 +13945,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         else if (start && day < start) st = '<span class="muted small">Before start date</span>';
         else if (day === today) st = pill('Not in yet', 'gy');
         else { c.absent++; st = pill('Absent', 'rd'); }
-        rows.push(`<tr style="${x || l ? '' : 'background:var(--bg)'}"><td style="white-space:nowrap"><b>${esc(d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</b></td><td>${st}</td>
+        rows.push(`<tr ${canRec ? `data-aday="${day}"` : ''} style="${x || l ? '' : 'background:var(--bg)'}${canRec ? ';cursor:pointer' : ''}"><td style="white-space:nowrap"><b>${esc(d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</b></td><td>${st}</td>
           <td style="text-align:right">${x ? hm(x.check_in_at) : ''}</td><td style="text-align:right">${x ? (x.check_out_at ? hm(x.check_out_at) : '<span class="muted">no finish</span>') : ''}</td>
           <td style="text-align:right">${x && x.check_out_at ? K.hoursOf(x).toFixed(1) : ''}</td>
           <td>${x && x.photo_url ? `<a href="${esc(x.photo_url)}" target="_blank" rel="noopener"><img src="${esc(x.photo_url)}" alt="Start photo" style="width:34px;height:34px;border-radius:8px;object-fit:cover;vertical-align:middle"></a>` : ''}${x && x.in_lat ? ` <a href="https://www.google.com/maps/search/?api=1&query=${x.in_lat},${x.in_lng}" target="_blank" rel="noopener" class="small">map</a>` : ''}</td>
-          <td class="small">${x && x.note ? esc(x.note) : l && l.reason ? esc(l.reason) : ''}</td></tr>`);
+          <td class="small">${x && x.note ? esc(x.note) : l && l.reason ? esc(l.reason) : ''}${recBy(x)}</td></tr>`);
       }
       const yr = today.slice(0, 4), allow = +(hh.annual_leave_days ?? 18), used = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.kind === 'annual' && l.from_date.startsWith(yr)).reduce((s, l) => s + +l.days, 0);
       const mine = leave.filter(l => l.staff_id === u.id);
       return `<div class="card"><div class="row">${avatar(u.full_name, '', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">${esc([hh.position || K.ROLE_LABEL[u.role], u.phone, start ? 'started ' + (K.poDate ? K.poDate(start) : start) : ''].filter(Boolean).join(' · '))}</div></div></div>
           <div class="kpis">${A.kpi(c.worked, 'Days at work', 'var(--gr)')}${A.kpi(c.late, 'Late', c.late ? 'var(--or)' : null)}${A.kpi(c.absent, 'Absent (no leave)', c.absent ? 'var(--rd)' : null)}${A.kpi(c.leave, 'Leave days')}${A.kpi(c.hours.toFixed(1) + ' h', 'Hours worked')}${A.kpi(c.sun + ' / ' + c.hol, 'Sundays / holidays worked')}</div>
           <div class="small muted">Work starts ${esc((K.SETTINGS || {}).work_start || '08:00')} · finishes ${esc((K.SETTINGS || {}).work_end || '17:30')}. "Absent" = a working day (Monday – Saturday, not a holiday) with no start of work and no approved leave.</div></div>
-        <div class="card"><b>Day by day</b><div class="tbl"><table style="font-size:13px"><thead><tr><th style="text-align:left">Day</th><th style="text-align:left">Status</th><th style="text-align:right">Start</th><th style="text-align:right">Finish</th><th style="text-align:right">Hours</th><th style="text-align:left">Photo</th><th style="text-align:left">Note</th></tr></thead>
+        <div class="card"><div class="row"><b class="grow">Day by day</b>${canRec ? `<button class="btn sm out" id="arec1">${icon('clock', 16)}Record / fix a day</button>` : ''}</div>${canRec ? '<div class="small muted">Tap a day to record or fix its start and finish. ✍ = recorded by the office.</div>' : ''}<div class="tbl"><table style="font-size:13px"><thead><tr><th style="text-align:left">Day</th><th style="text-align:left">Status</th><th style="text-align:right">Start</th><th style="text-align:right">Finish</th><th style="text-align:right">Hours</th><th style="text-align:left">Photo</th><th style="text-align:left">Note</th></tr></thead>
           <tbody>${rows.join('') || '<tr><td colspan="7" class="muted">No days in these dates</td></tr>'}</tbody></table></div></div>
         <div class="card"><div class="row"><b class="grow">Leave</b><span class="pill ${allow - used > 0 ? 'gr' : 'or'}">Annual leave ${yr}: ${used} used · ${allow - used} left of ${allow}</span></div></div>
         <div class="card flush">${mine.map(l => K.leaveRow(l, false)).join('') || '<div class="empty">No leave requests</div>'}</div>`;
@@ -13805,7 +13980,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     const draw = async () => {
       active = activeAll.filter(u => mineP(u) && inDept(u) && working(u));
-      const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active).length : 0;
+      const cnt = k => k === 'leave' ? leave.filter(x => x.status === 'pending').length : k === 'staff' ? staff.filter(u => !u.active && !u.deleted_at).length : 0;
       $('#tabs').innerHTML = tabs.map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}${cnt(k) ? ` <span style="opacity:.8">${cnt(k)}</span>` : ''}</button>`).join('');
       $$('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
       let h = '';
@@ -13813,7 +13988,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
         const stats = u => { const mine = orders.filter(o => (o.sales_rep_id || o.created_by) === u.id && new Date(o.created_at) >= monthStart && K.isSale(o));
           return { sales: mine.reduce((s, o) => s + +o.total, 0), orders: mine.length, visits: visits.filter(v => v.staff_id === u.id && new Date(v.check_in_at) >= monthStart).length }; };
-        const pending = staff.filter(u => !u.active), active = activeAll.filter(inDept);
+        const pending = staff.filter(u => !u.active && !u.deleted_at), active = activeAll.filter(inDept);
         const row = u => { const x = stats(u), hh = hrOf(u.id);
           const was = K.namesOf(u.id);
           return `<button class="list-item" data-u="${esc(u.id)}">${avatar(u.full_name)}<div class="grow"><div class="tt">${esc(u.full_name)}${was.length ? ` <span class="small muted" style="font-weight:600">· was ${was.map(h => esc(h.old_name)).join(', ')}</span>` : ''}</div>
@@ -13843,15 +14018,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const nm = new Date(cmonth + 'T00:00:00'), pm = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() - 1, 1)), nx = K.monthKey(new Date(nm.getFullYear(), nm.getMonth() + 1, 1));
         // each rep has their own % and own bonus % (Mr. Lee, 22 Oct 2026); nothing typed = 0%
         h = `<div class="card" style="gap:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">Commission for each rep</b><button class="btn sm out" id="hrtg">${icon('pen', 16)}Set sales targets</button></div>
-            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Sales without products have their own % and bonus % (above the no-product target), for every sales rep.</div>
+            <div class="small muted">Commission = the rep's approved orders in the month × their %. Bonus % = extra on the sales above their target. Empty = 0%. A % set on one order is used for that order. Phzar sales (delivered Order in Phzar) have their own % and bonus % (above the Phzar target), for every sales rep.</div>
             <div class="small muted">Example: 2% and bonus 1%, target $5,000, sales $6,000 → $6,000 × 2% + $1,000 × 1% = $130.</div>
-            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th><th style="text-align:right">No-product %</th><th style="text-align:right">No-product bonus %</th></tr></thead><tbody>
+            <div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Commission %</th><th style="text-align:right">Bonus % above target</th><th style="text-align:right">Phzar %</th><th style="text-align:right">Phzar bonus %</th></tr></thead><tbody>
             ${reps.map(u => { const r = rates.find(x => x.user_id === u.id) || {};
               return `<tr><td><b>${esc(u.full_name)}</b><div class="small muted">${esc(K.ROLE_LABEL[u.role] || u.role)}</div></td>
                 <td style="text-align:right"><input class="inp" data-cr="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Commission %"></td>
                 <td style="text-align:right"><input class="inp" data-cb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Bonus %"></td>
-                ${`<td style="text-align:right"><input class="inp" data-cn="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product %"></td>
-                <td style="text-align:right"><input class="inp" data-cnb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="No-product bonus %"></td>`}</tr>`; }).join('') || '<tr><td colspan="5" class="muted">No sales reps yet</td></tr>'}
+                ${`<td style="text-align:right"><input class="inp" data-cn="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_rate ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Phzar %"></td>
+                <td style="text-align:right"><input class="inp" data-cnb="${esc(u.id)}" type="number" step="0.1" min="0" max="100" inputmode="decimal" value="${r.nop_bonus ?? ''}" placeholder="0" style="width:90px;text-align:right" aria-label="Phzar bonus %"></td>`}</tr>`; }).join('') || '<tr><td colspan="5" class="muted">No sales reps yet</td></tr>'}
             </tbody></table></div>
             <button class="btn" id="scr" style="align-self:flex-start">Save commission</button></div>
           <div class="card"><div class="row"><button class="btn sm out" data-cm="${pm}" id="pm">‹</button><b class="grow" style="text-align:center">Commission · ${esc(K.monthName(cmonth))}</b><button class="btn sm out" data-cm="${nx}" id="nm">›</button></div>
@@ -13874,26 +14049,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const inN = rows.filter(r => r.a).length, late = rows.filter(r => r.a && K.isLate(r.a)).length, lv = rows.filter(r => !r.a && r.l).length;
         h = `<div class="kpis">${A.kpi(inN + ' / ' + active.length, 'At work today', 'var(--gr)')}${A.kpi(late, 'Late today', late ? 'var(--or)' : null)}${A.kpi(lv, 'On leave today')}${A.kpi(active.length - inN - lv, 'Not in yet', 'var(--rd)')}</div>
           <div class="small muted">Work starts ${esc((K.SETTINGS || {}).work_start || '08:00')} · change it in the <a href="#/hr?t=work">Work hours</a> tab.</div>
-          <div class="card flush">${rows.map(({ u, a, l }) => `<div class="list-item">${a && a.photo_url ? `<img src="${esc(a.photo_url)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover">` : avatar(u.full_name, 'sm')}
-            <div class="grow"><div class="tt" style="font-size:15px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role])}${a ? ' · in ' + hm(a.check_in_at) + (a.check_out_at ? ' · out ' + hm(a.check_out_at) : '') : ''}${a && a.in_lat ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${a.in_lat},${a.in_lng}" target="_blank" rel="noopener">map</a>` : ''}</div></div>
+          ${canRec ? `<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="arec">${icon('clock', 16)}Record start / finish for staff</button><span class="small muted">or tap a person</span></div>` : ''}
+          <div class="card flush">${rows.map(({ u, a, l }) => `<div class="list-item" ${canRec ? `data-arec="${esc(u.id)}" style="cursor:pointer"` : ''}>${a && a.photo_url ? `<img src="${esc(a.photo_url)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover">` : avatar(u.full_name, 'sm')}
+            <div class="grow"><div class="tt" style="font-size:15px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role])}${a ? ' · in ' + hm(a.check_in_at) + (a.check_out_at ? ' · out ' + hm(a.check_out_at) : '') + recBy(a) : ''}${a && a.in_lat ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${a.in_lat},${a.in_lng}" target="_blank" rel="noopener">map</a>` : ''}</div></div>
             ${a ? (K.isLate(a) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>') : l ? `<span class="pill bl">${esc(K.LEAVE_KIND[l.kind])}</span>` : '<span class="pill gy">Not in</span>'}</div>`).join('')}</div>`;
       } else if (tab === 'att') {
         const [a, b] = P.range(pst.p, pst.from, pst.to);
         if (!hols) { hols = await api.listHolidays().catch(() => []); K.HOLIDAYS = hols; }
         const inP = att_.filter(x => x.work_date >= a && x.work_date <= b);
-        const pick = `<div class="row" style="gap:10px;flex-wrap:wrap">${who ? `<button class="btn sm out" id="attall">‹ All staff</button>` : ''}<label class="f" style="min-width:240px;max-width:340px;flex:1">Choose a person to see everything<select class="inp" id="attwho"><option value="">All staff</option>${active.map(u => `<option value="${esc(u.id)}" ${u.id === who ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label></div>`;
+        const pick = `<div class="row" style="gap:10px;flex-wrap:wrap">${who ? `<button class="btn sm out" id="attall">‹ All staff</button>` : ''}${canRec && !who ? `<button class="btn sm" id="arec">${icon('clock', 16)}Record / fix attendance</button>` : ''}<label class="f" style="min-width:240px;max-width:340px;flex:1">Choose a person to see everything<select class="inp" id="attwho"><option value="">All staff</option>${active.map(u => `<option value="${esc(u.id)}" ${u.id === who ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select></label></div>`;
         h = `<div id="per" style="display:flex;flex-direction:column;gap:10px">${P.html(pst.p, pst.from, pst.to)}<div class="small muted">${esc(P.label(pst))}</div></div>${pick}`;
         const wu = who && active.find(u => u.id === who);
         if (wu) h += personAtt(wu, a, b);
         else h += `<div class="card"><div class="tbl"><table><thead><tr><th style="text-align:left">Staff</th><th style="text-align:right">Days worked</th><th style="text-align:right">Late</th><th style="text-align:right">Hours</th><th style="text-align:right">Leave days</th><th></th></tr></thead><tbody>
           ${active.map(u => { const m = inP.filter(x => x.staff_id === u.id), lv = leave.filter(l => l.staff_id === u.id && l.status === 'approved' && l.to_date >= a && l.from_date <= b).reduce((s, l) => s + +l.days, 0);
             return `<tr data-who="${esc(u.id)}" style="cursor:pointer"><td><b style="color:var(--p)">${esc(u.full_name)}</b></td><td style="text-align:right">${m.length}</td><td style="text-align:right;${m.filter(K.isLate).length ? 'color:var(--or);font-weight:800' : ''}">${m.filter(K.isLate).length}</td><td style="text-align:right">${m.reduce((s, x) => s + K.hoursOf(x), 0).toFixed(1)}</td><td style="text-align:right">${lv || '—'}</td><td style="text-align:right;color:var(--mu)">${icon('right', 16)}</td></tr>`; }).join('')}</tbody></table></div><div class="small muted">Tap a name to see all of that person's days and leave.</div></div>
-          <div class="card flush">${inP.slice(0, 200).map(x => `<div class="list-item">${x.photo_url ? `<img src="${esc(x.photo_url)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : `<div class="ic-av sq">${icon('clock', 18)}</div>`}<div class="grow"><div class="tt" style="font-size:14px">${esc(x.profiles ? x.profiles.full_name : '')} · ${esc(K.poDate(x.work_date))}</div><div class="st">${hm(x.check_in_at)} – ${x.check_out_at ? hm(x.check_out_at) : 'no finish'}${x.note ? ' · ' + esc(x.note) : ''}</div></div>${K.isLate(x) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>'}</div>`).join('') || '<div class="empty">No attendance for these dates</div>'}</div>`;
+          <div class="card flush">${inP.slice(0, 200).map(x => `<div class="list-item">${x.photo_url ? `<img src="${esc(x.photo_url)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">` : `<div class="ic-av sq">${icon('clock', 18)}</div>`}<div class="grow"><div class="tt" style="font-size:14px">${esc(x.profiles ? x.profiles.full_name : '')} · ${esc(K.poDate(x.work_date))}</div><div class="st">${hm(x.check_in_at)} – ${x.check_out_at ? hm(x.check_out_at) : 'no finish'}${x.note ? ' · ' + esc(x.note) : ''}${recBy(x)}</div></div>${K.isLate(x) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>'}</div>`).join('') || '<div class="empty">No attendance for these dates</div>'}</div>`;
       } else if (tab === 'payroll') {
         h = '<div id="payv"></div>';
       } else if (tab === 'leave') {
         const lv = leave.filter(l => (seeAll && !deptF) || active.some(u => u.id === l.staff_id) || (l.staff_id === K.S.me.id && !deptF)), pend = lv.filter(l => l.status === 'pending'), rest = lv.filter(l => l.status !== 'pending');
-        h = `<div class="sec">Waiting for approval</div><div class="card flush">${pend.map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests waiting</div>'}</div>
+        h = `${canRec ? `<div><button class="btn sm" id="lvfor">${icon('plus', 16)}Leave for staff</button></div>` : ''}<div class="sec">Waiting for approval</div><div class="card flush">${pend.map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests waiting</div>'}</div>
           <div class="sec">All requests</div><div class="card flush">${rest.slice(0, 100).map(l => K.leaveRow(l, true)).join('') || '<div class="empty">No requests yet</div>'}</div>`;
       }
       if (depts.length && ['staff', 'today', 'att', 'leave'].includes(tab)) {
@@ -13905,6 +14081,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#adddep')) $('#adddep').onclick = () => deptSheet({});
       $$('[data-dep]').forEach(b => b.onclick = () => deptSheet(depts.find(d => d.id === +b.dataset.dep)));
       if ($('#payv')) K.payrollView($('#payv'), { staff, leave, hrs });
+      const recList = active.length ? active : activeAll;
+      if ($('#arec')) $('#arec').onclick = () => K.attRecSheet(recList, att_, { staff_id: who || '' }, () => K.render());
+      if ($('#arec1')) $('#arec1').onclick = () => K.attRecSheet(recList, att_, { staff_id: who }, () => K.render());
+      $$('[data-arec]').forEach(r => r.onclick = () => K.attRecSheet(recList, att_, { staff_id: r.dataset.arec }, () => K.render()));
+      $$('[data-aday]').forEach(r => r.onclick = e => { if (e.target.closest('a')) return; K.attRecSheet(recList, att_, { staff_id: who, day: r.dataset.aday }, () => K.render()); });
+      if ($('#lvfor')) $('#lvfor').onclick = () => K.leaveSheet(() => K.render(), { staff: recList });
       if ($('#attwho')) $('#attwho').onchange = e => { who = e.target.value; draw(); };
       if ($('#attall')) $('#attall').onclick = () => { who = ''; draw(); };
       $$('[data-who]').forEach(r => r.onclick = () => { who = r.dataset.who; draw(); const m = $('#main'); if (m) m.scrollTop = 0; });
