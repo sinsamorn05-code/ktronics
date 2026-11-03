@@ -1641,6 +1641,7 @@ window.makeSupabaseApi = function (cfg) {
     async todayAttendance() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return q(sb.from('attendance').select('*').eq('staff_id', me.id).eq('work_date', d.toISOString().slice(0, 10)).maybeSingle()); },
     async clockIn(lat, lng, photo, note) { const url = photo ? await api.uploadPhoto(photo, 'attendance') : null; return q(sb.rpc('clock_in', { p_lat: lat, p_lng: lng, p_photo: url, p_note: note || null })); },
     attRecord: p => q(sb.rpc('att_record', { p })),
+    attDelete: id => q(sb.rpc('att_delete', { p_id: id })),
     leaveFor: p => q(sb.rpc('leave_for', { p })),
     clockOut: (lat, lng, note) => q(sb.rpc('clock_out', { p_lat: lat, p_lng: lng, p_note: note || null })),
     listLeave: () => all(() => sb.from('leave_requests').select('*, profiles!leave_requests_staff_id_fkey(full_name)').order('id', { ascending: false }), 5000),
@@ -4599,6 +4600,9 @@ window.makeDemoApi = function () {
       if (!a) { a = { id: ++D.seq.att, staff_id: u.id, work_date: p.day, in_lat: null, in_lng: null, photo_url: null, note: '' }; D.attendance.push(a); }
       Object.assign(a, { check_in_at: tin, check_out_at: tout, note: (p.note || '').trim() || a.note, recorded_by: me.id, recorded_at: now() });
       notify(u.id, 'Your attendance for ' + p.day + ' was ' + (was ? 'changed' : 'recorded') + ' by ' + me.full_name, 'Start ' + p.in + (p.out ? ' · finish ' + p.out : ' · no finish yet'), '#/attendance'); save(); return wait(a.id); },
+    async attDelete(id) { if (!allow('attendance.record_others')) fail('You are not allowed to delete attendance');
+      const i = D.attendance.findIndex(x => x.id === id); if (i < 0) fail('This day was already deleted'); const a = D.attendance[i]; D.attendance.splice(i, 1);
+      notify(a.staff_id, 'Your attendance for ' + a.work_date + ' was deleted by ' + me.full_name, '', '#/attendance'); save(); return wait(null); },
     async leaveFor(x) { if (!allow('attendance.record_others')) fail('You are not allowed to write leave for other staff');
       const u = user(x.staff_id); if (!u || u.active === false || ['guest', 'partner'].includes(u.role)) fail('Choose an active staff member');
       if (!x.from_date || !x.to_date) fail('Choose the dates'); if (x.to_date < x.from_date) fail('The end date is before the start date'); if (!(+x.days > 0)) fail('Enter the number of days');
@@ -6574,6 +6578,13 @@ Object.assign(window.KT_KM, {
   "The login is removed for ever: they can never log in again and they disappear from the staff lists. Their name stays on old orders, visits, payroll and reports. This cannot be undone.": "គណនីចូលត្រូវលុបជារៀងរហូត៖ ពួកគេមិនអាចចូលបានទៀតទេ ហើយបាត់ពីបញ្ជីបុគ្គលិក។ ឈ្មោះនៅលើការបញ្ជាទិញ ការចុះហាង ប្រាក់ខែ និងរបាយការណ៍ចាស់ៗ។ មិនអាចត្រឡប់វិញបានទេ។"
 });
 
+// Delete a day of attendance (3 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Delete this day": "លុបថ្ងៃនេះ",
+  "Day deleted": "បានលុបថ្ងៃ",
+  "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "ម៉ោងចាប់ផ្តើម និងបញ្ចប់នៃថ្ងៃនេះត្រូវលុបចេញ (ឧ. ពេលគាត់ឈប់សម្រាកថ្ងៃនោះ)។ បុគ្គលិកនឹងទទួលសារ។"
+});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8495,6 +8506,13 @@ Object.assign(window.KT_ZH, {
 Object.assign(window.KT_ZH, {
   "Delete user": "删除用户",
   "The login is removed for ever: they can never log in again and they disappear from the staff lists. Their name stays on old orders, visits, payroll and reports. This cannot be undone.": "登录将被永久删除：此人再也不能登录，并从员工列表中消失。他们的名字仍保留在旧订单、拜访、工资和报表中。此操作无法撤销。"
+});
+
+// Delete a day of attendance (3 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Delete this day": "删除这一天",
+  "Day deleted": "已删除这一天",
+  "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "这一天的上下班记录会被删除（例如那天他们请了假）。员工会收到消息。"
 });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -13141,14 +13159,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="btns"><label class="f">Start work<input class="inp" type="time" id="ai"></label><label class="f">Finish work (empty = not yet)<input class="inp" type="time" id="ao"></label></div>
       <label class="f">Note (optional)<input class="inp" id="an" placeholder="e.g. phone broken, forgot to start work"></label>
       <div class="small" id="ax" style="line-height:1.5"></div>
-      <button class="btn block" id="aok">${icon('check', 18)}Save</button>`);
-    const fill = () => { const w = K.$('#aw', s.el).value, d = K.$('#ad', s.el).value, a = (att || []).find(x => x.staff_id === w && x.work_date === d);
+      <button class="btn block" id="aok">${icon('check', 18)}Save</button>
+      <button class="btn out block" id="adel" style="color:var(--rd);display:none">Delete this day</button>`);
+    let cur = null;
+    const fill = () => { const w = K.$('#aw', s.el).value, d = K.$('#ad', s.el).value, a = cur = (att || []).find(x => x.staff_id === w && x.work_date === d) || null;
+      K.$('#adel', s.el).style.display = a ? '' : 'none';
       K.$('#ai', s.el).value = a ? hhmm(a.check_in_at) : (K.SETTINGS || {}).work_start || '08:00'; K.$('#ao', s.el).value = a ? hhmm(a.check_out_at) : '';
       K.$('#ax', s.el).innerHTML = !w ? '' : a ? `<span style="color:var(--or);font-weight:700">Already saved for this day: ${K.esc(hhmm(a.check_in_at))} – ${K.esc(hhmm(a.check_out_at) || 'no finish')}. Saving changes these times.</span>` : '<span class="muted">Nothing saved for this day yet. The staff member gets a message that you recorded it.</span>'; };
     K.$('#aw', s.el).onchange = fill; K.$('#ad', s.el).onchange = fill; fill();
     K.$('#aok', s.el).onclick = async e => { const x = { staff_id: K.$('#aw', s.el).value, day: K.$('#ad', s.el).value, in: K.$('#ai', s.el).value, out: K.$('#ao', s.el).value, note: K.$('#an', s.el).value.trim() };
       if (!x.staff_id) return K.toast('Choose the staff member'); if (!x.in) return K.toast('Write the start time');
       await K.busy(e.currentTarget, () => api.attRecord(x)); s.close(); K.toast('Attendance saved'); onDone && onDone(); };
+    K.$('#adel', s.el).onclick = async e => { const b = e.currentTarget, a = cur; if (!a) return;
+      const who = (staff.find(u => u.id === a.staff_id) || {}).full_name || '';
+      if (!(await K.confirmSheet('Delete ' + who + ' · ' + a.work_date + '?', 'The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.', 'Delete', true))) return;
+      await K.busy(b, () => api.attDelete(a.id)); s.close(); K.toast('Day deleted'); onDone && onDone(); };
   };
   K.leaveReview = (l, onDone) => {
     const s = K.sheet(l.profiles ? l.profiles.full_name : 'Leave', `${K.leaveRow(l, false)}<input class="inp" id="rn" placeholder="Note (optional)">
