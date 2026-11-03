@@ -6585,6 +6585,19 @@ Object.assign(window.KT_KM, {
   "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "ម៉ោងចាប់ផ្តើម និងបញ្ចប់នៃថ្ងៃនេះត្រូវលុបចេញ (ឧ. ពេលគាត់ឈប់សម្រាកថ្ងៃនោះ)។ បុគ្គលិកនឹងទទួលសារ។"
 });
 
+// Customers: select all (3 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Clear ticks": "លុបការជ្រើស"
+});
+window.KT_KM_PATTERNS.push([/^Select all (\d+)$/, 'ជ្រើសទាំងអស់ $1']);
+
+// Customers: shops per province (3 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Shops per province": "ហាងតាមខេត្ត",
+  "Tap a province (or a Phnom Penh district) to show its shops.": "ចុចលើខេត្ត (ឬខណ្ឌនៅភ្នំពេញ) ដើម្បីមើលហាង។",
+  "No district": "គ្មានខណ្ឌ"
+});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8515,6 +8528,19 @@ Object.assign(window.KT_ZH, {
   "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "这一天的上下班记录会被删除（例如那天他们请了假）。员工会收到消息。"
 });
 
+// Customers: select all (3 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Clear ticks": "取消全选"
+});
+window.KT_ZH_PATTERNS.push([/^Select all (\d+)$/, '全选 $1']);
+
+// Customers: shops per province (3 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Shops per province": "各省店铺数",
+  "Tap a province (or a Phnom Penh district) to show its shops.": "点一个省（或金边的区）查看店铺。",
+  "No district": "没有区"
+});
+
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
   const K = window.KT;
@@ -9243,6 +9269,7 @@ Object.assign(window.KT_ZH, {
     if (en) return [v && v.en, m && m.en, d && d.en, c.province].filter(Boolean).join(', ');
     return [v && (/^ភូមិ/.test(v.km) ? v.km : 'ភូមិ' + v.km), m && G.CU[m.u] + m.km, d && G.DU[d.u] + d.km, c.province && G.provKm(c.province)].filter(Boolean).join(', ');
   };
+  K.distName = code => { const d = code && G.district(code); return d ? (d.en || d.km) + (d.en && d.km ? ' · ' + d.km : '') : (code || ''); };   // 3 Nov 2026: shops per district
   K.geoSearch = c => { const d = G.district(c.district), m = d && G.commune(c.commune), v = m && G.village(c.village); return [d && d.km, d && d.en, m && m.km, m && m.en, v && v.km, v && v.en].filter(Boolean).join(' '); };
   // every shop field must be filled, except map link, GPS, credit days, credit limit and notes
   // Before saving a shop: is it already in the app? Same phone/Telegram = blocked for everyone, admin too (20 Oct 2026); same name = warning only.
@@ -11683,14 +11710,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if ($('#dups')) $('#dups').onclick = () => K.dupesSheet(customers);
     if ($('#obal')) $('#obal').onclick = async () => K.openingSheet(customers, await loadOrders(true), () => K.render());
     if (!current()) return;
-    let search = '', sort = 'owed', prov = '', rep = q.rep || '', stF = q.s || '', kf = q.k || '';   // kf = box filter: owed / norep / novisit
+    let search = '', sort = 'owed', prov = q.pv || '', dist = q.ds || '', rep = q.rep || '', stF = q.s || '', kf = q.k || '';   // kf = box filter: owed / norep / novisit
     const notVisited = c => !c.last_visit_at || new Date(c.last_visit_at) < since(14);
     const KF = { owed: c => +c.owed > 0, norep: c => !c.assigned_to, novisit: notVisited, missing: c => K.shopMissingList(c).length > 0 };
     let shown = [];
     const sel = new Set();
     const provs = [...new Set(customers.map(c => c.province).filter(Boolean))].sort();
     const draw = () => { const t = search.toLowerCase();
-      const inF = customers.filter(c => (!prov || c.province === prov) && (!rep || (rep === 'none' ? !c.assigned_to : c.assigned_to === rep)) && (!stF || c.status === stF));
+      const inF = customers.filter(c => (!prov || (prov === '__none' ? !c.province : c.province === prov)) && (!dist || (c.district || '') === dist) && (!rep || (rep === 'none' ? !c.assigned_to : c.assigned_to === rep)) && (!stF || c.status === stF));
       const list = inF.filter(c => (!kf || KF[kf](c)) && (!t || [c.name, c.area, c.phone, c.owner_name, c.province, K.geoSearch(c)].some(x => String(x || '').toLowerCase().includes(t))))
         .sort((a, b) => sort === 'owed' ? b.owed - a.owed : sort === 'visit' ? String(a.last_visit_at || '').localeCompare(String(b.last_visit_at || '')) : sort === 'prov' ? String(a.province || '').localeCompare(String(b.province || '')) : a.name.localeCompare(b.name));
       const owed = inF.reduce((s, c) => s + +c.owed, 0);
@@ -11698,8 +11725,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $('#kp').innerHTML = box('', inF.length, 'Shops') + box('owed', money(owed), 'Money owed to you', owed ? 'var(--rd)' : null) + box('norep', inF.filter(KF.norep).length, 'No sales rep', inF.some(KF.norep) ? 'var(--rd)' : null) + box('novisit', inF.filter(notVisited).length, 'Not visited in 14 days', 'var(--or)') + box('missing', inF.filter(KF.missing).length, 'Missing details', inF.some(KF.missing) ? 'var(--or)' : null);
       shown = list;
       $$('[data-kf]').forEach(b => b.onclick = () => { const k = b.dataset.kf; kf = kf === k ? '' : k; if (kf === 'owed') { sort = 'owed'; $('#so').value = 'owed'; } if (kf === 'novisit') { sort = 'visit'; $('#so').value = 'visit'; } sel.clear(); draw(); $('#bar').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-      $('#bar').innerHTML = `<span class="grow">${list.length} shops${kf ? ` · ${{ owed: 'owing money', norep: 'with no sales rep', novisit: 'not visited in 14 days', missing: 'with missing details' }[kf]} · <a href="javascript:void 0" id="kfx">show all</a>` : ''}</span>${kf === 'missing' && K.allow('customers.manage') ? `<button class="btn sm out" id="gfill">${icon('pin', 16)}Fill location from GPS</button>` : ''}${sel.size ? `<button class="btn sm" id="mv">${icon('users', 16)}Move ${sel.size} to…</button>` : K.allow('customers.manage') ? '<span class="hide-sm">Tick shops to move them to another sales rep</span>' : ''}`;
+      $('#bar').innerHTML = `<span class="grow">${list.length} shops${dist ? ` · ${esc(K.distName ? K.distName(dist) : dist)} <a href="javascript:void 0" id="dsx">(all ${esc(prov)})</a>` : ''}${kf ? ` · ${{ owed: 'owing money', norep: 'with no sales rep', novisit: 'not visited in 14 days', missing: 'with missing details' }[kf]} · <a href="javascript:void 0" id="kfx">show all</a>` : ''}</span>${kf === 'missing' && K.allow('customers.manage') ? `<button class="btn sm out" id="gfill">${icon('pin', 16)}Fill location from GPS</button>` : ''}${K.allow('customers.manage') && list.length ? (list.every(c => sel.has(c.id)) ? `<button class="btn sm out" id="selnone">Clear ticks</button>` : `<button class="btn sm out" id="selall">${icon('check', 16)}Select all ${list.length}</button>`) : ''}${sel.size ? `<button class="btn sm" id="mv">${icon('users', 16)}Move ${sel.size} to…</button>` : K.allow('customers.manage') ? '<span class="hide-sm">Tick shops to move them to another sales rep</span>' : ''}`;
+      if ($('#selall')) $('#selall').onclick = () => { list.forEach(c => sel.add(c.id)); draw(); };   // all shops shown by the filters / search (3 Nov 2026, Mr. Lee)
+      if ($('#selnone')) $('#selnone').onclick = () => { sel.clear(); draw(); };
       if ($('#kfx')) $('#kfx').onclick = () => { kf = ''; draw(); };
+      if ($('#dsx')) $('#dsx').onclick = () => { dist = ''; sel.clear(); draw(); };
       if ($('#gfill')) $('#gfill').onclick = () => fillPlacesSheet(customers);
       if ($('#mv')) $('#mv').onclick = () => {
         const s = sheet('Move ' + sel.size + ' shops', `<label class="f">New sales rep<select class="inp" id="to">${K.repOptions(staff, '', 'Choose…')}</select></label><div class="small muted">Their orders and visit history stay the same. From now on only the new rep (and managers) will see these shops.</div><button class="btn block" id="go">Move shops</button>`);
@@ -11712,19 +11742,27 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${K.custPill(c.status) || (+c.overdue_count ? `<span class="pill rd">overdue ${money(c.overdue_amount)}</span>` : +c.owed ? `<span class="pill rd">owes ${money(c.owed)}</span>` : K.shopMissingList(c).length ? '<span class="pill or">Missing details</span>' : '<span class="pill gr">Paid up</span>')}</div>`,
         () => { $$('[data-sel]').forEach(x => x.onchange = () => { x.checked ? sel.add(+x.dataset.sel) : sel.delete(+x.dataset.sel); draw(); });
           $$('[data-c]').forEach(b => b.onclick = () => customerSheet(customers.find(c => c.id === +b.dataset.c), staff)); }, 100, emptyBox('store', 'No shops found')); };
+    // shops per province (Phnom Penh also per district) (3 Nov 2026, Mr. Lee)
+    const grp = (list, key) => { const m = new Map(); list.forEach(c => { const k = key(c) || ''; const x = m.get(k) || { n: 0, owed: 0, list: [] }; x.n++; x.owed += +c.owed || 0; x.list.push(c); m.set(k, x); }); return [...m.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0])); };
+    const byProv = grp(customers, c => c.province).map(([p, x]) => ({ p, n: x.n, owed: x.owed, dists: /phnom\s*penh/i.test(p) ? grp(x.list, c => c.district).map(([d, y]) => ({ d, n: y.n, owed: y.owed })) : null }));
     // shops per sales rep
     const reps = staff.filter(u => u.active && K.SELLERS.includes(u.role)).map(u => { const mine = customers.filter(c => c.assigned_to === u.id); return { u, n: mine.length, owed: mine.reduce((s, c) => s + +c.owed, 0) }; }).filter(r => r.n || r.u.role === 'sales');
     main.innerHTML = K.crmTabs('customers') + `<div class="chips">${[['', 'All'], ['pending', 'Waiting approval'], ['approved', 'Approved'], ['rejected', 'Rejected']].map(([k, l]) => `<button class="chip ${k === stF ? 'on' : ''}" data-st="${k}">${l} <span style="opacity:.7">${k ? customers.filter(c => c.status === k).length : customers.length}</span></button>`).join('')}</div>
       <div class="apad"><div id="chg" style="display:flex;flex-direction:column;gap:10px"></div><div class="kpis" id="kp"></div>
-      <div class="card"><b>Shops per sales rep</b><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Shops</th><th style="text-align:right">Owed</th></tr></thead><tbody>
+      <div class="agrid" style="align-items:start"><div class="card"><b>Shops per sales rep</b><div class="tbl"><table><thead><tr><th style="text-align:left">Sales rep</th><th style="text-align:right">Shops</th><th style="text-align:right">Owed</th></tr></thead><tbody>
         ${reps.map(r => `<tr><td><a href="#/customers?rep=${esc(r.u.id)}" style="text-decoration:none;font-weight:700">${esc(r.u.full_name)}</a></td><td style="text-align:right">${r.n}</td><td style="text-align:right">${money(r.owed)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="card"><b>Shops per province</b><div class="small muted">Tap a province (or a Phnom Penh district) to show its shops.</div><div class="tbl" style="max-height:420px;overflow:auto"><table><thead><tr><th style="text-align:left">Province</th><th style="text-align:right">Shops</th><th style="text-align:right">Owed</th></tr></thead><tbody>
+        ${byProv.map(r => `<tr data-pv="${esc(r.p || '__none')}" style="cursor:pointer"><td style="font-weight:700;color:var(--p)">${esc(r.p || 'No province')}</td><td style="text-align:right">${r.n}</td><td style="text-align:right">${money(r.owed)}</td></tr>`
+          + (r.dists ? r.dists.map(d => `<tr data-pv="${esc(r.p)}" data-ds="${esc(d.d)}" style="cursor:pointer"><td style="padding-left:22px">${esc(d.d ? (K.distName ? K.distName(d.d) : d.d) : 'No district')}</td><td style="text-align:right">${d.n}</td><td style="text-align:right">${money(d.owed)}</td></tr>`).join('') : '')).join('')}</tbody></table></div></div></div>
       <div class="filters"><div class="search grow">${icon('search', 18)}<input id="cs" placeholder="Search shop, area, phone" aria-label="Search shops"></div>
-        <select class="inp" id="pf" aria-label="Province" style="width:auto;min-width:150px"><option value="">All provinces</option>${provs.map(p => `<option>${esc(p)}</option>`).join('')}</select>
+        <select class="inp" id="pf" aria-label="Province" style="width:auto;min-width:150px"><option value="">All provinces</option>${provs.map(p => `<option>${esc(p)}</option>`).join('')}<option value="__none">No province</option></select>
         <select class="inp" id="rf" aria-label="Sales rep" style="width:auto;min-width:150px">${K.repOptions(staff, rep, 'All sales reps')}<option value="none" ${rep === 'none' ? 'selected' : ''}>No sales rep</option></select>
         <select class="inp" id="so" aria-label="Sort" style="width:auto"><option value="owed">Most owed first</option><option value="visit">Not visited longest</option><option value="prov">By province</option><option value="name">Name A–Z</option></select></div>
       <div class="row small muted" id="bar"></div><div class="card flush" id="clist"></div></div>`;
     $('#cs').oninput = e => { search = e.target.value; draw(); };
-    $('#pf').onchange = e => { prov = e.target.value; sel.clear(); draw(); };
+    $('#pf').onchange = e => { prov = e.target.value; dist = ''; sel.clear(); draw(); };
+    if (prov) $('#pf').value = prov;
+    $$('[data-pv]').forEach(r => r.onclick = () => { prov = r.dataset.pv; dist = r.dataset.ds !== undefined ? r.dataset.ds : ''; $('#pf').value = prov; sel.clear(); draw(); $('#bar').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     $('#rf').onchange = e => { rep = e.target.value; sel.clear(); draw(); };
     $$('[data-st]').forEach(b => b.onclick = () => { stF = b.dataset.st; $$('[data-st]').forEach(x => x.classList.toggle('on', x === b)); sel.clear(); draw(); });
     $('#so').onchange = e => { sort = e.target.value; draw(); };

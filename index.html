@@ -6843,6 +6843,19 @@ Object.assign(window.KT_KM, {
   "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "ម៉ោងចាប់ផ្តើម និងបញ្ចប់នៃថ្ងៃនេះត្រូវលុបចេញ (ឧ. ពេលគាត់ឈប់សម្រាកថ្ងៃនោះ)។ បុគ្គលិកនឹងទទួលសារ។"
 });
 
+// Customers: select all (3 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Clear ticks": "លុបការជ្រើស"
+});
+window.KT_KM_PATTERNS.push([/^Select all (\d+)$/, 'ជ្រើសទាំងអស់ $1']);
+
+// Customers: shops per province (3 Nov 2026)
+Object.assign(window.KT_KM, {
+  "Shops per province": "ហាងតាមខេត្ត",
+  "Tap a province (or a Phnom Penh district) to show its shops.": "ចុចលើខេត្ត (ឬខណ្ឌនៅភ្នំពេញ) ដើម្បីមើលហាង។",
+  "No district": "គ្មានខណ្ឌ"
+});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8771,6 +8784,19 @@ Object.assign(window.KT_ZH, {
   "Delete this day": "删除这一天",
   "Day deleted": "已删除这一天",
   "The start and finish of this day are removed (for example when they took leave that day). The staff member gets a message.": "这一天的上下班记录会被删除（例如那天他们请了假）。员工会收到消息。"
+});
+
+// Customers: select all (3 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Clear ticks": "取消全选"
+});
+window.KT_ZH_PATTERNS.push([/^Select all (\d+)$/, '全选 $1']);
+
+// Customers: shops per province (3 Nov 2026)
+Object.assign(window.KT_ZH, {
+  "Shops per province": "各省店铺数",
+  "Tap a province (or a Phnom Penh district) to show its shops.": "点一个省（或金边的区）查看店铺。",
+  "No district": "没有区"
 });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
@@ -10974,6 +11000,7 @@ Object.assign(window.KT_ZH, {
     if (en) return [v && v.en, m && m.en, d && d.en, c.province].filter(Boolean).join(', ');
     return [v && (/^ភូមិ/.test(v.km) ? v.km : 'ភូមិ' + v.km), m && G.CU[m.u] + m.km, d && G.DU[d.u] + d.km, c.province && G.provKm(c.province)].filter(Boolean).join(', ');
   };
+  K.distName = code => { const d = code && G.district(code); return d ? (d.en || d.km) + (d.en && d.km ? ' · ' + d.km : '') : (code || ''); };   // 3 Nov 2026: shops per district
   K.geoSearch = c => { const d = G.district(c.district), m = d && G.commune(c.commune), v = m && G.village(c.village); return [d && d.km, d && d.en, m && m.km, m && m.en, v && v.km, v && v.en].filter(Boolean).join(' '); };
   // every shop field must be filled, except map link, GPS, credit days, credit limit and notes
   // Before saving a shop: is it already in the app? Same phone/Telegram = blocked for everyone, admin too (20 Oct 2026); same name = warning only.
