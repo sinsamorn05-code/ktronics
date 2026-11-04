@@ -1097,15 +1097,17 @@ html.th-white .hero span[style*="color:#fff"], html.th-white .hero .pill { color
 /* ===== Appearance "Glass" (3 Nov 2026, Mr. Lee): the same screens on a background photo, with frosted glass cards.
    Only colours, glass and the background change. Default look; each person can pick another in Appearance.
    Background: Settings → App look (admin), else the built-in photo. Glass strength: html.gl-clear / html.gl-solid. ===== */
-html.th-glass { --card: rgba(240,244,255,0.62); --bg: transparent; --page-bg: transparent; --side-bg: rgba(240,244,255,0.62); --line: rgba(255,255,255,0.55);
+html.th-glass { --card: rgba(240,244,255,0.74); --bg: transparent; --page-bg: transparent; --side-bg: rgba(240,244,255,0.62); --line: rgba(255,255,255,0.55);
   --chatbg: rgba(255,255,255,0.45); --side-fg: #1B1D2A; --side-mu: #3A3D50; --side-ink: #1B1D2A; --mu: #3D4055; --hero-sub: #EEF1FF; }
-html.th-glass.gl-clear { --card: rgba(240,244,255,0.42); --side-bg: rgba(240,244,255,0.45); }
-html.th-glass.gl-solid { --card: rgba(248,249,255,0.86); --side-bg: rgba(248,249,255,0.86); }
-html.th-glass body { background: #1E3A78 var(--app-bg, var(--app-bg-default)) center 60% / cover no-repeat fixed; }
+html.th-glass.gl-clear { --card: rgba(240,244,255,0.56); --side-bg: rgba(240,244,255,0.56); }
+html.th-glass.gl-solid { --card: rgba(248,249,255,0.9); --side-bg: rgba(248,249,255,0.9); }
+/* speed (4 Nov 2026): the photo is one fixed layer (no 'background-attachment: fixed', which repaints on every scroll) */
+html.th-glass body { background: #1E3A78; }
+html.th-glass body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: #1E3A78 var(--app-bg, var(--app-bg-default)) center 60% / cover no-repeat; transform: translateZ(0); }
 html.th-glass #root { background: transparent; }
-html.th-glass .card, html.th-glass .stat, html.th-glass .side, html.th-glass .ahdr, html.th-glass .hdr, html.th-glass .tabs, html.th-glass .chip, html.th-glass .inp,
-html.th-glass .search, html.th-glass .btn.out, html.th-glass .seg { -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%); }
-html.th-glass .card, html.th-glass .stat { border-color: rgba(255,255,255,0.6); box-shadow: 0 12px 30px rgba(20,30,70,0.16); border-radius: 20px; }
+/* speed (4 Nov 2026): blur only on the few fixed parts (menu, top bar, bottom bar); cards are see-through without blur */
+html.th-glass .side, html.th-glass .ahdr, html.th-glass .hdr, html.th-glass .tabs { -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+html.th-glass .card, html.th-glass .stat { border-color: rgba(255,255,255,0.6); box-shadow: 0 6px 16px rgba(20,30,70,0.14); border-radius: 20px; }
 html.th-glass .side { border-right: 0; }
 html.th-glass .adm .side { margin: 12px 0 12px 12px; border-radius: 22px; border: 1px solid rgba(255,255,255,0.6); box-shadow: 0 12px 30px rgba(20,30,70,0.16); height: calc(100% - 24px); }
 html.th-glass .side nav a.on { background: var(--p); color: #FFFFFF; box-shadow: 0 8px 18px rgba(215,20,26,0.3); }
