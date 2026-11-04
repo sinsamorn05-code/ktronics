@@ -6923,6 +6923,8 @@ Object.assign(window.KT_KM, {
   "Background saved": "បានរក្សាទុកផ្ទៃខាងក្រោយ",
   "Built-in photo": "រូបដែលមានស្រាប់"
 });
+// Exchange rate note on the invoice (4 Nov 2026)
+Object.assign(window.KT_KM, { 'Exchange rate note': 'កំណត់ចំណាំអត្រាប្តូរប្រាក់', 'Exchange rate note (printed on every invoice; leave empty to hide it)': 'កំណត់ចំណាំអត្រាប្តូរប្រាក់ (បោះពុម្ពលើវិក្កយបត្រទាំងអស់ ទុកទទេដើម្បីលាក់)' });
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8888,6 +8890,8 @@ Object.assign(window.KT_ZH, {
   "Background saved": "背景已保存",
   "Built-in photo": "内置照片"
 });
+// Exchange rate note on the invoice (4 Nov 2026)
+Object.assign(window.KT_ZH, { 'Exchange rate note': '汇率备注', 'Exchange rate note (printed on every invoice; leave empty to hide it)': '汇率备注（印在每张发票上；留空则不显示）' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -12619,6 +12623,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     rep_l:         { name: '"Sales rep" label', edit: 'text' },
     rep_v:         { name: 'Sales rep name', data: 'The sales rep of the order (current name)', get: o => (o.rep && o.rep.full_name) || (o.creator && o.creator.full_name) || '' },
     paynote:       { name: 'Payment details', edit: 'co.payNote', get: (o, c, CO) => CO.payNote },
+    rate_note:     { name: 'Exchange rate note', edit: 'text' },   // 4 Nov 2026, Mr. Lee: e.g. អត្រាប្តូរប្រាក់ 1$ =4100៛ (empty = not printed)
     thanks:        { name: 'Thank-you line', edit: 'co.footer', get: (o, c, CO) => CO.footer || 'Thank you for your business!' },
     printed:       { name: '"Printed" line', edit: 'text', get: (o, c, CO, el) => (el.text || 'Printed') + ' ' + fmtDate(new Date()) + ' · ' + CO.name }
   };
@@ -12638,7 +12643,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       province_l: E(760, 376, 22, false, 'grey', 'left', { text: 'Province' }), province_v: E(1150, 376, 23, true, 'ink', 'right'),
       payment_l: E(760, 418, 22, false, 'grey', 'left', { text: 'Payment' }), payment_v: E(1150, 418, 23, true, 'ink', 'right'),
       rep_l: E(760, 460, 22, false, 'grey', 'left', { text: 'Sales rep' }), rep_v: E(1150, 460, 23, true, 'ink', 'right'),
-      paynote: E(90, 1584, 22, true, 'ink', 'left', { bottom: true }), thanks: E(90, 1620, 24, true, 'brand', 'left', { bottom: true }),
+      paynote: E(90, 1584, 22, true, 'ink', 'left', { bottom: true }), rate_note: E(1150, 1584, 22, true, 'ink', 'right', { bottom: true, under: 'totals', text: 'អត្រាប្តូរប្រាក់ 1$ =4100៛' }), thanks: E(90, 1620, 24, true, 'brand', 'left', { bottom: true }),
       printed: E(1150, 1678, 18, false, 'grey', 'right', { bottom: true, text: 'Printed' })
     },
     divider: { show: true, y: 270 },
@@ -12675,6 +12680,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!Array.isArray(L.texts)) L.texts = [];
     return L;
   }
+  K.RATE_NOTE_DEFAULT = DEFAULT_LAYOUT.els.rate_note.text;
   K.invoiceLayout = layoutOf; K.INVOICE_DEFAULT = DEFAULT_LAYOUT; K.INVOICE_ELS = ELS;
 
   function drawInvoice(o, scale, layout, company) {
@@ -12690,7 +12696,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const qrSrc = CO.khqr !== undefined ? CO.khqr : K.COMPANY.khqr;
     const qrOn = !!(L.khqr && L.khqr.show && qrSrc && QR.img && QR.src === qrSrc), qrLow = qrOn && L.khqr.y > L.table.y;
     if (qrLow) {
-      const tabEnd = top + 50 + items.length * rowH + 40, totEnd = tabEnd + 2 * 46 + 10 + 76;
+      const tabEnd = top + 50 + items.length * rowH + 40, totEnd = tabEnd + 2 * 46 + 10 + 76 + (L.els.rate_note && L.els.rate_note.show && L.els.rate_note.under === 'totals' && String(L.els.rate_note.text || '').trim() ? 44 : 0);
       const payEnd = L.payments.show && pays.length ? totEnd + 130 - 76 + 38 + Math.min(6, pays.length) * 34 : 0;
       const need = Math.max(totEnd, payEnd) + 30 - (L.khqr.y + shift);
       if (need > 0) { H += need; shift = H - PAGE_H; }
@@ -12724,6 +12730,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const c = o.customers || {};
     Object.entries(ELS).forEach(([key, def]) => {
       const el = L.els[key]; if (!el || !el.show) return;
+      if (el.under === 'totals') return;                 // drawn after the totals (below Balance due)
       const str = def.edit === 'text' && !def.get ? (el.text || '') : def.get ? def.get(o, c, CO, el) : '';
       if (!String(str || '').trim()) return;
       const size = +el.size || 22, y = el.y + (el.bottom ? shift : 0);
@@ -12759,12 +12766,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     t(paid > 0 || bal > 0 ? LB.due : LB.total, tx + 20, y + 44, 26, 700, bal > 0 ? C.rd : C.gr);   // after a payment the box shows what is still to pay ($0.00 when paid)
     t(money(paid > 0 || bal > 0 ? bal : o.total), tr - 20, y + 46, 36, 800, bal > 0 ? C.rd : C.gr, 'right');
     box('totals', tx, ty0, 410, y + 76 - ty0);
+    const rn = L.els.rate_note;                          // exchange rate note right below the Balance due box (4 Nov 2026)
+    let rnH = 0;
+    if (rn && rn.show && rn.under === 'totals' && String(rn.text || '').trim()) {
+      const size = +rn.size || 22, ry = y + 76 + 14, w = t(rn.text, tr, ry + size * 0.9, size, rn.bold ? 700 : 400, COL[rn.color] || C.ink, 'right', 410);
+      box('el:rate_note', tr - w, ry, Math.max(w, 40), size * 1.2); rnH = size * 1.2 + 14;
+    }
     if (L.stamp.show && (o.status === 'paid' || (bal <= 0 && +o.total > 0))) {
       const sx = tx > 600 ? 330 : Math.min(W - 250, tr + 240);
       ctx.save(); ctx.translate(sx, y + 10); ctx.rotate(-0.18); ctx.strokeStyle = C.gr; ctx.lineWidth = 6; ctx.strokeRect(-130, -58, 260, 100);
       t(LB.stamp, 0, 16, 64, 800, C.gr, 'center'); ctx.restore();
     }
-    let py = y + 130;
+    let py = y + 130 + Math.max(0, rnH - 40);
     if (L.payments.show && pays.length) {
       t(LB.payments, 90, py, 20, 700, C.mu); py += 38;
       pays.slice(0, 6).forEach(p => { t(fmtDate(p.received_at) + ' · ' + (K.PAY_METHODS ? K.PAY_METHODS[p.method] || p.method : p.method), 90, py, 22, 400, C.ink); t(money(p.amount_usd), 560, py, 22, 700, C.ink, 'right'); py += 34; });
