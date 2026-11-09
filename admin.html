@@ -1684,7 +1684,7 @@ window.makeSupabaseApi = function (cfg) {
     leaveFor: p => q(sb.rpc('leave_for', { p })),
     clockOut: (lat, lng, note) => q(sb.rpc('clock_out', { p_lat: lat, p_lng: lng, p_note: note || null })),
     listLeave: () => all(() => sb.from('leave_requests').select('*, profiles!leave_requests_staff_id_fkey(full_name)').order('id', { ascending: false }), 5000),
-    askLeave: x => q(sb.from('leave_requests').insert({ staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || null }).select().single()),
+    askLeave: x => q(sb.from('leave_requests').insert({ staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || null, ...(x.part ? { part: x.part } : {}) }).select().single()),
     deleteLeave: id => q(sb.from('leave_requests').delete().eq('id', id)),
     reviewLeave: (id, status, note) => q(sb.rpc('review_leave', { p_id: id, p_status: status, p_note: note || null })),
     listStaffHr: () => q(sb.from('staff_hr').select('*')),
@@ -2345,13 +2345,15 @@ window.makeDemoApi = function () {
 
   // check-in alerts (same words as the database): late minutes, place from the office, map
   const lateGraceD = () => { try { const g = JSON.parse((D.settings || {}).payroll_rules || '{}').late_grace; return g != null && g !== '' ? +g : 5; } catch (e) { return 5; } };
-  const lateMin = iso => { const d = new Date(iso); if (d.getDay() === 0) return 0; const [h, m] = String((D.settings || {}).work_start || '08:00').split(':').map(Number);
+  const lateMin = (iso, sid) => { const d = new Date(iso); if (d.getDay() === 0) return 0;
+    if (sid && D.leave.some(l => l.staff_id === sid && l.part === 'am' && l.status !== 'rejected' && l.from_date === iso.slice(0, 10))) {
+      const [ph, pmm] = String((D.settings || {}).work_pm_start || '13:30').split(':').map(Number), x = d.getHours() * 60 + d.getMinutes() - ph * 60 - pmm; return x > 5 ? x : 0; } const [h, m] = String((D.settings || {}).work_start || '08:00').split(':').map(Number);
     const mins = d.getHours() * 60 + d.getMinutes() - (h * 60 + m); return mins > lateGraceD() ? mins : 0; };
   const officePlace = (lat, lng) => { if (lat == null) return '❓ no GPS'; const st = D.settings || {}; if (!st.office_lat || !st.office_lng) return null;
     const m = Math.round(geoM(+st.office_lat, +st.office_lng, lat, lng)); return m <= 300 ? '📍 at the office (' + m + ' m)' : '⚠️ ' + (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m + ' m') + ' from the office'; };
   const hm2 = iso => { const d = new Date(iso); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
   const attAlert = (a, out) => { const who = (user(a.staff_id) || {}).full_name || 'Someone'; let t, meta;
-    if (!out) { const lm = lateMin(a.check_in_at), pl = officePlace(a.in_lat, a.in_lng);
+    if (!out) { const lm = lateMin(a.check_in_at, a.staff_id), pl = officePlace(a.in_lat, a.in_lng);
       t = (lm ? '⏰ ' : '🕗 ') + who + ' started work ' + hm2(a.check_in_at) + (lm ? ' · ' + lm + ' min late' : ' · on time') + (pl ? ' · ' + pl : '') + (a.note && a.note.trim() ? '\nNote: ' + a.note.trim() : '');
       meta = { att_id: a.id, photo: a.photo_url || undefined, late: lm > 0, far: !!(pl && pl.startsWith('⚠️')), map: a.in_lat != null ? 'https://maps.google.com/?q=' + a.in_lat + ',' + a.in_lng : undefined };
     } else { const pl = officePlace(a.out_lat, a.out_lng), mins = Math.max(0, Math.round((new Date(a.check_out_at) - new Date(a.check_in_at)) / 60000));
@@ -4651,11 +4653,11 @@ window.makeDemoApi = function () {
     async leaveFor(x) { if (!allow('attendance.record_others')) fail('You are not allowed to write leave for other staff');
       const u = user(x.staff_id); if (!u || u.active === false || ['guest', 'partner'].includes(u.role)) fail('Choose an active staff member');
       if (!x.from_date || !x.to_date) fail('Choose the dates'); if (x.to_date < x.from_date) fail('The end date is before the start date'); if (!(+x.days > 0)) fail('Enter the number of days');
-      const l = { id: ++D.seq.leave, staff_id: u.id, kind: x.kind || 'annual', from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now(), created_by: me.id };
+      const l = { id: ++D.seq.leave, staff_id: u.id, kind: x.kind || 'annual', from_date: x.from_date, to_date: x.part ? x.from_date : x.to_date, days: x.part ? 0.5 : +x.days, part: ['am', 'pm'].includes(x.part) ? x.part : null, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now(), created_by: me.id };
       D.leave.push(l); notifyPerm('hr.manage', 'Leave request', u.full_name + ' · ' + l.days + ' day(s) · written by ' + me.full_name, '#/leave'); save(); return wait(l.id); },
     async listLeave() { if (!role()) return []; return wait(D.leave.filter(l => l.staff_id === me.id || allow('hr.manage') || allow('attendance.view') || headOf(l.staff_id)).sort((a, b) => b.id - a.id).map(l => Object.assign(clone(l), { profiles: { full_name: (user(l.staff_id) || {}).full_name } }))); },
     async askLeave(x) { if (!role()) fail('Your account is not active'); if (!(+x.days > 0)) fail('Enter the number of days'); if (x.to_date < x.from_date) fail('The end date is before the start date');
-      const l = { id: ++D.seq.leave, staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.to_date, days: +x.days, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now() };
+      const l = { id: ++D.seq.leave, staff_id: me.id, kind: x.kind, from_date: x.from_date, to_date: x.part ? x.from_date : x.to_date, days: x.part ? 0.5 : +x.days, part: ['am', 'pm'].includes(x.part) ? x.part : null, reason: x.reason || '', status: 'pending', reviewed_by: null, review_note: null, created_at: now() };
       D.leave.push(l); notifyPerm('hr.manage', 'Leave request', me.full_name + ' · ' + l.days + ' day(s)', '#/leave');
       { ensureDepts(); const d = D.departments.find(x => x.id === me.department_id); if (d && d.head_id && d.head_id !== me.id && !userAllow(d.head_id, 'hr.manage')) notify(d.head_id, 'Leave request', me.full_name + ' · ' + l.days + ' day(s)', '#/hr?t=leave'); } save(); return wait(clone(l)); },
     async deleteLeave(id) { const i = D.leave.findIndex(l => l.id === id && l.staff_id === me.id && l.status === 'pending'); if (i < 0) fail('Only your own waiting requests can be deleted'); D.leave.splice(i, 1); save(); return wait(null); },
@@ -6667,6 +6669,11 @@ Object.assign(window.KT_KM, {
 });
 // Exchange rate note on the invoice (4 Nov 2026)
 Object.assign(window.KT_KM, { 'Exchange rate note': 'កំណត់ចំណាំអត្រាប្តូរប្រាក់', 'Exchange rate note (printed on every invoice; leave empty to hide it)': 'កំណត់ចំណាំអត្រាប្តូរប្រាក់ (បោះពុម្ពលើវិក្កយបត្រទាំងអស់ ទុកទទេដើម្បីលាក់)' });
+// Half-day leave (8 Nov 2026)
+Object.assign(window.KT_KM, { 'Full day(s)': 'ពេញមួយថ្ងៃ', 'Morning off': 'ឈប់ពេលព្រឹក', 'Afternoon off': 'ឈប់ពេលរសៀល', 'Day': 'ថ្ងៃ',
+  '½ day · morning off': '½ ថ្ងៃ · ឈប់ពេលព្រឹក', '½ day · afternoon off': '½ ថ្ងៃ · ឈប់ពេលរសៀល', 'Absent ½': 'អវត្តមាន ½',
+  'Half a day (0.5). Morning off: they start work at the afternoon start time (HR → Work hours).': 'កន្លះថ្ងៃ (0.5)។ ឈប់ពេលព្រឹក៖ ចូលធ្វើការតាមម៉ោងចាប់ផ្តើមពេលរសៀល (HR → ម៉ោងធ្វើការ)។' });
+Object.assign(window.KT_KM, { 'Afternoon starts (for staff with the morning off)': 'ម៉ោងចាប់ផ្តើមពេលរសៀល (សម្រាប់បុគ្គលិកឈប់ពេលព្រឹក)' });
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8634,6 +8641,11 @@ Object.assign(window.KT_ZH, {
 });
 // Exchange rate note on the invoice (4 Nov 2026)
 Object.assign(window.KT_ZH, { 'Exchange rate note': '汇率备注', 'Exchange rate note (printed on every invoice; leave empty to hide it)': '汇率备注（印在每张发票上；留空则不显示）' });
+// Half-day leave (8 Nov 2026)
+Object.assign(window.KT_ZH, { 'Full day(s)': '全天', 'Morning off': '上午休假', 'Afternoon off': '下午休假', 'Day': '日期',
+  '½ day · morning off': '半天 · 上午休假', '½ day · afternoon off': '半天 · 下午休假', 'Absent ½': '缺勤半天',
+  'Half a day (0.5). Morning off: they start work at the afternoon start time (HR → Work hours).': '半天（0.5）。上午休假：按下午上班时间开始工作（HR → 工作时间）。' });
+Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)': '下午上班时间（上午休假的员工）' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -13234,7 +13246,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const { api, S, esc, $, $$, icon, page, route, go, emptyBox, busy, toast } = K;
   const hm = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   K.lateGrace = () => { try { const g = JSON.parse((K.SETTINGS || {}).payroll_rules || '{}').late_grace; return g != null && g !== '' ? +g : 5; } catch (e) { return 5; } };
+  // half-day leave (8 Nov 2026): K.HALF['staffId|YYYY-MM-DD'] = 'am' | 'pm' (from the leave list; rejected ones left out)
+  K.HALF = K.HALF || {};
+  K.noteLeave = list => { (list || []).forEach(l => { const k = l.staff_id + '|' + l.from_date; if (l.part && l.status !== 'rejected') K.HALF[k] = l.part; else if (l.part && K.HALF[k] === l.part) delete K.HALF[k]; }); return list; };
+  K.halfOf = (staffId, day) => K.HALF[staffId + '|' + day] || '';
+  K.HALF_TXT = { am: '½ day · morning off', pm: '½ day · afternoon off' };
   K.isLate = a => { const [h, m] = String((K.SETTINGS || {}).work_start || '08:00').split(':').map(Number); const t = new Date(a.check_in_at);
+    if (a.work_date && K.halfOf(a.staff_id, a.work_date) === 'am') {   // morning off: late only after the afternoon start (+ grace)
+      if (new Date(a.work_date + 'T00:00:00').getDay() === 0) return false;
+      const [ph, pm] = String((K.SETTINGS || {}).work_pm_start || '13:30').split(':').map(Number), tt = new Date(a.check_in_at);
+      return tt.getHours() * 60 + tt.getMinutes() > ph * 60 + pm + K.lateGrace(); }
     if (a.work_date && (new Date(a.work_date + 'T00:00:00').getDay() === 0 || (K.HOLIDAYS || []).some(x => x.day === a.work_date))) return false;   // Sunday / holiday: never late
     return t.getHours() * 60 + t.getMinutes() > h * 60 + m + K.lateGrace(); };
   K.hoursOf = a => a.check_out_at ? (new Date(a.check_out_at) - new Date(a.check_in_at)) / 3600000 : 0;
@@ -13286,23 +13307,30 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------- leave ----------
   K.LEAVE_KIND = { annual: 'Annual leave', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
   K.LEAVE_ST = { pending: ['Waiting', 'or'], approved: ['Approved', 'gr'], rejected: ['Rejected', 'rd'] };
-  K.leaveRow = (l, showName) => `<div class="list-item" data-lv="${l.id}"><div class="ic-av sq">${icon('bed', 18)}</div><div class="grow"><div class="tt" style="font-size:14px">${showName ? esc(l.profiles ? l.profiles.full_name : '') + ' · ' : ''}${esc(K.LEAVE_KIND[l.kind])} · ${l.days} day${+l.days === 1 ? '' : 's'}</div>
+  K.leaveRow = (l, showName) => `<div class="list-item" data-lv="${l.id}"><div class="ic-av sq">${icon('bed', 18)}</div><div class="grow"><div class="tt" style="font-size:14px">${showName ? esc(l.profiles ? l.profiles.full_name : '') + ' · ' : ''}${esc(K.LEAVE_KIND[l.kind])} · ${l.part ? esc(K.HALF_TXT[l.part]) : l.days + ' day' + (+l.days === 1 ? '' : 's')}</div>
     <div class="st">${K.poDate ? K.poDate(l.from_date) : l.from_date}${l.to_date !== l.from_date ? ' – ' + (K.poDate ? K.poDate(l.to_date) : l.to_date) : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${l.review_note ? ' · Note: ' + esc(l.review_note) : ''}</div></div>
     <span class="pill ${K.LEAVE_ST[l.status][1]}">${K.LEAVE_ST[l.status][0]}</span></div>`;
   K.leaveSheet = (onDone, opt) => {
     const t = K.period.today(), forOthers = !!(opt && opt.staff), mn = forOthers ? '' : ` min="${t}"`;
     const s = K.sheet(forOthers ? 'Leave for staff' : 'Ask for leave', `${forOthers ? `<label class="f">Staff member<select class="inp" id="lw"><option value="">Choose…</option>${opt.staff.map(u => `<option value="${K.esc(u.id)}" ${u.id === opt.who ? 'selected' : ''}>${K.esc(u.full_name)}</option>`).join('')}</select></label>` : ''}<div class="seg" style="flex-wrap:wrap">${Object.entries(K.LEAVE_KIND).map(([k, l], i) => `<button data-lk="${k}" class="${i ? '' : 'on'}" style="flex:1 0 30%">${l}</button>`).join('')}</div>
-      <div class="btns"><label class="f">From<input class="inp" type="date" id="lf" value="${t}"${mn}></label><label class="f">To<input class="inp" type="date" id="lt" value="${t}"${mn}></label></div>
-      <label class="f">Days<input class="inp" id="ld" type="number" step="0.5" min="0.5" value="1"></label>
+      <div class="seg" style="margin-top:8px">${[['', 'Full day(s)'], ['am', 'Morning off'], ['pm', 'Afternoon off']].map(([k, l], i) => `<button data-lp="${k}" class="${i ? '' : 'on'}" style="flex:1">${l}</button>`).join('')}</div>
+      <div class="btns"><label class="f" id="lfw">From<input class="inp" type="date" id="lf" value="${t}"${mn}></label><label class="f" id="ltw">To<input class="inp" type="date" id="lt" value="${t}"${mn}></label></div>
+      <label class="f" id="ldw">Days<input class="inp" id="ld" type="number" step="0.5" min="0.5" value="1"></label>
+      <div class="small muted" id="lph" style="display:none">Half a day (0.5). Morning off: they start work at the afternoon start time (HR → Work hours).</div>
       <label class="f">Reason<input class="inp" id="lr" placeholder="e.g. family wedding in Takeo"></label>
       ${forOthers ? '<div class="small muted">It waits for approval, like a request from the staff member. They get a message.</div>' : ''}<button class="btn block" id="ls">${forOthers ? 'Save leave request' : 'Send request'}</button>`);
-    let kind = 'annual';
+    let kind = 'annual', part = '';
+    K.$$('[data-lp]', s.el).forEach(b => b.onclick = () => { part = b.dataset.lp; K.$$('[data-lp]', s.el).forEach(x => x.classList.toggle('on', x === b));
+      K.$('#ltw', s.el).style.display = K.$('#ldw', s.el).style.display = part ? 'none' : ''; K.$('#lph', s.el).style.display = part ? '' : 'none';
+      K.$('#lfw', s.el).firstChild.textContent = part ? 'Day' : 'From';
+      if (part) { K.$('#lt', s.el).value = K.$('#lf', s.el).value; K.$('#ld', s.el).value = 0.5; } else days(); });
     const days = () => { const a = new Date(K.$('#lf', s.el).value), b = new Date(K.$('#lt', s.el).value); if (b >= a) K.$('#ld', s.el).value = Math.round((b - a) / 86400000) + 1; };
     K.$('#lf', s.el).onchange = () => { if (K.$('#lt', s.el).value < K.$('#lf', s.el).value) K.$('#lt', s.el).value = K.$('#lf', s.el).value; days(); };
     K.$('#lt', s.el).onchange = days;
     K.$$('[data-lk]', s.el).forEach(b => b.onclick = () => { kind = b.dataset.lk; K.$$('[data-lk]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
     K.$('#ls', s.el).onclick = async e => {
       const x = { kind, from_date: K.$('#lf', s.el).value, to_date: K.$('#lt', s.el).value, days: K.$('#ld', s.el).value, reason: K.$('#lr', s.el).value.trim() };
+      if (part) { x.part = part; x.to_date = x.from_date; x.days = 0.5; }
       if (forOthers) { x.staff_id = K.$('#lw', s.el).value; if (!x.staff_id) return K.toast('Choose the staff member'); }
       await K.busy(e.currentTarget, () => forOthers ? api.leaveFor(x) : api.askLeave(x));
       s.close(); K.toast(forOthers ? 'Leave request saved' : 'Request sent'); onDone && onDone();
@@ -13342,7 +13370,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const hr = K.allow('hr.manage');
     const main = page({ title: 'Leave', sub: hr ? 'All staff' : 'Your days off', back: '#/attendance', right: `<button class="ib" id="add" aria-label="Ask for leave">${icon('plus')}</button>` });
     $('#add').onclick = () => K.leaveSheet(() => K.render());
-    const [list, hrs] = await Promise.all([api.listLeave(), api.listStaffHr()]);
+    const [list, hrs] = await Promise.all([api.listLeave().then(K.noteLeave), api.listStaffHr()]);
     if (!current()) return;
     const mine = list.filter(l => l.staff_id === S.me.id), yr = String(new Date().getFullYear());
     const used = mine.filter(l => l.status === 'approved' && l.kind === 'annual' && l.from_date.startsWith(yr)).reduce((s, l) => s + +l.days, 0);
@@ -13530,7 +13558,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     $('#myleave').onclick = () => K.leaveSheet(() => K.render());
     const P = K.period, since = P.range('custom')[0] < P.range('last')[0] ? P.range('custom')[0] : P.range('last')[0];
     const notPartner = l => l.filter(u => u.role !== 'partner');   // partner accounts are not staff: only in the Partners tab (K.data.staff already leaves them out)
-    const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true).then(notPartner), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave() : [], hr ? api.listStaffHr() : [],
+    const [staff, attList, leave, hrs, st, rates, orders, visits] = await Promise.all([K.data.staff(true).then(notPartner), att ? api.listAttendance(P.dstr(new Date(Date.now() - 400 * 86400000)), P.today()) : [], att ? api.listLeave().then(K.noteLeave) : [], hr ? api.listStaffHr() : [],
       boss ? api.getSettings() : {}, boss ? api.listCommissionRates() : [], boss ? A.loadOrders() : [], boss ? api.listVisits() : []]);
     if (!current()) return;
     const att_ = attList;
@@ -13565,9 +13593,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       for (let d = new Date(end + 'T00:00:00'); P.dstr(d) >= a; d.setDate(d.getDate() - 1)) {
         const day = P.dstr(d), dow = d.getDay(), x = byDay[day], l = lvOn(day), H = holOn(day);
         let st;
-        if (x) { c.worked++; c.hours += K.hoursOf(x);
-          if (dow === 0) { c.sun++; st = pill('Sunday work', 'bl'); } else if (H) { c.hol++; st = pill('Holiday work', 'bl'); } else if (K.isLate(x)) { c.late++; st = pill('Late', 'or'); } else st = pill('On time', 'gr'); }
-        else if (l) { if (dow !== 0 && !H) c.leave++; st = pill(K.LEAVE_KIND[l.kind] || 'Leave', 'bl'); }
+        const hf = l && l.part ? 0.5 : 1;   // half-day leave that day
+        if (x) { c.worked += hf; c.hours += K.hoursOf(x);
+          if (dow === 0) { c.sun += hf; st = pill('Sunday work', 'bl'); } else if (H) { c.hol += hf; st = pill('Holiday work', 'bl'); } else if (K.isLate(x)) { c.late++; st = pill('Late', 'or'); } else st = pill('On time', 'gr');
+          if (l && l.part) st += ' ' + pill(K.HALF_TXT[l.part], 'bl'); }
+        else if (l && l.part && dow !== 0 && !H && day < today) { c.leave += 0.5; c.absent += 0.5; st = pill(K.HALF_TXT[l.part], 'bl') + ' ' + pill('Absent ½', 'rd'); }
+        else if (l) { if (dow !== 0 && !H) c.leave += l.part ? 0.5 : 1; st = pill(l.part ? K.HALF_TXT[l.part] : K.LEAVE_KIND[l.kind] || 'Leave', 'bl'); }
         else if (dow === 0) st = '<span class="muted small">Sunday · day off</span>';
         else if (H) st = `<span class="muted small">Holiday · ${esc(H.name)}</span>`;
         else if (start && day < start) st = '<span class="muted small">Before start date</span>';
@@ -13666,7 +13697,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         S2.crep = rep;
       } else if (tab === 'work') {
         h = `<div class="card" style="max-width:560px"><b>Work hours</b><div class="small muted">Staff who start work more than ${K.lateGrace ? K.lateGrace() : 5} minutes after the start time (change the minutes in Payroll → Payroll settings) are marked "Late" in Today and Attendance.</div>
-            <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>
+            <div class="btns">${field('work_start', 'Work starts', '08:00', 'time')}${field('work_end', 'Work ends', '17:30', 'time')}</div>
+            <div class="btns">${field('work_pm_start', 'Afternoon starts (for staff with the morning off)', '13:30', 'time')}</div><button class="btn" data-save>Save work hours</button></div>
           <div class="card" style="max-width:560px"><b>Office location</b><div class="small muted">Used in the "Staff Check-in Alerts" channel and Telegram: each start / finish shows "at the office" or "⚠️ 1.4 km from the office" (more than 300 m away). Leave empty to show only the map link.</div>
             <button class="btn sm out" id="offhere" type="button">${K.icon('pin', 16)} Use my location now (stand in the office)</button>
             <div class="btns">${field('office_lat', 'Latitude', 'e.g. 11.5602')}${field('office_lng', 'Longitude', 'e.g. 104.9205')}</div>
@@ -13680,7 +13712,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ${canRec ? `<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="arec">${icon('clock', 16)}Record start / finish for staff</button><span class="small muted">or tap a person</span></div>` : ''}
           <div class="card flush">${rows.map(({ u, a, l }) => `<div class="list-item" ${canRec ? `data-arec="${esc(u.id)}" style="cursor:pointer"` : ''}>${a && a.photo_url ? `<img src="${esc(a.photo_url)}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover">` : avatar(u.full_name, 'sm')}
             <div class="grow"><div class="tt" style="font-size:15px">${esc(u.full_name)}</div><div class="st">${esc(K.ROLE_LABEL[u.role])}${a ? ' · in ' + hm(a.check_in_at) + (a.check_out_at ? ' · out ' + hm(a.check_out_at) : '') + recBy(a) : ''}${a && a.in_lat ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${a.in_lat},${a.in_lng}" target="_blank" rel="noopener">map</a>` : ''}</div></div>
-            ${a ? (K.isLate(a) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>') : l ? `<span class="pill bl">${esc(K.LEAVE_KIND[l.kind])}</span>` : '<span class="pill gy">Not in</span>'}</div>`).join('')}</div>`;
+            ${a ? (K.isLate(a) ? '<span class="pill or">Late</span>' : '<span class="pill gr">On time</span>') + (l && l.part ? ` <span class="pill bl">${esc(K.HALF_TXT[l.part])}</span>` : '') : l ? `<span class="pill bl">${esc(l.part ? K.HALF_TXT[l.part] : K.LEAVE_KIND[l.kind])}</span>` : '<span class="pill gy">Not in</span>'}</div>`).join('')}</div>`;
       } else if (tab === 'att') {
         const [a, b] = P.range(pst.p, pst.from, pst.to);
         if (!hols) { hols = await api.listHolidays().catch(() => []); K.HOLIDAYS = hols; }
