@@ -12018,7 +12018,9 @@ Object.assign(window.KT_ZH, { 'Total unpaid': '未付总额', 'Total unpaid:': '
   const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
   const ADMIN = !!(window.KT_CONFIG || {}).ADMIN;
   const isAdm = () => !!K.S.me && K.S.me.role === 'admin';
-  K.canCustChats = () => !!K.S.me && (isAdm() || K.SELLERS.includes(K.S.me.role));
+  // ON HOLD (11 Nov 2026, Mr. Lee: "hide chats" → "ok"): menu and pages hidden. To turn back on: ON = true and rebuild.
+  const ON = false;
+  K.canCustChats = () => ON && !!K.S.me && (isAdm() || K.SELLERS.includes(K.S.me.role));
   const MEDIA = { photo: '📷 Photo', video: '🎬 Video', voice: '🎤 Voice message', audio: '🎵 Audio', file: '📎 File', sticker: '🙂 Sticker', other: '💬 Message' };
   const timeTxt = d => { if (!d) return ''; const x = new Date(d), n = new Date(); return x.toDateString() === n.toDateString() ? K.hhmm(d) : x.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + K.hhmm(d); };
   const shell = (title, right, back) => ADMIN ? K.adm.shell('custchats', title, right || '') : K.page({ title, back: back || '#/more', right: right || '' });
