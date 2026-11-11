@@ -778,6 +778,9 @@ textarea.inp { height: 80px; padding: 12px 14px; resize: none; }
 .qa span.i { width: 54px; height: 54px; border-radius: 16px; background: var(--ps); color: var(--p); display: flex; align-items: center; justify-content: center; }
 .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .stats.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stats.three .stat { padding-left: 10px; padding-right: 10px; }
+.stats.three .stat b { font-size: clamp(14px, 4.1vw, 22px); white-space: nowrap; letter-spacing: -.02em; }   /* 3 boxes on a phone: big money still fits */
+a.chip { color: inherit; }   /* link chips: normal text; the chosen chip keeps its white text */
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
 .stat b { display: block; font-size: 22px; font-weight: 800; }
 .stat span { font-size: 12px; font-weight: 700; color: var(--mu); }
@@ -1523,6 +1526,21 @@ window.makeSupabaseApi = function (cfg) {
       }
       return data;
     },
+    // Customer chats (9 Nov 2026): replies go through our server function "tg-inbox" (it keeps the Telegram bot key)
+    chatList: p => q(sb.rpc('chat_list', { p: p || {} })),
+    chatGet: (id, before) => q(sb.rpc('chat_messages_get', { p_contact: id, p_before: before || null })),
+    chatLink: (id, customer) => q(sb.rpc('chat_link', { p_contact: id, p_customer: customer || null })),
+    chatMove: (id, rep) => q(sb.rpc('chat_move', { p_contact: id, p_rep: rep || null })),
+    chatStatus: () => q(sb.rpc('chat_status')),
+    chatUnread: () => q(sb.rpc('chat_unread')),
+    async chatSend(p) {
+      const { data, error } = await sb.functions.invoke('tg-inbox', { body: { action: 'send', ...p } });
+      if (error) {
+        let j = null; try { j = await error.context.json(); } catch (e) { /* no body */ }
+        throw new Error((j && (j.message || j.error)) || (/Failed to send|fetch/i.test(error.message || '') ? 'No internet or the chat server is not set up yet.' : error.message) || 'Not sent');
+      }
+      return data;
+    },
     phzarOrders: (from, to, rep) => q(sb.rpc('phzar_orders_list2', { p_from: from || null, p_to: to || null, p_rep: rep || null })),
     phzarSettingsSave: p => q(sb.rpc('phzar_settings_save', { p })),
     setOrderCommission: (id, rate) => q(sb.rpc('order_set_commission', { p_order: id, p_rate: rate === '' || rate == null ? null : +rate })),
@@ -2253,6 +2271,18 @@ window.makeDemoApi = function () {
     if (c1) { D.shopTg = [{ tg_user_id: 5550001, customer_id: c1.id, name: c1.owner_name || 'Shop owner', username: 'luckyphone_pp', can_message: true, linked_at: new Date(Date.now() - 6 * 86400000).toISOString(), last_seen_at: new Date(Date.now() - 3600000).toISOString() }];
       const o = D.orders.filter(x => x.customer_id === c1.id).sort((a, b) => b.id - a.id)[0]; if (o) o.source = 'telegram'; }
   }
+  // Customer chats demo (9 Nov 2026): two shops' chats + one new person
+  if (!D.cchats && D.customers) {
+    const sh = D.customers.filter(c => c.status === 'approved' && c.assigned_to).slice(0, 2), t = m => new Date(Date.now() - m * 60000).toISOString();
+    D.cchats = { contacts: [], messages: [], conn: true };
+    const add = (k, msgs) => { D.cchats.contacts.push(k); msgs.forEach((x, i) => D.cchats.messages.push(Object.assign({ id: D.cchats.messages.length + 1, contact_id: k.id, status: 'sent', edited: false, media: null, photo_url: null, sent_by: null }, x))); };
+    if (sh[0]) add({ id: 1, tg_user_id: 7001, name: sh[0].owner_name || 'Shop owner', username: 'shop_owner_1', customer_id: sh[0].id, assigned_to: null, unread: 1, last_in_at: t(12) },
+      [{ dir: 'in', body: 'Hello, do you have USB-C cables 1m?', created_at: t(40) }, { dir: 'out', body: 'Yes, $1.20 each, min 20 pcs.', sent_by: sh[0].assigned_to, created_at: t(35) }, { dir: 'in', body: 'OK, 50 pcs please. Deliver tomorrow?', created_at: t(12) }]);
+    if (sh[1]) add({ id: 2, tg_user_id: 7002, name: sh[1].owner_name || 'Shop owner', username: null, customer_id: sh[1].id, assigned_to: null, unread: 0, last_in_at: t(60 * 30) },
+      [{ dir: 'in', body: 'Thank you, received.', created_at: t(60 * 30) }]);
+    add({ id: 3, tg_user_id: 7003, name: 'Sophea New', username: 'sophea_new', customer_id: null, assigned_to: null, unread: 2, last_in_at: t(5) },
+      [{ dir: 'in', body: 'Hi, I want to open a phone shop in Kampot. Price list?', created_at: t(6) }, { dir: 'in', media: 'voice', body: null, created_at: t(5) }]);
+  }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) {} };
   let me = null;
   try { const id = localStorage.getItem(KEY + ':me'); if (id) me = D.users.find(u => u.id === id) || null; } catch (e) {}
@@ -2362,6 +2392,11 @@ window.makeDemoApi = function () {
     Object.keys(meta).forEach(k => meta[k] === undefined && delete meta[k]); alert(t, meta, 'attendance'); };
   const who = id => (user(id) || {}).full_name || 'Someone';
   const shopName = id => (D.customers.find(c => c.id === id) || {}).name || 'shop';
+  const chatRow = k => { const c = k.customer_id && D.customers.find(x => x.id === k.customer_id), rep = c ? c.assigned_to : k.assigned_to, ms = (D.cchats.messages || []).filter(m => m.contact_id === k.id), l = ms[ms.length - 1];
+    return { id: k.id, name: k.name || (k.username ? '@' + k.username : 'Telegram ' + k.tg_user_id), username: k.username, customer_id: k.customer_id, shop: c ? c.name : null, rep_id: rep || null, rep: rep ? (user(rep) || {}).full_name : null,
+      last_text: l ? (l.body || { photo: '📷 Photo', voice: '🎤 Voice message', video: '🎬 Video' }[l.media] || '💬 Message') : '', last_msg_at: l ? l.created_at : null, last_in_at: k.last_in_at, unread: k.unread || 0,
+      reply_until: k.last_in_at && Date.now() - new Date(k.last_in_at) < 864e5 ? new Date(new Date(k.last_in_at).getTime() + 864e5).toISOString() : null }; };
+  const chatSee = k => hasRole('admin') || chatRow(k).rep_id === (me && me.id);
   const geoM = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180, s1 = Math.sin(r(c - a) / 2), s2 = Math.sin(r(d - b) / 2);
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(s1 * s1 + Math.cos(r(a)) * Math.cos(r(c)) * s2 * s2))); };
   const partnersOf = () => { if (!D.partners) {   // demo: one partner with a little stock and its own prices
@@ -3418,6 +3453,26 @@ window.makeDemoApi = function () {
       }
       pzFail('unknown_action');
     },
+    // Customer chats (9 Nov 2026)
+    async chatList(p) { if (!role() || role() === 'partner') fail('Please log in'); const C = D.cchats || { contacts: [] }, adm = hasRole('admin'); let f = (p && p.filter) || 'mine'; if (!adm) f = 'mine';
+      const q = String((p && p.q) || '').toLowerCase().trim();
+      return wait(C.contacts.map(chatRow).filter(c => (f === 'mine' ? c.rep_id === me.id : f === 'new' ? !c.rep_id : true) && (!q || (c.name + ' ' + (c.username || '') + ' ' + (c.shop || '')).toLowerCase().includes(q)))
+        .sort((a2, b2) => String(b2.last_msg_at || '').localeCompare(String(a2.last_msg_at || '')))); },
+    async chatGet(id) { const k = (D.cchats || { contacts: [] }).contacts.find(x => x.id === +id); if (!k || !chatSee(k)) fail('This chat is not yours');
+      k.unread = 0; save();
+      return wait({ contact: chatRow(k), messages: D.cchats.messages.filter(m => m.contact_id === k.id).sort((a2, b2) => a2.id - b2.id).map(m => Object.assign(clone(m), { sent_by: m.sent_by ? (user(m.sent_by) || {}).full_name || 'Staff' : null })) }); },
+    async chatSend(p) { const k = (D.cchats || { contacts: [] }).contacts.find(x => x.id === +p.contact_id); if (!k || !chatSee(k)) fail('This chat is not yours');
+      if (!p.text && !p.photo_url) fail('Write a message or add a photo');
+      if (!k.last_in_at || Date.now() - new Date(k.last_in_at) > 864e5) fail("Telegram allows a reply only within 24 hours after the customer's last message. Wait until the customer writes again.");
+      D.cchats.messages.push({ id: D.cchats.messages.length + 1, contact_id: k.id, dir: 'out', body: p.text || null, photo_url: p.photo_url || null, media: p.photo_url ? 'photo' : null, sent_by: me.id, status: 'sent', edited: false, created_at: new Date().toISOString() });
+      save(); return wait({ ok: true }); },
+    async chatLink(id, cust) { if (!hasRole('admin')) fail('Only the admin can link chats'); const k = D.cchats.contacts.find(x => x.id === +id); k.customer_id = cust || null; if (cust) k.assigned_to = null;
+      const c = cust && D.customers.find(x => x.id === +cust); if (c && k.username && !c.telegram) c.telegram = '@' + k.username; save(); return wait(chatRow(k)); },
+    async chatMove(id, rep) { if (!hasRole('admin')) fail('Only the admin can move customers'); const k = D.cchats.contacts.find(x => x.id === +id);
+      const c = k.customer_id && D.customers.find(x => x.id === k.customer_id); if (c) c.assigned_to = rep || null; else k.assigned_to = rep || null; save(); return wait(chatRow(k)); },
+    async chatStatus() { if (!hasRole('admin')) fail('Only the admin can see this'); const C = D.cchats || { contacts: [] };
+      return wait({ connected: !!C.conn, name: 'K-TRONiCS (demo)', username: 'ktronics_demo', can_reply: true, chats: C.contacts.length, new_chats: C.contacts.map(chatRow).filter(c => !c.rep_id).length }); },
+    async chatUnread() { if (!role()) return wait(0); return wait((D.cchats || { contacts: [] }).contacts.map(chatRow).filter(c => c.unread && (c.rep_id === me.id || (hasRole('admin') && !c.rep_id))).length); },
     async phzarOrders(from, to, rep) { if (!role()) return wait([]);
       const see = o => o.sales_rep_id === me.id || o.created_by === me.id || isBoss() || allow('reports.view') || inMyTeam(o.sales_rep_id);
       return wait(((D.phzar || {}).orders || []).filter(o => see(o) && (!from || localDay(o.created_at) >= from) && (!to || localDay(o.created_at) <= to) && (!rep || o.sales_rep_id === rep))
@@ -4148,6 +4203,11 @@ window.makeDemoApi = function () {
     _startShare(st, m0, m1) { if (!st || st <= m0) return 1; if (st > m1) return 0;
       const wd = (a, b) => { let n = 0; for (let d = new Date(a + 'T00:00:00'); localDay0(d) <= b; d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n++; return n; };
       return wd(st, m1) / Math.max(wd(m0, m1), 1); },
+    _paySales(uid, m0) { const mo = m0.slice(0, 7);   // sales on the payslip (10 Nov 2026)
+      const sales = D.orders.filter(o => (o.sales_rep_id || o.created_by) === uid && ['approved', 'packed', 'delivering', 'delivered', 'paid'].includes(o.status) && !o.is_opening && localDay(o.created_at).slice(0, 7) === mo).reduce((s2, o) => s2 + +o.total, 0);
+      const nop = (D.nopSales || []).filter(n => n.sales_rep_id === uid && String(n.sale_date || n.created_at || '').slice(0, 7) === mo).reduce((s2, n) => s2 + +(n.amount || 0), 0);
+      const tt = ((D.targets || {})[uid]) || {}, t = Object.keys(tt).find(k => k.slice(0, 7) === mo);
+      return { sales: Math.round(sales * 100) / 100, nop_sales: Math.round(nop * 100) / 100, sales_target: t ? +tt[t] : null }; },
     async payrollGet(month, fresh) { if (!allow('hr.manage')) fail('You are not allowed to see payroll'); api._pay();
       const m0 = month.slice(0, 8) + '01', y = +m0.slice(0, 4), mo = +m0.slice(5, 7) - 1, m1 = localDay0(new Date(y, mo + 1, 0)), R = Object.assign({}, window.KT.PAY_DEFAULTS, D.payRules);
       const com = await api.commissionReport(m0), lines = [];
@@ -4157,7 +4217,7 @@ window.makeDemoApi = function () {
           let x;
           if (pl && (pl.status === 'paid' || !fresh)) x = Object.assign(clone(pl), { saved: true, advances_now: adv });
           else x = window.KT.payMoney(Object.assign(api._payCounts(u.id, m0), { user_id: u.id, month: m0, status: 'draft', base: Math.round((+h.base_salary || 0) * api._startShare(h.start_date, m0, m1) * 100) / 100, allowance: +h.allowance || 0,
-            commission: +((com.find(c => c.user_id === u.id) || {}).commission || 0), advances: adv, bonus: pl ? pl.bonus : 0, tax: pl ? pl.tax : 0, other_deduct: pl ? pl.other_deduct : 0, note: pl ? pl.note : null, id: pl ? pl.id : null, saved: !!pl, advances_now: adv }), R);
+            commission: +((com.find(c => c.user_id === u.id) || {}).commission || 0), advances: adv, bonus: pl ? pl.bonus : 0, tax: pl ? pl.tax : 0, other_deduct: pl ? pl.other_deduct : 0, note: pl ? pl.note : null, id: pl ? pl.id : null, saved: !!pl, advances_now: adv }, api._paySales(u.id, m0)), R);
           lines.push(Object.assign(x, { full_name: u.full_name, role: u.role, position: h.position || null, bank_account: h.bank_account || null, start_date: h.start_date || null, full_base: +h.base_salary || 0 })); });
       return wait({ month: m0, rules: R, lines, holidays: D.holidays.filter(h => h.day >= m0 && h.day <= m1).sort((a, b) => a.day.localeCompare(b.day)) }); },
     async payrollSave(month, lines) { if (!allow('hr.manage')) fail('You are not allowed to save payroll'); api._pay();
@@ -4169,7 +4229,7 @@ window.makeDemoApi = function () {
         const adv = D.advances.filter(a => a.user_id === l.user_id && a.payroll_month === m0).reduce((s, a) => s + +a.amount, 0), v = {};
         keys.forEach(k => { v[k] = +l[k] || 0; });
         const x = window.KT.payMoney(Object.assign(v, { advances: adv }), R); delete x.deduct;
-        const row = Object.assign(x, { month: m0, user_id: l.user_id, status: 'draft', note: (l.note || '').trim() || null, rules: R, saved_by: me.id, saved_at: now() });
+        const row = Object.assign(x, { month: m0, user_id: l.user_id, status: 'draft', note: (l.note || '').trim() || null, rules: R, saved_by: me.id, saved_at: now() }, api._paySales(l.user_id, m0));
         if (old) Object.assign(old, row); else D.payLines.push(Object.assign({ id: ++D.paySeq }, row)); n++; });
       save(); return wait(n); },
     async payrollLineDelete(id) { if (!allow('hr.manage')) fail('You are not allowed to change payroll'); api._pay(); const pl = D.payLines.find(l => l.id === id); if (!pl) return wait(null);
@@ -6932,6 +6992,12 @@ Object.assign(window.KT_KM, { 'Full day(s)': 'ពេញមួយថ្ងៃ', '
   '½ day · morning off': '½ ថ្ងៃ · ឈប់ពេលព្រឹក', '½ day · afternoon off': '½ ថ្ងៃ · ឈប់ពេលរសៀល', 'Absent ½': 'អវត្តមាន ½',
   'Half a day (0.5). Morning off: they start work at the afternoon start time (HR → Work hours).': 'កន្លះថ្ងៃ (0.5)។ ឈប់ពេលព្រឹក៖ ចូលធ្វើការតាមម៉ោងចាប់ផ្តើមពេលរសៀល (HR → ម៉ោងធ្វើការ)។' });
 Object.assign(window.KT_KM, { 'Afternoon starts (for staff with the morning off)': 'ម៉ោងចាប់ផ្តើមពេលរសៀល (សម្រាប់បុគ្គលិកឈប់ពេលព្រឹក)' });
+// Customer chats (9 Nov 2026)
+Object.assign(window.KT_KM, {"Customer chats": "ការជជែកជាមួយអតិថិជន", "Customer Chats": "ការជជែកជាមួយអតិថិជន", "Telegram chats with your shops": "ការជជែក Telegram ជាមួយហាងរបស់អ្នក", "Telegram connection": "ការភ្ជាប់ Telegram", "All chats": "ការជជែកទាំងអស់", "New chats": "ការជជែកថ្មី", "Mine": "របស់ខ្ញុំ", "Search name, @username or shop": "ស្វែងរកឈ្មោះ @username ឬហាង", "Customers write to the main Telegram number. You answer here; the customer gets your answer from the main number. Telegram allows an answer only within 24 hours after the customer's last message.": "អតិថិជនសរសេរមកលេខ Telegram ចម្បង។ អ្នកឆ្លើយនៅទីនេះ អតិថិជនទទួលបានចម្លើយពីលេខចម្បង។ Telegram អនុញ្ញាតឱ្យឆ្លើយបានតែក្នុងរយៈពេល 24 ម៉ោង បន្ទាប់ពីសារចុងក្រោយរបស់អតិថិជន។", "No customer chats yet.": "មិនទាន់មានការជជែកជាមួយអតិថិជននៅឡើយ។", "No new chats. New customers appear here until you give them to a sales rep.": "គ្មានការជជែកថ្មី។ អតិថិជនថ្មីបង្ហាញនៅទីនេះ រហូតដល់អ្នកផ្តល់ឱ្យអ្នកលក់។", "Not given to a rep yet": "មិនទាន់ផ្តល់ឱ្យអ្នកលក់", "Shop / rep": "ហាង / អ្នកលក់", "Write your answer…": "សរសេរចម្លើយរបស់អ្នក…", "Send": "ផ្ញើ", "Photo": "រូបថត", "Remove": "ដកចេញ", "No messages yet.": "មិនទាន់មានសារ។", "⏳ Telegram allows an answer only within 24 hours after the customer's last message. Wait until the customer writes again (or call them).": "⏳ Telegram អនុញ្ញាតឱ្យឆ្លើយបានតែក្នុងរយៈពេល 24 ម៉ោង បន្ទាប់ពីសារចុងក្រោយរបស់អតិថិជន។ សូមរង់ចាំអតិថិជនសរសេរម្តងទៀត (ឬទូរស័ព្ទទៅគាត់)។", "Main phone": "ទូរស័ព្ទចម្បង", "Shop and sales rep": "ហាង និងអ្នកលក់", "No shop": "គ្មានហាង", "— nobody yet —": "— មិនទាន់មាន —", "Not connected yet": "មិនទាន់ភ្ជាប់", "Search shop name or phone": "ស្វែងរកឈ្មោះហាង ឬលេខទូរស័ព្ទ", "Link this chat to a shop: the shop's sales rep then sees and answers it. Not a shop yet? Leave \"No shop\" and give the chat to a rep (\"contact only\").": "ភ្ជាប់ការជជែកនេះទៅហាង៖ អ្នកលក់របស់ហាងនឹងឃើញ និងឆ្លើយ។ មិនទាន់ជាហាង? ទុក \"គ្មានហាង\" ហើយផ្តល់ការជជែកឱ្យអ្នកលក់ (\"ទំនាក់ទំនងប៉ុណ្ណោះ\")។", "🎤 Voice message": "🎤 សារជាសំឡេង", "📷 Photo": "📷 រូបថត", "🎬 Video": "🎬 វីដេអូ", "📎 File": "📎 ឯកសារ"});
+// Sales on the payslip (10 Nov 2026)
+Object.assign(window.KT_KM, { 'Sales this month': 'ការលក់ខែនេះ', 'Phzar sales': 'ការលក់ Phzar', 'Sales target': 'គោលដៅលក់', 'Sales': 'ការលក់', 'Sales target': 'គោលដៅលក់' });
+// Orders: total unpaid box (11 Nov 2026)
+Object.assign(window.KT_KM, { 'Total unpaid': 'សរុបមិនទាន់បង់', 'Total unpaid:': 'សរុបមិនទាន់បង់៖' });
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8904,6 +8970,12 @@ Object.assign(window.KT_ZH, { 'Full day(s)': '全天', 'Morning off': '上午休
   '½ day · morning off': '半天 · 上午休假', '½ day · afternoon off': '半天 · 下午休假', 'Absent ½': '缺勤半天',
   'Half a day (0.5). Morning off: they start work at the afternoon start time (HR → Work hours).': '半天（0.5）。上午休假：按下午上班时间开始工作（HR → 工作时间）。' });
 Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)': '下午上班时间（上午休假的员工）' });
+// Customer chats (9 Nov 2026)
+Object.assign(window.KT_ZH, {"Customer chats": "客户聊天", "Customer Chats": "客户聊天", "Telegram chats with your shops": "与您店铺的 Telegram 聊天", "Telegram connection": "Telegram 连接", "All chats": "全部聊天", "New chats": "新聊天", "Mine": "我的", "Search name, @username or shop": "搜索名字、@用户名或店铺", "Customers write to the main Telegram number. You answer here; the customer gets your answer from the main number. Telegram allows an answer only within 24 hours after the customer's last message.": "客户发消息到主 Telegram 号码。您在这里回复，客户会从主号码收到回复。Telegram 只允许在客户最后一条消息后 24 小时内回复。", "No customer chats yet.": "还没有客户聊天。", "No new chats. New customers appear here until you give them to a sales rep.": "没有新聊天。新客户会显示在这里，直到您分配给销售员。", "Not given to a rep yet": "尚未分配销售员", "Shop / rep": "店铺 / 销售员", "Write your answer…": "写下您的回复…", "Send": "发送", "Photo": "照片", "Remove": "移除", "No messages yet.": "还没有消息。", "⏳ Telegram allows an answer only within 24 hours after the customer's last message. Wait until the customer writes again (or call them).": "⏳ Telegram 只允许在客户最后一条消息后 24 小时内回复。请等客户再次发消息（或给他打电话）。", "Main phone": "主手机", "Shop and sales rep": "店铺和销售员", "No shop": "没有店铺", "— nobody yet —": "— 暂无 —", "Not connected yet": "尚未连接", "Search shop name or phone": "搜索店铺名或电话", "Link this chat to a shop: the shop's sales rep then sees and answers it. Not a shop yet? Leave \"No shop\" and give the chat to a rep (\"contact only\").": "把这个聊天关联到店铺：该店铺的销售员就能看到并回复。还不是店铺？选择\"没有店铺\"，把聊天分配给销售员（\"仅联系人\"）。", "🎤 Voice message": "🎤 语音消息", "📷 Photo": "📷 照片", "🎬 Video": "🎬 视频", "📎 File": "📎 文件"});
+// Sales on the payslip (10 Nov 2026)
+Object.assign(window.KT_ZH, { 'Sales this month': '本月销售额', 'Phzar sales': 'Phzar 销售额', 'Sales target': '销售目标' });
+// Orders: total unpaid box (11 Nov 2026)
+Object.assign(window.KT_ZH, { 'Total unpaid': '未付总额', 'Total unpaid:': '未付总额：' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -9272,6 +9344,7 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
         ${window.L && K.allow('visits.view_all') ? item('#/routemap', 'nav', 'Route map', 'Where each sales rep went today', 'var(--bls)', 'var(--bl)') : ''}
         ${K.allow('purchases.manage') || K.allow('purchases.receive') ? item('#/purchases', 'truck', 'From suppliers', 'Purchases and goods arriving', 'var(--bls)', 'var(--bl)') : ''}
         ${K.canCollect() ? item('#/payments', 'cash', 'Money from shops', 'Still owed, collect, check payments', 'var(--grs)', 'var(--gr)') : ''}
+        ${K.custChatsItem ? K.custChatsItem(item) : ''}
         ${K.canSeePhzar && K.canSeePhzar() ? item('#/phzar', 'order', 'Order in Phzar', 'Phzar products for your customers', 'var(--ps)', 'var(--p)') : ''}
         ${K.guideTopics ? item('#/guide', 'book', 'How to use the app', 'Short guides with pictures', 'var(--bls)', 'var(--bl)') : ''}
         ${item('#/expenses', 'receipt', 'My expenses', 'Gasoline, express, food, guesthouse', 'var(--ors)', 'var(--or)')}
@@ -9380,7 +9453,7 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
   route(/^\/chat$/, async (_, q, current) => {
     const f = q.f || 'all';
     const main = page({ title: 'Chat', tab: 'chat', right: `<button class="ib" id="new" aria-label="New chat">${icon('pen')}</button>`,
-      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip ${f === k ? 'on' : ''}" href="#/chat?f=${k}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}</div>` });
+      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip ${f === k ? 'on' : ''}" href="#/chat?f=${k}" style="display:inline-flex;align-items:center;text-decoration:none">${l}</a>`).join('')}</div>` });
     $('#new').onclick = newChat;
     const convs = await data.convs(true);
     if (!current()) return;
@@ -9829,9 +9902,9 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
   }
 
   // "🔁 Exchange" sits in the status chips of Orders (Mr. Lee, 21 Oct 2026)
-  const exChip = on => K.canFindExchange && K.canFindExchange() ? `<a class="chip ${on ? 'on' : ''}" href="#/exchange" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🔁 Exchange</a>` : '';
+  const exChip = on => K.canFindExchange && K.canFindExchange() ? `<a class="chip ${on ? 'on' : ''}" href="#/exchange" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none">🔁 Exchange</a>` : '';
   // "🧾 No products" = sales without products (online sales, 22 Oct 2026)
-  const npChip = on => (K.canSeePhzar && K.canSeePhzar() ? `<a class="chip" href="#/phzar" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">🛒 Order in Phzar</a>` : '');
+  const npChip = on => (K.canSeePhzar && K.canSeePhzar() ? `<a class="chip" href="#/phzar" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none">🛒 Order in Phzar</a>` : '');
   route(/^\/nopsales$/, () => go('#/phzar'));   // 2 Nov 2026: sales without products are made only by Order in Phzar
   // ---------- list ----------
   // #/orders?p=<period>&from=&to=&f=<status>
@@ -9839,19 +9912,24 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
     if (!K.canSeeMoney()) return deliveryList(current, q);
     const P = K.period, f = q.f || 'all';
     const st = { p: q.p || (q.f && q.f !== 'all' ? 'custom' : 'month'), from: q.from || '', to: q.to || P.today() };
-    const url = () => `#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${f !== 'all' ? '&f=' + f : ''}`;
+    // choose a staff member (11 Nov 2026, Mr. Lee: "stock in staff app have select staff, but order no have select staff")
+    const pickRep = K.allow('orders.view_all'), rep = pickRep ? (q.rep || '') : '';
+    const repQ = rep ? '&rep=' + encodeURIComponent(rep) : '';
+    const url = () => `#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${f !== 'all' ? '&f=' + f : ''}${repQ}`;
     const main = page({ title: 'Orders', sub: K.allow('orders.view_all') ? 'All orders' : 'Your orders', tab: 'order',
       right: K.allow('orders.create') ? `<a class="ib" href="#/orders/new" aria-label="New order">${icon('plus')}</a>` : '', top: '<div class="chips" id="stchips"></div>' });
-    const orders = await data.orders(true);
+    const [allOrders, staff] = await Promise.all([data.orders(true), pickRep ? api.listStaff().catch(() => []) : []]);
     if (!current()) return;
+    const orders = rep ? allOrders.filter(o => (o.sales_rep_id || o.created_by) === rep) : allOrders;
     // a status link without dates (e.g. "Delivered, unpaid") starts from the oldest such order
     if (!st.from) st.from = f !== 'all' && !q.p ? (orders.filter(o => o.status === f).map(o => P.dstr(o.created_at)).sort()[0] || P.today()) : P.range('custom')[0];
     const inP = orders.filter(o => P.has(o, st.p, st.from, st.to));
     const list = inP.filter(o => f === 'all' ? !K.isVoid(o.status) : o.status === f);
     const total = list.reduce((s, o) => s + Number(o.total), 0);
     const sold = list.filter(o => K.isSale(o)).reduce((s, o) => s + Number(o.total), 0);
+    const unpaid = list.filter(o => o.status === 'delivered').reduce((s, o) => s + Math.max(0, K.owedOf(o)), 0);   // 11 Nov 2026: money still to collect
     $('#stchips').innerHTML = FILTERS.map(([k, l]) => { const n = k === 'all' ? inP.filter(o => !K.isVoid(o.status)).length : inP.filter(o => o.status === k).length;
-      return `<a class="chip ${f === k ? 'on' : ''}" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${k !== 'all' ? '&f=' + k : ''}" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;color:inherit">${l} <span style="opacity:.7">${n}</span></a>`; }).join('') + npChip(false) + exChip(false);
+      return `<a class="chip ${f === k ? 'on' : ''}" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${k !== 'all' ? '&f=' + k : ''}${repQ}" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none">${l} <span style="opacity:.7">${n}</span></a>`; }).join('') + npChip(false) + exChip(false);
     // online sales: their sales without products are in the same list, with their own total (22 Oct 2026)
     let nops = [];
     if (K.isOnlineSeller() && f === 'all') { const [a, b] = P.range(st.p, st.from, st.to); nops = await api.listNopSales(null, a, b).catch(() => []); if (!current()) return; }
@@ -9860,13 +9938,14 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
       .sort((a, b) => b.d.localeCompare(a.d)).map(x => x.h).join('') : list.map(K.orderRow).join('');
     main.innerHTML = `<div class="pad" style="gap:10px">
       <div class="search">${icon('search', 18)}<input id="osq" placeholder="Search shop, order number or product" aria-label="Search orders" value="${esc(S.oSearch || '')}"></div>
-      <div id="olist" style="display:flex;flex-direction:column;gap:10px">${P.html(st.p, st.from, st.to)}
+      <div id="olist" style="display:flex;flex-direction:column;gap:10px">${pickRep ? `<select class="inp" id="orep" aria-label="Staff">${K.repOptions(staff, rep, 'All staff')}</select>` : ''}${P.html(st.p, st.from, st.to)}
       <div class="small muted">${esc(P.label(st))}</div>
-      ${K.isOnlineSeller() && f === 'all' ? `<div class="stats three"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Stock orders</span></div><div class="stat"><b style="color:var(--bl)">${money(npTotal)}</b><span>Phzar</span></div><div class="stat"><b>${money(sold + npTotal)}</b><span>Total</span></div></div>${total - sold > 0 ? `<div class="small muted"><span>Waiting approval:</span> ${money(total - sold)}</div>` : ''}`
-        : `<div class="stats"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Sales (approved)</span></div><div class="stat"><b style="color:var(--or)">${money(total - sold)}</b><span>Waiting approval</span></div></div>`}`
+      ${K.isOnlineSeller() && f === 'all' ? `<div class="stats three"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Stock orders</span></div><div class="stat"><b style="color:var(--bl)">${money(npTotal)}</b><span>Phzar</span></div><div class="stat"><b>${money(sold + npTotal)}</b><span>Total</span></div></div>${total - sold > 0 ? `<div class="small muted"><span>Waiting approval:</span> ${money(total - sold)}</div>` : ''}${unpaid > 0 ? `<div class="small" style="color:var(--rd)"><span>Total unpaid:</span> ${money(unpaid)}</div>` : ''}`
+        : `<div class="stats three"><div class="stat"><b style="color:var(--gr)">${money(sold)}</b><span>Sales (approved)</span></div><div class="stat"><b style="color:var(--or)">${money(total - sold)}</b><span>Waiting approval</span></div><a class="stat" href="#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}&f=delivered" style="text-decoration:none;color:inherit"><b style="color:var(--rd)">${money(unpaid)}</b><span>Total unpaid</span></a></div>`}`
       + (list.length || nops.length ? `<div class="row small muted"><span class="grow">${list.length} order${list.length === 1 ? '' : 's'}${nops.length ? ' · ' + nops.length + ' <span>Phzar</span>' : ''}</span><b style="color:var(--ink)">${money(total + npTotal)}</b></div><div class="card flush">${rowsHtml}</div>`
         : emptyBox('order', 'No orders for these dates')) + '</div><div id="osres" style="display:none;flex-direction:column;gap:10px"></div></div>';
     P.bind(main, st, () => go(url()));
+    if ($('#orep')) $('#orep').onchange = e => { const v = e.target.value; go(`#/orders?p=${st.p}${st.p === 'custom' ? `&from=${st.from}&to=${st.to}` : ''}${f !== 'all' ? '&f=' + f : ''}${v ? '&rep=' + encodeURIComponent(v) : ''}`); };
     if (nops.length) K.bindNopRows(main, nops, () => K.render());
     if (S.oItemsAt && Date.now() - S.oItemsAt > 60000) S.oItems = null;
     // search: every date, by shop, order number or product (products are loaded the first time)
@@ -9959,7 +10038,7 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
   // ---------- find the order for an exchange (21 Oct 2026): shop → product with a problem → its delivered orders ----------
   route(/^\/exchange$/, async (_, q, current) => {
     const main = page({ title: 'Exchange a product', sub: 'Find the order', back: '#/orders', tab: 'order',
-      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip" href="#/orders${k !== 'all' ? '?f=' + k : ''}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}${npChip(false)}${exChip(true)}</div>` });
+      top: `<div class="chips">${FILTERS.map(([k, l]) => `<a class="chip" href="#/orders${k !== 'all' ? '?f=' + k : ''}" style="display:inline-flex;align-items:center;text-decoration:none">${l}</a>`).join('')}${npChip(false)}${exChip(true)}</div>` });
     const [orders, items] = await Promise.all([data.orders(true), api.listOrderItems()]);
     if (!current()) return;
     const ok = orders.filter(o => K.canExchange(Object.assign({}, o, { exchanges: [] })));   // delivered / paid orders this person may exchange on
@@ -11702,7 +11781,7 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
     const main = ADMIN ? K.adm.shell('orders', 'Order in Phzar', setBtn + newBtn) : K.page({ title: 'Order in Phzar', sub: 'Phzar products for your customers', back: '#/orders' });
     const staff = isBoss() || K.allow('reports.view') ? await K.data.staff().catch(() => []) : [];
     if (!current()) return;
-    main.innerHTML = `${ADMIN ? `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">All orders</a><span class="chip on" style="display:inline-flex;align-items:center">🛒 Order in Phzar</span></div>` : ''}
+    main.innerHTML = `${ADMIN ? `<div class="chips"><a class="chip" href="#/orders" style="display:inline-flex;align-items:center;text-decoration:none">All orders</a><span class="chip on" style="display:inline-flex;align-items:center">🛒 Order in Phzar</span></div>` : ''}
       <div class="${ADMIN ? 'apad' : 'pad'}">
       ${!ADMIN && K.canPhzar() ? `<a class="btn block" href="#/phzar/new" style="text-decoration:none">${icon('plus', 18)}New Phzar order</a>` : ''}
       <div class="filters" style="display:flex;gap:8px;flex-wrap:wrap">${staff.length ? `<select class="inp" id="pzsf" aria-label="Filter by staff" style="width:auto;min-width:150px"><option value="">All staff</option>${staff.filter(u => u.active && K.SELLERS.includes(u.role)).map(u => `<option value="${esc(u.id)}">${esc(u.full_name)}</option>`).join('')}</select>` : ''}
@@ -11927,6 +12006,167 @@ Object.assign(window.KT_ZH, { 'Afternoon starts (for staff with the morning off)
       };
     }).catch(e => toast(e.message));
   }
+})();
+
+// Customer chats (9 Nov 2026, Mr. Lee): customers chat only with the main Telegram number; each sales rep sees and answers
+// the chats of their own shops here; the reply goes out FROM the main number (Telegram Business, server function "tg-inbox").
+// The admin sees all chats, links a new chat to a shop and moves a customer to another rep.
+// Pages: #/custchats (list) and #/custchats/<id> (one chat), in the staff app and the admin web.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy } = K;
+  const $ = (s, el) => K.$(s, el), $$ = (s, el) => K.$$(s, el);
+  const ADMIN = !!(window.KT_CONFIG || {}).ADMIN;
+  const isAdm = () => !!K.S.me && K.S.me.role === 'admin';
+  K.canCustChats = () => !!K.S.me && (isAdm() || K.SELLERS.includes(K.S.me.role));
+  const MEDIA = { photo: '📷 Photo', video: '🎬 Video', voice: '🎤 Voice message', audio: '🎵 Audio', file: '📎 File', sticker: '🙂 Sticker', other: '💬 Message' };
+  const timeTxt = d => { if (!d) return ''; const x = new Date(d), n = new Date(); return x.toDateString() === n.toDateString() ? K.hhmm(d) : x.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + K.hhmm(d); };
+  const shell = (title, right, back) => ADMIN ? K.adm.shell('custchats', title, right || '') : K.page({ title, back: back || '#/more', right: right || '' });
+  const sub = c => [c.shop ? '🏪 ' + c.shop : '', c.rep ? '👤 ' + c.rep : (c.customer_id ? '' : 'Not given to a rep yet')].filter(Boolean).join(' · ');
+
+  // ---------- the list ----------
+  K.route(/^\/custchats$/, async (_, q, current) => {
+    if (!K.canCustChats()) return K.go(ADMIN ? '#/dashboard' : '#/home');
+    if (q.c) return K.go('#/custchats/' + encodeURIComponent(q.c));
+    const st = { f: q.f || (isAdm() ? 'all' : 'mine'), q: '' };
+    const right = isAdm() ? `<button class="btn sm out" id="ccset">${icon('pen', 16)}<span class="hide-sm">Telegram connection</span></button>` : '';
+    const main = shell('Customer chats', right);
+    main.innerHTML = `<div class="${ADMIN ? 'apad' : 'pad'}">
+      ${isAdm() ? `<div class="chips" id="ccf">${[['all', 'All chats'], ['new', 'New chats'], ['mine', 'Mine']].map(([k, l]) => `<button class="chip ${st.f === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>` : ''}
+      <input class="inp" id="ccq" type="search" placeholder="Search name, @username or shop" aria-label="Search chats">
+      <div class="card flush" id="cclist">${K.loading}</div>
+      <div class="small muted">Customers write to the main Telegram number. You answer here; the customer gets your answer from the main number. Telegram allows an answer only within 24 hours after the customer's last message.</div></div>`;
+    if ($('#ccset')) $('#ccset').onclick = () => setupSheet();
+    $$('[data-f]').forEach(b => b.onclick = () => { st.f = b.dataset.f; $$('[data-f]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+    let tq; $('#ccq').oninput = e => { clearTimeout(tq); tq = setTimeout(() => { st.q = e.target.value.trim(); draw(); }, 300); };
+    const draw = async () => {
+      const list = await api.chatList({ filter: st.f, q: st.q }).catch(e => { toast(e.message); return null; });
+      if (!current() || !list) return;
+      $('#cclist').innerHTML = list.length ? list.map(c => `<a class="list-item" href="#/custchats/${c.id}" style="text-decoration:none;color:inherit">
+          ${K.avatar(c.name)}<div class="grow" style="min-width:0"><div class="row"><div class="tt grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</div><span class="small muted">${esc(timeTxt(c.last_msg_at))}</span></div>
+          <div class="st" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.last_text || '')}</div>
+          <div class="small muted">${esc(sub(c))}${c.reply_until ? '' : ' · ⏳ wait for the customer'}</div></div>
+          ${c.unread ? `<span class="badge" style="position:static">${c.unread > 99 ? '99+' : c.unread}</span>` : ''}</a>`).join('')
+        : K.emptyBox('chat', st.f === 'new' ? 'No new chats. New customers appear here until you give them to a sales rep.' : 'No customer chats yet.');
+    };
+    await draw();
+    const t = setInterval(() => { if (!current()) return clearInterval(t); if (!document.querySelector('.sheet') && document.activeElement !== $('#ccq')) draw(); }, 15000);
+  });
+
+  // ---------- one chat ----------
+  K.route(/^\/custchats\/(\d+)$/, async (m, q, current) => {
+    if (!K.canCustChats()) return K.go(ADMIN ? '#/dashboard' : '#/home');
+    const id = +m[0];
+    let d = await api.chatGet(id).catch(e => { toast(e.message); return null; });
+    if (!current()) return;
+    if (!d) return K.go('#/custchats');
+    let c = d.contact, msgs = d.messages, photo = null;
+    const right = isAdm() ? `<button class="btn sm out" id="cclink">${icon('store', 16)}<span class="hide-sm">Shop / rep</span></button>` : '';
+    const main = shell(c.name, right, '#/custchats');
+    main.innerHTML = `<div class="${ADMIN ? 'apad' : 'pad'}" style="display:flex;flex-direction:column;gap:10px">
+      <div class="card" id="cchead"></div>
+      <div id="ccmsgs" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="ccbox"></div></div>`;
+    const head = () => {
+      $('#cchead').innerHTML = `<div class="row">${K.avatar(c.name)}<div class="grow"><div class="tt">${esc(c.name)}${c.username ? ` <span class="small muted">@${esc(c.username)}</span>` : ''}</div>
+        <div class="small muted">${esc(sub(c))}</div></div>${c.customer_id ? `<a class="btn sm out" href="${ADMIN ? '#/customers?open=' + c.customer_id : '#/customers/' + c.customer_id}" style="text-decoration:none">Shop</a>` : ''}</div>`;
+    };
+    const bubble = x => {
+      const mine = x.dir === 'out', del = x.status === 'deleted';
+      const media = x.media && !(x.media === 'photo' && x.photo_url) ? `<div class="small" style="opacity:.85">${esc(MEDIA[x.media] || MEDIA.other)}${x.media !== 'photo' && x.media !== 'sticker' ? ' · open on the main phone' : ''}</div>` : '';
+      const img = x.photo_url ? `<a href="${esc(x.photo_url)}" target="_blank" rel="noopener"><img src="${esc(x.photo_url)}" alt="Photo" style="max-width:220px;max-height:260px;border-radius:10px;display:block"></a>` : '';
+      const who = mine ? (x.sent_by ? esc(x.sent_by) : 'Main phone') : '';
+      const stTxt = x.status === 'sending' ? ' · sending…' : x.status === 'failed' ? ` · <b style="color:var(--rd)">not sent</b>${x.error ? ' (' + esc(x.error) + ')' : ''}` : '';
+      return `<div style="align-self:${mine ? 'flex-end' : 'flex-start'};max-width:82%">
+        <div style="padding:8px 11px;border-radius:14px;${mine ? 'background:var(--p);color:#fff;border-bottom-right-radius:4px' : 'background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px'};${del ? 'opacity:.5' : ''}">
+          ${img}${media}${x.body ? `<div style="white-space:pre-wrap;word-break:break-word${del ? ';text-decoration:line-through' : ''}">${esc(x.body)}</div>` : ''}</div>
+        <div class="small muted" style="text-align:${mine ? 'right' : 'left'};margin:2px 4px">${who ? who + ' · ' : ''}${esc(timeTxt(x.created_at))}${x.edited ? ' · edited' : ''}${del ? ' · deleted by the customer' : ''}${stTxt}</div></div>`;
+    };
+    const list = () => { $('#ccmsgs').innerHTML = msgs.length ? msgs.map(bubble).join('') : K.emptyBox('chat', 'No messages yet.'); };
+    const box = () => {
+      const can = !!c.reply_until;
+      $('#ccbox').innerHTML = can ? `<div class="card" style="gap:8px">
+          <div id="ccph"></div>
+          <textarea class="inp" id="cctx" rows="2" placeholder="Write your answer…" aria-label="Your answer" style="resize:vertical"></textarea>
+          <div class="row"><label class="btn out sm" style="cursor:pointer">${icon('camera', 16)}Photo<input type="file" accept="image/*" id="ccpf" hidden></label>
+            <span class="small muted grow">Sent from the main number · you can answer until ${esc(timeTxt(c.reply_until))}</span>
+            <button class="btn sm" id="ccsend">${icon('send', 16)}Send</button></div></div>`
+        : `<div class="card"><div class="small" style="line-height:1.5">⏳ Telegram allows an answer only within 24 hours after the customer's last message. Wait until the customer writes again (or call them).</div></div>`;
+      if (!can) return;
+      $('#ccpf').onchange = e => { photo = e.target.files[0] || null; $('#ccph').innerHTML = photo ? `<div class="row small"><span class="grow">📷 ${esc(photo.name || 'Photo')}</span><button class="btn sm out" id="ccphx">Remove</button></div>` : ''; if (photo) $('#ccphx').onclick = () => { photo = null; $('#ccpf').value = ''; $('#ccph').innerHTML = ''; }; };
+      $('#ccsend').onclick = e => busy(e.currentTarget, async () => {
+        const text = $('#cctx').value.trim();
+        if (!text && !photo) return toast('Write a message or add a photo');
+        const url = photo ? await api.uploadPhoto(photo, 'custchat') : null;
+        try { await api.chatSend({ contact_id: id, text, photo_url: url }); $('#cctx').value = ''; photo = null; $('#ccph').innerHTML = ''; }
+        catch (err) { toast(err.message); }
+        await reload(true);
+      });
+    };
+    const reload = async (scroll) => {
+      const n = await api.chatGet(id).catch(() => null);
+      if (!n || !current()) return;
+      const grew = n.messages.length !== msgs.length || (n.messages.length && msgs.length && n.messages[n.messages.length - 1].id !== msgs[msgs.length - 1].id);
+      const replyChanged = !!n.contact.reply_until !== !!c.reply_until;
+      c = n.contact; msgs = n.messages; head(); list();
+      if (replyChanged) box();
+      if (scroll || grew) toBottom();
+    };
+    const toBottom = () => { const el = ADMIN ? document.scrollingElement : $('#main'); if (el) el.scrollTop = el.scrollHeight; };
+    head(); list(); box(); toBottom();
+    if ($('#cclink')) $('#cclink').onclick = () => linkSheet(c, n => { c = n; head(); });
+    const t = setInterval(() => { if (!current()) return clearInterval(t); const a = document.activeElement; if (!document.querySelector('.sheet') && !(a && a.id === 'cctx' && a.value)) reload(false); }, 8000);
+  });
+
+  // ---------- admin: link to a shop / give to a rep ----------
+  async function linkSheet(c, onDone) {
+    const [shops, staff] = await Promise.all([K.data.customers().catch(() => []), K.data.staff().catch(() => [])]);
+    const s = K.sheet('Shop and sales rep', `
+      <div class="small muted" style="line-height:1.5">Link this chat to a shop: the shop's sales rep then sees and answers it. Not a shop yet? Leave "No shop" and give the chat to a rep ("contact only").</div>
+      <label class="f">Shop<input class="inp" id="lsq" type="search" placeholder="Search shop name or phone" value="${esc(c.shop || '')}"></label>
+      <div class="card flush" id="lsl" style="max-height:240px;overflow:auto"></div>
+      <div class="row small"><span class="grow">Chosen: <b id="lsc">${esc(c.shop || 'No shop')}</b></span><button class="btn sm out" id="lsnone">No shop</button></div>
+      <label class="f">Sales rep${c.customer_id ? ' (changes the shop\'s sales rep everywhere)' : ''}<select class="inp" id="lsr">${K.repOptions(staff, c.rep_id || '', '— nobody yet —')}</select></label>
+      <button class="btn block" id="lsok">Save</button>`);
+    let shop = c.customer_id || null;
+    const draw = () => {
+      const t = $('#lsq', s.el).value.trim().toLowerCase();
+      const l = shops.filter(x => !t || (x.name + ' ' + (x.phone || '') + ' ' + (x.telegram || '')).toLowerCase().includes(t)).slice(0, 40);
+      $('#lsl', s.el).innerHTML = l.map(x => `<button class="list-item" data-sh="${x.id}" style="width:100%;text-align:left;border:0;background:none;font:inherit;color:inherit"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc([x.phone, x.telegram, x.province].filter(Boolean).join(' · '))}</div></div></button>`).join('') || '<div class="pad small muted">No shop found</div>';
+      $$('[data-sh]', s.el).forEach(b => b.onclick = () => { shop = +b.dataset.sh; const x = shops.find(y => y.id === shop); $('#lsc', s.el).textContent = x ? x.name : ''; if (x && x.assigned_to) $('#lsr', s.el).value = x.assigned_to; });
+    };
+    $('#lsq', s.el).oninput = draw; draw();
+    $('#lsnone', s.el).onclick = () => { shop = null; $('#lsc', s.el).textContent = 'No shop'; };
+    $('#lsok', s.el).onclick = e => busy(e.currentTarget, async () => {
+      let n = c;
+      if (shop !== (c.customer_id || null)) n = await api.chatLink(c.id, shop);
+      const rep = $('#lsr', s.el).value || null;
+      if (rep !== (n.rep_id || null)) n = await api.chatMove(c.id, rep);
+      K.data.customers(true).catch(() => {});
+      s.close(); toast('Saved'); onDone(n);
+    });
+  }
+
+  // ---------- admin: Telegram connection ----------
+  async function setupSheet() {
+    const st = await api.chatStatus().catch(e => { toast(e.message); return null; });
+    if (!st) return;
+    const url = ((window.KT_CONFIG || {}).SUPABASE_URL || 'https://<your project>.supabase.co') + '/functions/v1/tg-inbox?setup=<INBOX_SECRET>';
+    K.sheet('Telegram connection', `
+      <div class="card" style="gap:4px">${st.connected ? `<b style="color:var(--gr)">✅ Connected</b><div class="small">Main account: ${esc(st.name || '')}${st.username ? ' (@' + esc(st.username) + ')' : ''}</div>
+        ${st.can_reply === false ? '<div class="small" style="color:var(--rd)">The bot is not allowed to reply. On the main phone: Telegram Business → Chatbots → allow replies.</div>' : ''}`
+        : '<b style="color:var(--or)">Not connected yet</b>'}
+        <div class="small muted">${+st.chats || 0} chats · ${+st.new_chats || 0} not given to a rep</div></div>
+      <div class="small" style="line-height:1.6"><b>How to connect (only you, once):</b><ol style="margin:4px 0 0 18px;padding:0">
+        <li>On the main phone (096 9999 683): buy <b>Telegram Premium</b>.</li>
+        <li>In <b>@BotFather</b>: /newbot → a new bot (e.g. KTronics Inbox). Then /mybots → the bot → Bot Settings → <b>Business Mode → Turn on</b>.</li>
+        <li>Supabase → Edge Functions → Secrets: add <b>INBOX_BOT_TOKEN</b> (the bot's token) and <b>INBOX_SECRET</b> (any long letters and numbers). Never send them in chat.</li>
+        <li>Open this link once (put your INBOX_SECRET at the end): <span style="word-break:break-all">${esc(url)}</span></li>
+        <li>On the main phone: Telegram → Settings → <b>Telegram Business → Chatbots</b> → add the bot, allow it to reply, choose which chats.</li></ol></div>`);
+  }
+
+  // menu entry (staff app: More)
+  K.custChatsItem = item => K.canCustChats() ? item('#/custchats', 'chat', 'Customer chats', 'Telegram chats with your shops', 'var(--bls)', 'var(--bl)') : '';
 })();
 
 // Field staff daily targets (24 Oct 2026, Mr. Lee): shop visits and new shops a day — the rep's Home card and the
@@ -13180,7 +13420,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (ADMIN) main = K.adm.shell('products', 'Stock control', '', 'Transfers, adjustments, counts');
     else main = K.page({ title: 'Stock control', sub: 'Transfers, adjustments, counts', back: '#/stock' });
     main.innerHTML = `${ADMIN ? '<div class="chips" id="sctabs"></div><div class="apad" id="scb"></div>' : '<div class="chips" id="sctabs" style="padding:12px 16px 0"></div><div class="pad" id="scb"></div>'}`;
-    $('#sctabs').innerHTML = tabsFor().map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" href="#/stockctl?t=${k}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${esc(l)}</a>`).join('');
+    $('#sctabs').innerHTML = tabsFor().map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" href="#/stockctl?t=${k}" style="display:inline-flex;align-items:center;text-decoration:none">${esc(l)}</a>`).join('');
     await K.SC[tab]($('#scb'), q, current);
   };
   K.route(/^\/stockctl$/, (_, q, current) => open(q || {}, current));
@@ -13570,7 +13810,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const tabs = [['due', 'Due / overdue'], ['owed', 'Still owed'], conf && ['check', 'To check'], ['history', 'Received']].filter(Boolean);
     const tab = tabs.some(t => t[0] === q.t) ? q.t : tabs[0][0];
     const main = page({ title: 'Money from shops', sub: K.allow('orders.view_all') ? 'All shops' : 'Your shops', back: '#/home',
-      top: `<div class="chips">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" href="#/payments?t=${k}" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit">${l}</a>`).join('')}</div>` });
+      top: `<div class="chips">${tabs.map(([k, l]) => `<a class="chip ${k === tab ? 'on' : ''}" href="#/payments?t=${k}" style="display:inline-flex;align-items:center;text-decoration:none">${l}</a>`).join('')}</div>` });
     const [orders, pays] = await Promise.all([data.orders(true), api.listPayments()]);
     if (!current()) return;
     const pendBy = {}; pays.filter(p => p.status === 'pending').forEach(p => { pendBy[p.order_id] = (pendBy[p.order_id] || 0) + +p.amount_usd; });
@@ -14371,6 +14611,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><b style="font-size:16px">${esc(S.company_name || 'K-TRONiCS')}</b><div class="small muted">Payslip · ${esc(K.monthName(String(l.month).slice(0, 10)))}</div></div>
         ${l.status === 'paid' ? `<span class="pill gr">Paid${l.paid_at ? ' ' + esc(K.poDate ? K.poDate(String(l.paid_at).slice(0, 10)) : String(l.paid_at).slice(0, 10)) : ''}${l.paid_method ? ' · ' + esc(methodName(l.paid_method)) : ''}</span>` : '<span class="pill gy">Not paid yet</span>'}</div>
       <div><b>${esc(name || l.full_name || '')}</b>${l.position ? ` <span class="muted small">· ${esc(l.position)}</span>` : ''}${K.deptOf && K.deptOf(l.user_id) ? ` <span class="muted small">· ${esc(K.deptOf(l.user_id))}</span>` : ''}${num(l.days_worked) ? `<div class="small muted">${dz(l.days_worked, 'day(s) at work')}</div>` : ''}</div>
+      ${num(l.sales) || num(l.nop_sales) || num(l.sales_target) ? `<div class="tbl"><table><tbody>
+        <tr><td>Sales this month</td><td style="text-align:right"><b>${money(l.sales)}</b></td></tr>
+        ${num(l.nop_sales) ? `<tr><td>Phzar sales</td><td style="text-align:right">${money(l.nop_sales)}</td></tr>` : ''}
+        ${num(l.sales_target) ? `<tr><td>Sales target</td><td style="text-align:right">${money(l.sales_target)} · ${Math.round(num(l.sales) / num(l.sales_target) * 100)}%</td></tr>` : ''}</tbody></table></div>` : ''}
       <div class="tbl"><table><tbody>${add.filter(a => a[2] || num(a[1])).map(a => row(a[0], a[1])).join('')}
         <tr style="background:var(--bg)"><td><b>Total pay</b></td><td style="text-align:right"><b>${money(gross)}</b></td></tr>
         ${sub.filter(a => num(a[1])).map(a => row(a[0], a[1], true)).join('')}
@@ -14619,11 +14863,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         fresh = true; load(); };
       if ($('#prx', el)) $('#prx', el).onclick = () => {
         const head = ['Staff', 'Position', 'Days at work', 'Base', 'Allowance', 'Commission', 'Overtime hours', 'Overtime pay', 'Sundays worked', 'Sunday pay', 'Holidays worked', 'Holiday pay', 'Bonus', 'Total pay',
-          'Late days', 'Late', 'Unpaid leave days', 'Unpaid leave', 'Absent days', 'Absent', 'Advance', 'NSSF / tax', 'Other', 'Net pay', 'Status', 'Paid by', 'Bank account', 'Note', 'Expenses to pay back', 'Annual leave left'];
+          'Late days', 'Late', 'Unpaid leave days', 'Unpaid leave', 'Absent days', 'Absent', 'Advance', 'NSSF / tax', 'Other', 'Net pay', 'Status', 'Paid by', 'Bank account', 'Note', 'Expenses to pay back', 'Annual leave left', 'Sales', 'Phzar sales', 'Sales target'];
         const rows = L.map(l => [l.full_name, l.position || '', num(l.days_worked), num(l.base), num(l.allowance), num(l.commission), num(l.ot_hours), num(l.ot_pay), num(l.sunday_days), num(l.sunday_pay), num(l.holiday_days), num(l.holiday_pay), num(l.bonus), num(l.gross),
           num(l.late_days), num(l.late_deduct), num(l.unpaid_days), num(l.unpaid_deduct), num(l.absent_days), num(l.absent_deduct), num(l.saved || l.status === 'paid' ? l.advances : l.advances_now), num(l.tax), num(l.other_deduct), num(l.net),
-          l.status === 'paid' ? 'Paid' : l.saved ? 'Saved' : 'Not saved', l.paid_method ? methodName(l.paid_method) : '', l.bank_account || '', l.note || '', r2(back(l.user_id)), ctx.hrs ? leftOf(l.user_id) : '']);
-        rows.push(['Total', '', '', tot('base'), tot('allowance'), tot('commission'), tot('ot_hours'), tot('ot_pay'), tot('sunday_days'), tot('sunday_pay'), tot('holiday_days'), tot('holiday_pay'), tot('bonus'), tot('gross'), '', tot('late_deduct'), '', tot('unpaid_deduct'), '', tot('absent_deduct'), tot('advances'), tot('tax'), tot('other_deduct'), tot('net'), '', '', '', '', L.reduce((a, l) => a + back(l.user_id), 0), ''].map(v => typeof v === 'number' ? r2(v) : v));
+          l.status === 'paid' ? 'Paid' : l.saved ? 'Saved' : 'Not saved', l.paid_method ? methodName(l.paid_method) : '', l.bank_account || '', l.note || '', r2(back(l.user_id)), ctx.hrs ? leftOf(l.user_id) : '', num(l.sales), num(l.nop_sales), num(l.sales_target)]);
+        rows.push(['Total', '', '', tot('base'), tot('allowance'), tot('commission'), tot('ot_hours'), tot('ot_pay'), tot('sunday_days'), tot('sunday_pay'), tot('holiday_days'), tot('holiday_pay'), tot('bonus'), tot('gross'), '', tot('late_deduct'), '', tot('unpaid_deduct'), '', tot('absent_deduct'), tot('advances'), tot('tax'), tot('other_deduct'), tot('net'), '', '', '', '', L.reduce((a, l) => a + back(l.user_id), 0), '', tot('sales'), tot('nop_sales'), tot('sales_target')].map(v => typeof v === 'number' ? r2(v) : v));
         const blob = K.xlsxBlob([{ name: 'Payroll ' + month.slice(0, 7), rows: [head].concat(rows) }]), a = document.createElement('a');
         a.href = URL.createObjectURL(blob); a.download = 'payroll-' + month.slice(0, 7) + '.xlsx'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
       $('#pradv', el).onclick = () => K.advancesSheet(ctx.staff || [], () => load());
