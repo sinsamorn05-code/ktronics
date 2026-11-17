@@ -8904,6 +8904,7 @@ Object.assign(window.KT_ZH, { 'Sell to K-TRONiCS': '卖给 K-TRONiCS', 'Offer go
 // Order from Main without seeing quantities (14 Nov 2026)
 Object.assign(window.KT_ZH, { '(your stock)': '（您的库存）', 'Main / shared stocks: only "In stock" or "Out of stock"': '主仓 / 共享库存：只显示“有货”或“缺货”' });
 Object.assign(window.KT_ZH, { 'In stock': '有货', 'Out of stock': '缺货' });
+Object.assign(window.KT_ZH, { 'All categories': '所有类别' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -9823,7 +9824,8 @@ Object.assign(window.KT_ZH, { 'In stock': '有货', 'Out of stock': '缺货' });
   K.linesTotal = lines => r2(lines.reduce((a, l) => a + l.qty * (+l.price || 0), 0));
   K.linesPayload = lines => lines.filter(l => l.qty > 0).map(l => ({ product_id: l.pid, qty: l.qty, price: r2(+l.price || 0) }));
   K.lineEditor = function ({ el, products, lines, wh, onChange, listHeight }) {
-    let search = '';
+    let search = '', catF = '';   // 16 Nov 2026 (Mr. Lee): choose a category to see only its products
+    const cats = [...new Set(products.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const P = id => products.find(p => p.id === id) || { name: '?', sku: '', price: 0, stock: {}, min_stock: 0 };
     lines.forEach(l => { if (l.price == null || l.price === '') l.price = P(l.pid).price; });
     const inOrder = id => lines.filter(l => l.pid === id).reduce((a, l) => a + l.qty, 0);
@@ -9846,15 +9848,17 @@ Object.assign(window.KT_ZH, { 'In stock': '有货', 'Out of stock': '缺货' });
         <button class="linkbtn" data-ld="${i}">${icon('plus', 14)} Add this product again (other price / free)</button></div>`; };
     const draw = () => {
       const t = search.toLowerCase();
-      const rest = products.filter(p => !t || p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t));
+      const rest = products.filter(p => (!t || p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)) && (!catF || p.category === catF));
       el.innerHTML = (lines.length ? `<div class="sec" style="margin:4px 0 2px">In this order</div>${lines.map(lineHtml).join('')}<div style="height:12px"></div>` : '')
         + `<div class="search">${icon('search', 18)}<input data-ls placeholder="Search product or SKU" aria-label="Search products" value="${esc(search)}"></div>
+        ${cats.length > 1 ? `<select class="inp" data-lc aria-label="Category" style="margin-top:8px"><option value="">All categories</option>${cats.map(c => `<option value="${esc(c)}" ${c === catF ? 'selected' : ''}>${esc(c)} (${products.filter(p => p.category === c).length})</option>`).join('')}</select>` : ''}
         <div style="${listHeight ? `max-height:${listHeight}px;overflow:auto` : ''}">${rest.slice(0, 80).map(p => { const n = inOrder(p.id);
           return `<div class="row" style="padding:10px 0;border-top:1px solid var(--line)"><div class="grow"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div>
             <div class="small muted">${esc(p.sku)} · ${money(p.price)} · ${stockTxt(p)}</div></div>
             ${n ? `<span class="pill gr" style="font-size:11px">${n} in order</span>` : ''}${blocked(p) ? '<button class="btn sm out" disabled>Not available</button>' : `<button class="btn sm ${n ? 'out' : ''}" data-la="${p.id}">${icon('plus', 16)}Add</button>`}</div>`; }).join('') || '<div class="muted small" style="padding:10px 0">No products found</div>'}</div>`;
       const $$ = sel => el.querySelectorAll(sel);
       const s = el.querySelector('[data-ls]'); s.oninput = e => { search = e.target.value; const pos = e.target.selectionStart; draw(); const n = el.querySelector('[data-ls]'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) {} };
+      const lc = el.querySelector('[data-lc]'); if (lc) lc.onchange = e => { catF = e.target.value; draw(); };
       $$('[data-la]').forEach(b => b.onclick = () => { const p = P(+b.dataset.la); lines.push({ pid: p.id, qty: 1, price: p.price }); draw(); onChange();
         K.toast(inOrder(p.id) > 1 ? p.name + ' added as a new line' : p.name + ' added'); });
       $$('[data-ld]').forEach(b => b.onclick = () => { const l = lines[+b.dataset.ld]; lines.splice(+b.dataset.ld + 1, 0, { pid: l.pid, qty: 1, price: 0 }); draw(); onChange(); });
@@ -11822,14 +11826,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const drawT = () => { const g = goodsUsd(), n = Object.values(d.lines).reduce((a, b) => a + b, 0);
       K.$('#pt', s.el).innerHTML = `<div class="row small"><span class="grow muted">${Object.keys(d.lines).length} products · ${n} pcs</span><b>Goods ${money(g)}</b></div>
         <div class="row small"><span class="grow muted">Shipping, tax, other</span><b>${money(d.extra)}</b></div><div class="row"><b class="grow">Total</b><b style="font-size:19px">${money(g + d.extra)}</b></div>`; };
+    // 16 Nov 2026 (Mr. Lee): each line shows its total (pieces × price)
+    const lineTot = pid => { if (!d.lines[pid]) return ''; const t = d.lines[pid] * (+d.cost[pid] || 0); return 'Total ' + K.curMoney(t, d.cur) + (d.cur !== 'USD' && d.rate ? ' ≈ ' + money(t / d.rate) : ''); };
+    const showLT = pid => { const x = K.$(`[data-lt="${pid}"]`, s.el); if (x) x.textContent = lineTot(pid); };
     const drawL = () => { const t = K.$('#pq', s.el).value.toLowerCase();
       const list = products.filter(p => d.lines[p.id] || !t || p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)).sort((a, b) => (!!d.lines[b.id]) - (!!d.lines[a.id]));
-      K.$('#pl', s.el).innerHTML = list.map(p => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(p.name)}</div><div class="st">${esc(p.sku)} · in stock ${p.total_qty} · cost now ${money(p.cost)}</div></div>
+      K.$('#pl', s.el).innerHTML = list.map(p => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(p.name)}</div><div class="st">${esc(p.sku)} · in stock ${p.total_qty} · cost now ${money(p.cost)}</div><div class="small" data-lt="${p.id}" style="font-weight:700;color:var(--p)">${lineTot(p.id)}</div></div>
         <input class="inp" data-q="${p.id}" type="number" inputmode="numeric" min="0" placeholder="Qty" value="${d.lines[p.id] || ''}" style="width:74px;text-align:center" aria-label="Quantity ${esc(p.name)}">
         <input class="inp" data-c="${p.id}" type="number" step="0.01" inputmode="decimal" min="0" placeholder="Price ${d.cur}" value="${d.cost[p.id] ?? ''}" style="width:104px;text-align:right" aria-label="Unit price ${esc(p.name)}"></div>`).join('') || '<div class="empty">No products found</div>';
       K.$$('[data-q]', s.el).forEach(i => i.oninput = () => { const v = Math.max(0, Math.floor(+i.value || 0)), pid = i.dataset.q;
-        if (v) { d.lines[pid] = v; if (d.cost[pid] === undefined) { const pr = products.find(x => x.id === +pid); d.cost[pid] = +(pr.cost * (d.cur === 'USD' ? 1 : d.rate)).toFixed(2); K.$(`[data-c="${pid}"]`, s.el).value = d.cost[pid]; } } else delete d.lines[pid]; drawT(); });
-      K.$$('[data-c]', s.el).forEach(i => i.oninput = () => { d.cost[i.dataset.c] = +i.value || 0; drawT(); }); };
+        if (v) { d.lines[pid] = v; if (d.cost[pid] === undefined) { const pr = products.find(x => x.id === +pid); d.cost[pid] = +(pr.cost * (d.cur === 'USD' ? 1 : d.rate)).toFixed(2); K.$(`[data-c="${pid}"]`, s.el).value = d.cost[pid]; } } else delete d.lines[pid]; showLT(pid); drawT(); });
+      K.$$('[data-c]', s.el).forEach(i => i.oninput = () => { d.cost[i.dataset.c] = +i.value || 0; showLT(i.dataset.c); drawT(); }); };
     K.$('#ps', s.el).onchange = e => {
       if (e.target.value === 'new') { e.target.value = d.sup || ''; return K.supplierSheet({}, x => { s.close(); K.newPurchaseSheet(onDone, x.id); }); }
       d.sup = +e.target.value; const c = supOf().currency || 'USD'; if (c !== d.cur) { d.cur = c; d.rate = c === 'USD' ? 1 : K.RATE_HINT[c] || 1; d.cost = {}; cur(); drawL(); } drawT(); };
