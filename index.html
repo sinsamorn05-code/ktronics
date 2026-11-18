@@ -1714,6 +1714,7 @@ window.makeSupabaseApi = function (cfg) {
 
     // suppliers and purchases
     listSuppliers: () => q(sb.from('suppliers').select('*').order('name')),
+    deleteSupplier: id => q(sb.rpc('supplier_delete', { p_id: id })),
     async saveSupplier(x) {
       const row = { name: x.name, contact_name: x.contact_name || null, phone: x.phone || null, telegram: x.telegram || null, country: x.country || null, currency: x.currency || 'USD', notes: x.notes || null, active: x.active !== false };
       if (x.id) return q(sb.from('suppliers').update(row).eq('id', x.id).select().single());
@@ -4793,6 +4794,11 @@ window.makeDemoApi = function () {
 
     // ---------- suppliers and purchases ----------
     async listSuppliers() { if (!(allow('purchases.manage') || allow('purchases.receive'))) return []; return wait(clone(D.suppliers).sort((a, b) => a.name.localeCompare(b.name))); },
+    async deleteSupplier(id) { if (!allow('purchases.manage') && role() !== 'admin') fail('You are not allowed to change suppliers');
+      const su = (D.suppliers || []).find(x => x.id === id); if (!su) fail('Supplier not found');
+      const n = (D.purchases || []).filter(p => p.supplier_id === id).length;
+      if (n) fail(su.name + ' has ' + n + ' purchase' + (n === 1 ? '' : 's') + '. Open each one, tap Edit purchase and choose the right supplier, then delete.');
+      D.suppliers = D.suppliers.filter(x => x.id !== id); save(); return wait(null); },
     async saveSupplier(x) {
       if (!allow('purchases.manage')) fail('You are not allowed to change suppliers');
       if (!String(x.name || '').trim()) fail('Enter the supplier name');
@@ -7216,6 +7222,7 @@ Object.assign(window.KT_KM, {"Shop visits (total, first-time visits, new shops c
 Object.assign(window.KT_KM, {"The same order and payment alerts and details you tick in Settings → Telegram alerts, but only this rep's own.": "ការជូនដំណឹងការបញ្ជាទិញ និងការបង់ប្រាក់ ព្រមទាំងព័ត៌មានលម្អិត ដូចដែលអ្នកធីកក្នុង ការកំណត់ → ការជូនដំណឹង Telegram ប៉ុន្តែមានតែរបស់អ្នកលក់នេះប៉ុណ្ណោះ។"});
 Object.assign(window.KT_KM, {"3 · 👥 Sales reps' own groups": "3 · 👥 ក្រុមផ្ទាល់ខ្លួនរបស់អ្នកលក់", "What each sales rep's own Telegram group gets (add a rep's group in HR → Staff → the rep). Each rep only gets their own: their orders, payments, shops, visits, attendance, expenses, leave and their own daily report. Your company alerts above don't change.": "អ្វីដែលក្រុម Telegram ផ្ទាល់ខ្លួនរបស់អ្នកលក់ម្នាក់ៗទទួលបាន (បន្ថែមក្រុមក្នុង HR → បុគ្គលិក → អ្នកលក់)។ អ្នកលក់ម្នាក់ៗទទួលបានតែរបស់ខ្លួន៖ ការបញ្ជាទិញ ការបង់ប្រាក់ ហាង ការចុះហាង វត្តមាន ចំណាយ ច្បាប់ និងរបាយការណ៍ប្រចាំថ្ងៃរបស់ខ្លួន។ ការជូនដំណឹងក្រុមហ៊ុនខាងលើមិនផ្លាស់ប្តូរទេ។", "🔔 Alerts": "🔔 ការជូនដំណឹង", "Run the latest database update first.": "សូមដំណើរការការធ្វើបច្ចុប្បន្នភាពមូលដ្ឋានទិន្នន័យចុងក្រោយជាមុនសិន។", "Sales reps' daily report": "របាយការណ៍ប្រចាំថ្ងៃរបស់អ្នកលក់", "Sales reps' own groups · alerts": "ក្រុមផ្ទាល់ខ្លួនរបស់អ្នកលក់ · ការជូនដំណឹង", "Each rep gets these parts in their own group, with only their own numbers. Low stock and stock moves are for the whole company, so they are not here.": "អ្នកលក់ម្នាក់ៗទទួលបានផ្នែកទាំងនេះក្នុងក្រុមរបស់ខ្លួន ដោយមានតែលេខរបស់ខ្លួន។ ស្តុកទាប និងការផ្លាស់ទីស្តុក គឺសម្រាប់ក្រុមហ៊ុនទាំងមូល ដូច្នេះមិននៅទីនេះទេ។", "Each rep gets these alerts in their own group, only their own. Stock and security alerts belong to nobody in particular, so they are not here.": "អ្នកលក់ម្នាក់ៗទទួលបានការជូនដំណឹងទាំងនេះក្នុងក្រុមរបស់ខ្លួន តែរបស់ខ្លួនប៉ុណ្ណោះ។ ការជូនដំណឹងស្តុក និងសុវត្ថិភាព មិនមែនជារបស់នរណាម្នាក់ទេ ដូច្នេះមិននៅទីនេះទេ។", "This setting can only be switched off": "ការកំណត់នេះអាចបិទបានតែប៉ុណ្ណោះ"});
 Object.assign(window.KT_KM, {"The alerts you tick in Settings → Telegram alerts → Sales reps' own groups, only this rep's own.": "ការជូនដំណឹងដែលអ្នកធីកក្នុង ការកំណត់ → ការជូនដំណឹង Telegram → ក្រុមផ្ទាល់ខ្លួនរបស់អ្នកលក់ តែរបស់អ្នកលក់នេះប៉ុណ្ណោះ។", "The daily report you set in Settings → Telegram alerts → Sales reps' own groups, with only their own numbers.": "របាយការណ៍ប្រចាំថ្ងៃដែលអ្នកកំណត់ក្នុង ការកំណត់ → ការជូនដំណឹង Telegram → ក្រុមផ្ទាល់ខ្លួនរបស់អ្នកលក់ ដោយមានតែលេខរបស់ខ្លួន។", "alerts": "ការជូនដំណឹង", "Only this rep's own alerts and daily report go to their group (what you tick in Settings → Telegram alerts → Sales reps' own groups). Your company groups keep getting everything.": "មានតែការជូនដំណឹង និងរបាយការណ៍ប្រចាំថ្ងៃរបស់អ្នកលក់នេះទេ ដែលទៅក្រុមរបស់គាត់ (អ្វីដែលអ្នកធីកក្នុង ការកំណត់ → ការជូនដំណឹង Telegram → ក្រុមផ្ទាល់ខ្លួនរបស់អ្នកលក់)។ ក្រុមក្រុមហ៊ុនរបស់អ្នកនៅតែទទួលបានទាំងអស់។"});
+Object.assign(window.KT_KM, {"Delete supplier completely": "លុបអ្នកផ្គត់ផ្គង់ទាំងស្រុង", "The supplier is deleted for ever. Only a supplier with no purchases can be deleted.": "អ្នកផ្គត់ផ្គង់នឹងត្រូវលុបជារៀងរហូត។ មានតែអ្នកផ្គត់ផ្គង់ដែលគ្មានការទិញចូលទេ ទើបអាចលុបបាន។", "Supplier deleted": "បានលុបអ្នកផ្គត់ផ្គង់"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9244,6 +9251,7 @@ Object.assign(window.KT_ZH, {"Shop visits (total, first-time visits, new shops c
 Object.assign(window.KT_ZH, {"The same order and payment alerts and details you tick in Settings → Telegram alerts, but only this rep's own.": "和您在 设置 → Telegram 提醒 中勾选的订单、付款提醒及详情一样，但只有这位销售自己的。"});
 Object.assign(window.KT_ZH, {"3 · 👥 Sales reps' own groups": "3 · 👥 销售自己的群组", "What each sales rep's own Telegram group gets (add a rep's group in HR → Staff → the rep). Each rep only gets their own: their orders, payments, shops, visits, attendance, expenses, leave and their own daily report. Your company alerts above don't change.": "每位销售自己的 Telegram 群组收到什么（在 人事 → 员工 → 该销售 中添加群组）。每位销售只收到自己的：订单、付款、店铺、拜访、考勤、费用、请假和自己的每日报告。上面的公司提醒不变。", "🔔 Alerts": "🔔 提醒", "Run the latest database update first.": "请先运行最新的数据库更新。", "Sales reps' daily report": "销售每日报告", "Sales reps' own groups · alerts": "销售自己的群组 · 提醒", "Each rep gets these parts in their own group, with only their own numbers. Low stock and stock moves are for the whole company, so they are not here.": "每位销售在自己的群组收到这些部分，只有自己的数字。低库存和库存移动属于整个公司，所以不在这里。", "Each rep gets these alerts in their own group, only their own. Stock and security alerts belong to nobody in particular, so they are not here.": "每位销售在自己的群组收到这些提醒，只有自己的。库存和安全提醒不属于某个人，所以不在这里。", "This setting can only be switched off": "这个设置只能关闭"});
 Object.assign(window.KT_ZH, {"The alerts you tick in Settings → Telegram alerts → Sales reps' own groups, only this rep's own.": "您在 设置 → Telegram 提醒 → 销售自己的群组 中勾选的提醒，只有这位销售自己的。", "The daily report you set in Settings → Telegram alerts → Sales reps' own groups, with only their own numbers.": "您在 设置 → Telegram 提醒 → 销售自己的群组 中设置的每日报告，只有他自己的数字。", "alerts": "提醒", "Only this rep's own alerts and daily report go to their group (what you tick in Settings → Telegram alerts → Sales reps' own groups). Your company groups keep getting everything.": "只有这位销售自己的提醒和每日报告会发到他的群组（您在 设置 → Telegram 提醒 → 销售自己的群组 中勾选的）。您公司的群组仍然收到全部。"});
+Object.assign(window.KT_ZH, {"Delete supplier completely": "彻底删除供应商", "The supplier is deleted for ever. Only a supplier with no purchases can be deleted.": "供应商将被永久删除。只有没有采购单的供应商才能删除。", "Supplier deleted": "供应商已删除"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -13622,7 +13630,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <label class="f">Usual currency<select class="inp" id="su">${K.CURRENCIES.map(([k, l]) => `<option value="${k}" ${k === (x.currency || 'USD') ? 'selected' : ''}>${k} · ${l}</option>`).join('')}</select></label>
       <label class="f">Notes<textarea class="inp" id="sx" placeholder="What they sell, delivery time, bank details…">${esc(x.notes || '')}</textarea></label>
       ${x.id ? `<label class="row small" style="gap:10px"><input type="checkbox" id="sa" ${x.active !== false ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)">Active (untick to hide from new purchases)</label>` : ''}
-      <button class="btn block" id="ss">Save supplier</button>`);
+      <button class="btn block" id="ss">Save supplier</button>
+      ${x.id && (K.allow('purchases.manage') || (K.S.me && K.S.me.role === 'admin')) ? '<button class="btn red out block" id="sdl">Delete supplier completely</button>' : ''}`);
+    // 18 Nov 2026: delete a supplier for ever (only one with no purchases)
+    if (K.$('#sdl', s.el)) K.$('#sdl', s.el).onclick = async e => {
+      if (!(await K.confirmSheet('Delete ' + x.name + '?', 'The supplier is deleted for ever. Only a supplier with no purchases can be deleted.', 'Delete', true))) return;
+      await K.busy(e.currentTarget, () => K.api.deleteSupplier(x.id)); s.close(); K.forget('suppliers'); K.toast('Supplier deleted'); onSaved && onSaved(null);
+    };
     K.$('#ss', s.el).onclick = async e => {
       const row = { id: x.id, name: K.$('#sn', s.el).value.trim(), contact_name: K.$('#sc', s.el).value.trim(), phone: K.$('#sp', s.el).value.trim(), telegram: K.$('#st', s.el).value.trim(),
         country: K.$('#so', s.el).value.trim(), currency: K.$('#su', s.el).value, notes: K.$('#sx', s.el).value.trim(), active: K.$('#sa', s.el) ? K.$('#sa', s.el).checked : true };
