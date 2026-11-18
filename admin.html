@@ -6974,6 +6974,8 @@ Object.assign(window.KT_KM, {"Full information for each purchase: purchased and 
 
 Object.assign(window.KT_KM, {"PDF language":"ភាសា PDF"});
 
+Object.assign(window.KT_KM, {"Name at the top of the PDF":"ឈ្មោះនៅខាងលើ PDF","PDF language (tap 1, 2 or all 3)":"ភាសា PDF (ចុច 1, 2 ឬទាំង 3)","Keep at least one language":"ត្រូវមានយ៉ាងហោចណាស់មួយភាសា"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -9007,6 +9009,8 @@ Object.assign(window.KT_ZH, {"📄 Download purchases PDF": "📄 下载采购 P
 Object.assign(window.KT_ZH, {"Full information for each purchase: purchased and received dates (and by whom), warehouse, products, shipping, total, every payment with its date and receipt photo, money back, returned or changed products, and all changes. Totals at the end. Cancelled purchases are left out.": "每张采购单的完整信息：采购和收货日期（及经手人）、仓库、产品、运费、总额、每笔付款的日期和收据照片、退款、退回或换货的产品，以及所有修改。最后是合计。已取消的采购单不包括。", "📷 Receipt photo (optional)": "📷 收据照片（可选）", "Receipt photo saved": "收据照片已保存", "Receipt photo": "收据照片", "Reading purchases… ": "正在读取采购单… ", "Loading receipt photos… ": "正在加载收据照片… "});
 
 Object.assign(window.KT_ZH, {"PDF language":"PDF 语言"});
+
+Object.assign(window.KT_ZH, {"Name at the top of the PDF":"PDF 顶部名称","PDF language (tap 1, 2 or all 3)":"PDF 语言（可选 1、2 或全部 3 种）","Keep at least one language":"至少保留一种语言"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -12020,19 +12024,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   const W = 1240, H = 1754, M = 80, FONT = '"Plus Jakarta Sans","Noto Sans Khmer",sans-serif';
   const dmy = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-  const PDF_KM = {"by": "ដោយ", "Amount": "ចំនួនទឹកប្រាក់", "Why": "មូលហេតុ", "New goods arrived": "ទំនិញថ្មីបានមកដល់", "Undone": "បានលុបចោល", "Sent back": "បានប្រគល់ត្រឡប់", "Made": "បង្កើតនៅ", "Page": "ទំព័រ", "Products": "ផលិតផល", "pcs": "គ្រាប់", "Payments": "ការបង់ប្រាក់", "Returned or changed products": "ទំនិញប្រគល់ត្រឡប់ ឬប្តូរ", "Changes to this purchase": "ការកែប្រែលើការទិញនេះ", "Goods": "ទំនិញ", "Paid": "បានបង់", "after money back": "ក្រោយទទួលប្រាក់វិញ", "Bank transfer": "ផ្ទេរតាមធនាគារ", "ABA": "ABA", "Cash": "សាច់ប្រាក់", "Other": "ផ្សេងៗ", "Purchases": "ការទិញចូល", "Returns": "ការប្រគល់ត្រឡប់", "Changed: supplier sends new goods": "ប្តូរ៖ អ្នកផ្គត់ផ្គង់ផ្ញើទំនិញថ្មី", "Currency": "រូបិយប័ណ្ណ", "Fully paid": "បង់គ្រប់", "Goods in USD": "ទំនិញជាដុល្លារ", "Into warehouse": "ចូលឃ្លាំង", "Last edited": "កែចុងក្រោយ", "Money back / taken off what we owe": "ទទួលប្រាក់វិញ / កាត់ពីប្រាក់ជំពាក់", "Money back from supplier": "ប្រាក់វិញពីអ្នកផ្គត់ផ្គង់", "No payment yet": "មិនទាន់បង់", "No receipt photo": "គ្មានរូបបង្កាន់ដៃ", "Not received yet": "មិនទាន់ទទួល", "Note": "កំណត់ចំណាំ", "Paid to supplier": "បង់ឲ្យអ្នកផ្គត់ផ្គង់", "Price": "តម្លៃ", "Product": "ផលិតផល", "Purchased on": "ថ្ងៃទិញ", "Qty": "ចំនួន", "Receipt photo saved in the app": "រូបបង្កាន់ដៃមាននៅក្នុងកម្មវិធី", "Received": "បានទទួល", "Returned for money back": "ប្រគល់ត្រឡប់យកប្រាក់វិញ", "Shipping, tax, other": "ថ្លៃដឹក ពន្ធ និងផ្សេងៗ", "Still owe supplier": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Supplier owes you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "Total": "សរុប", "Waiting to arrive": "កំពុងរង់ចាំមកដល់", "Total bought": "ទិញសរុប", "Total paid (after money back)": "បង់សរុប (ក្រោយទទួលប្រាក់វិញ)", "Still owe suppliers": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Suppliers owe you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "All suppliers": "អ្នកផ្គត់ផ្គង់ទាំងអស់"};
-  const PDF_ZH = {"by": "经手人", "Amount": "金额", "Why": "原因", "New goods arrived": "新货已到", "Undone": "已撤销", "Sent back": "已退回", "Made": "生成于", "Page": "页", "Products": "产品", "pcs": "件", "Payments": "付款", "Returned or changed products": "退货或换货", "Changes to this purchase": "此采购单的修改", "Goods": "货款", "Paid": "已付", "after money back": "扣除退款后", "Bank transfer": "银行转账", "ABA": "ABA", "Cash": "现金", "Other": "其他", "Purchases": "采购单", "Returns": "退货", "Changed: supplier sends new goods": "换货：供应商发新货", "Currency": "货币", "Fully paid": "已付清", "Goods in USD": "货款（美元）", "Into warehouse": "入库仓库", "Last edited": "最后修改", "Money back / taken off what we owe": "退款 / 从欠款中扣除", "Money back from supplier": "供应商退款", "No payment yet": "尚未付款", "No receipt photo": "无收据照片", "Not received yet": "尚未收货", "Note": "备注", "Paid to supplier": "付给供应商", "Price": "单价", "Product": "产品", "Purchased on": "采购日期", "Qty": "数量", "Receipt photo saved in the app": "收据照片已存于应用中", "Received": "已收货", "Returned for money back": "退货退款", "Shipping, tax, other": "运费、税及其他", "Still owe supplier": "仍欠供应商", "Supplier owes you": "供应商欠您", "Total": "合计", "Waiting to arrive": "等待到货", "Total bought": "采购总额", "Total paid (after money back)": "已付总额（扣除退款后）", "Still owe suppliers": "仍欠供应商", "Suppliers owe you": "供应商欠您", "All suppliers": "全部供应商"};
-  // 18 Nov 2026: PDF language (Mr. Lee: "Can this report select language … all 3 languages"). LG = 'en' | 'km' | 'zh', set by drawPages.
-  let LG = 'en';
-  const L = x => { if (LG === 'en' || x == null) return x; const D = LG === 'zh' ? PDF_ZH : PDF_KM; return D[x] || ((LG === 'zh' ? window.KT_ZH : window.KT_KM) || {})[x] || x; };
+  const PDF_KM = {"by": "ដោយ", "Amount": "ចំនួនទឹកប្រាក់", "Why": "មូលហេតុ", "New goods arrived": "ទំនិញថ្មីបានមកដល់", "Undone": "បានលុបចោល", "Sent back": "បានប្រគល់ត្រឡប់", "Made": "បង្កើតនៅ", "Page": "ទំព័រ", "Products": "ផលិតផល", "pcs": "គ្រាប់", "Payments": "ការបង់ប្រាក់", "Returned or changed products": "ទំនិញប្រគល់ត្រឡប់ ឬប្តូរ", "Changes to this purchase": "ការកែប្រែលើការទិញនេះ", "Goods": "ទំនិញ", "Paid": "បានបង់", "after money back": "ក្រោយទទួលប្រាក់វិញ", "Paid (after money back)": "បានបង់ (ក្រោយទទួលប្រាក់វិញ)", "Bank transfer": "ផ្ទេរតាមធនាគារ", "ABA": "ABA", "Cash": "សាច់ប្រាក់", "Other": "ផ្សេងៗ", "Purchases": "ការទិញចូល", "Returns": "ការប្រគល់ត្រឡប់", "Changed: supplier sends new goods": "ប្តូរ៖ អ្នកផ្គត់ផ្គង់ផ្ញើទំនិញថ្មី", "Currency": "រូបិយប័ណ្ណ", "Fully paid": "បង់គ្រប់", "Goods in USD": "ទំនិញជាដុល្លារ", "Into warehouse": "ចូលឃ្លាំង", "Last edited": "កែចុងក្រោយ", "Money back / taken off what we owe": "ទទួលប្រាក់វិញ / កាត់ពីប្រាក់ជំពាក់", "Money back from supplier": "ប្រាក់វិញពីអ្នកផ្គត់ផ្គង់", "No payment yet": "មិនទាន់បង់", "No receipt photo": "គ្មានរូបបង្កាន់ដៃ", "Not received yet": "មិនទាន់ទទួល", "Note": "កំណត់ចំណាំ", "Paid to supplier": "បង់ឲ្យអ្នកផ្គត់ផ្គង់", "Price": "តម្លៃ", "Product": "ផលិតផល", "Purchased on": "ថ្ងៃទិញ", "Qty": "ចំនួន", "Receipt photo saved in the app": "រូបបង្កាន់ដៃមាននៅក្នុងកម្មវិធី", "Received": "បានទទួល", "Returned for money back": "ប្រគល់ត្រឡប់យកប្រាក់វិញ", "Shipping, tax, other": "ថ្លៃដឹក ពន្ធ និងផ្សេងៗ", "Still owe supplier": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Supplier owes you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "Total": "សរុប", "Waiting to arrive": "កំពុងរង់ចាំមកដល់", "Total bought": "ទិញសរុប", "Total paid (after money back)": "បង់សរុប (ក្រោយទទួលប្រាក់វិញ)", "Still owe suppliers": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Suppliers owe you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "All suppliers": "អ្នកផ្គត់ផ្គង់ទាំងអស់"};
+  const PDF_ZH = {"by": "经手人", "Amount": "金额", "Why": "原因", "New goods arrived": "新货已到", "Undone": "已撤销", "Sent back": "已退回", "Made": "生成于", "Page": "页", "Products": "产品", "pcs": "件", "Payments": "付款", "Returned or changed products": "退货或换货", "Changes to this purchase": "此采购单的修改", "Goods": "货款", "Paid": "已付", "after money back": "扣除退款后", "Paid (after money back)": "已付（扣除退款后）", "Bank transfer": "银行转账", "ABA": "ABA", "Cash": "现金", "Other": "其他", "Purchases": "采购单", "Returns": "退货", "Changed: supplier sends new goods": "换货：供应商发新货", "Currency": "货币", "Fully paid": "已付清", "Goods in USD": "货款（美元）", "Into warehouse": "入库仓库", "Last edited": "最后修改", "Money back / taken off what we owe": "退款 / 从欠款中扣除", "Money back from supplier": "供应商退款", "No payment yet": "尚未付款", "No receipt photo": "无收据照片", "Not received yet": "尚未收货", "Note": "备注", "Paid to supplier": "付给供应商", "Price": "单价", "Product": "产品", "Purchased on": "采购日期", "Qty": "数量", "Receipt photo saved in the app": "收据照片已存于应用中", "Received": "已收货", "Returned for money back": "退货退款", "Shipping, tax, other": "运费、税及其他", "Still owe supplier": "仍欠供应商", "Supplier owes you": "供应商欠您", "Total": "合计", "Waiting to arrive": "等待到货", "Total bought": "采购总额", "Total paid (after money back)": "已付总额（扣除退款后）", "Still owe suppliers": "仍欠供应商", "Suppliers owe you": "供应商欠您", "All suppliers": "全部供应商"};
+  // 18 Nov 2026: PDF languages (Mr. Lee: "Can this report select language … all 3 languages", then "I can't select 2 languages or 3 languages").
+  // LGS = the chosen languages in the order en, km, zh (1, 2 or 3); with more than one, every label shows each language, e.g. "Total / សរុប / 合计".
+  let LGS = ['en'], EN = true, MULTI = false;
+  const L1 = (x, lg) => lg === 'en' ? x : (lg === 'zh' ? PDF_ZH : PDF_KM)[x] || ((lg === 'zh' ? window.KT_ZH : window.KT_KM) || {})[x] || x;
+  const L = x => x == null || EN ? x : [...new Set(LGS.map(lg => L1(x, lg)))].join(' / ');
+  const pdfLangs = l => { const a = ['en', 'km', 'zh'].filter(k => Array.isArray(l) ? l.includes(k) : l === k); return a.length ? a : ['en']; };
   const numDay = d => { const z = new Date(String(d).length === 10 ? d + 'T00:00:00' : d), p2 = n => String(n).padStart(2, '0'); return p2(z.getDate()) + '/' + p2(z.getMonth() + 1) + '/' + z.getFullYear(); };
-  K.pdfDay = (d, lang) => lang === 'km' || lang === 'zh' ? numDay(d) : dmy(d);
-  const dt = d => d ? (LG !== 'en' ? numDay(d) : String(d).length === 10 ? dmy(d) : new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : '';
+  K.pdfDay = (d, lang) => pdfLangs(lang).join() === 'en' ? dmy(d) : numDay(d);
+  const dt = d => d ? (!EN ? numDay(d) : String(d).length === 10 ? dmy(d) : new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : '';
   const RT_TXT = { returned: 'Sent back', replaced: 'New goods arrived', undone: 'Undone' };
   // 18 Nov 2026: full information for each purchase (Mr. Lee: "purchased dates, pay date, return or change products, anything more").
   // pos = full purchases from K.api.getPurchase (items, payments, returns, edits). imgs = { photo url: loaded Image } for receipt photos.
-  function drawPages(title, sub, pos, imgs, lang) {
-    imgs = imgs || {}; LG = lang === 'km' || lang === 'zh' ? lang : 'en';
+  function drawPages(title, sub, pos, imgs, lang, coName) {
+    imgs = imgs || {}; LGS = pdfLangs(lang); EN = LGS.join() === 'en'; MULTI = LGS.length > 1;
+    const KX = MULTI ? 440 : 240, MX = MULTI ? 780 : 520;   // where values start (kv) and where money labels start
     const pages = []; let cv, c, y;
     const fit = (t, w) => { t = String(t); if (c.measureText(t).width <= w) return t; while (t.length > 1 && c.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
     const wrap = (t, w) => { const out = []; let line = ''; String(t || '').split(/\s+/).forEach(wd => { const tr = line ? line + ' ' + wd : wd; if (c.measureText(tr).width > w && line) { out.push(line); line = wd; } else line = tr; }); if (line) out.push(line); return out.length ? out : ['']; };
@@ -12040,8 +12048,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       cv = document.createElement('canvas'); cv.width = W; cv.height = H; c = cv.getContext('2d'); pages.push(cv);
       c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.textBaseline = 'alphabetic';
       c.fillStyle = '#C8102E'; c.fillRect(0, 0, W, 10);
-      c.fillStyle = '#111'; c.font = `800 34px ${FONT}`; c.fillText((K.COMPANY && K.COMPANY.name) || 'K-TRONiCS', M, 70);
-      c.font = `700 26px ${FONT}`; c.textAlign = 'right'; c.fillText(title, W - M, 66); c.textAlign = 'left';
+      c.fillStyle = '#111'; c.font = `800 34px ${FONT}`; c.fillText(fit(coName || (K.COMPANY && K.COMPANY.name) || 'K-TRONiCS', 520), M, 70);
+      c.font = `800 34px ${FONT}`; const cw = c.measureText(fit(coName || (K.COMPANY && K.COMPANY.name) || 'K-TRONiCS', 520)).width, tw = W - 2 * M - cw - 40;
+      let fs = 26; c.font = `700 ${fs}px ${FONT}`; while (fs > 17 && c.measureText(title).width > tw) { fs -= 1; c.font = `700 ${fs}px ${FONT}`; }
+      c.textAlign = 'right'; c.fillText(fit(title, tw), W - M, 66); c.textAlign = 'left';
       c.fillStyle = '#666'; c.font = `400 20px ${FONT}`; c.textAlign = 'right'; c.fillText(sub, W - M, 96); c.textAlign = 'left';
       c.strokeStyle = '#ddd'; c.lineWidth = 2; c.beginPath(); c.moveTo(M, 118); c.lineTo(W - M, 118); c.stroke();
       y = 160;
@@ -12049,9 +12059,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const need = h => { if (y + h > H - 90) page(); };
     const sec = (label, color) => { need(80); c.fillStyle = color || '#C8102E'; c.font = `800 19px ${FONT}`; c.fillText(label.toUpperCase(), M + 14, y); y += 10;
       c.strokeStyle = '#eee'; c.lineWidth = 2; c.beginPath(); c.moveTo(M + 14, y); c.lineTo(W - M, y); c.stroke(); y += 30; };
-    const kv = (k, v, bold) => { c.font = `400 20px ${FONT}`; c.fillStyle = '#777'; c.fillText(k, M + 14, y);
-      c.font = `${bold ? 800 : 600} 20px ${FONT}`; c.fillStyle = '#111'; const ls = wrap(v, W - 2 * M - 260); ls.forEach((l, k2) => { if (k2) { y += 28; need(28); } c.fillText(l, M + 240, y); }); y += 32; };
-    const money2 = (k, v, color, big) => { need(34); c.font = `${big ? 800 : 400} ${big ? 22 : 20}px ${FONT}`; c.fillStyle = big ? '#111' : '#555'; c.fillText(k, W - M - 520, y);
+    const kv = (k, v, bold) => { c.font = `400 ${MULTI ? 18 : 20}px ${FONT}`; c.fillStyle = '#777'; c.fillText(fit(k, KX - 30), M + 14, y);
+      c.font = `${bold ? 800 : 600} 20px ${FONT}`; c.fillStyle = '#111'; const ls = wrap(v, W - 2 * M - KX - 20); ls.forEach((l, k2) => { if (k2) { y += 28; need(28); } c.fillText(l, M + KX, y); }); y += 32; };
+    const money2 = (k, v, color, big) => { need(34); c.font = `${big ? 800 : 400} ${big ? (MULTI ? 20 : 22) : (MULTI ? 17 : 20)}px ${FONT}`; c.fillStyle = big ? '#111' : '#555'; c.fillText(fit(k, MX - 210), W - M - MX, y);
       c.textAlign = 'right'; c.fillStyle = color || '#111'; c.font = `${big ? 800 : 700} ${big ? 22 : 20}px ${FONT}`; c.fillText(v, W - M - 10, y); c.textAlign = 'left'; y += big ? 34 : 30; };
     const cols = [M, W - M - 470, W - M - 300, W - M];   // product | qty | price | total (right edges for numbers)
     page();
@@ -12075,8 +12085,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (p.note) kv(L('Note'), p.note);
       y += 6;
       sec(L('Products') + ' (' + its.reduce((a, i) => a + i.qty, 0) + ' ' + L('pcs') + ')');
-      c.fillStyle = '#888'; c.font = `700 18px ${FONT}`;
-      c.fillText(L('Product'), cols[0] + 14, y); c.textAlign = 'right'; c.fillText(L('Qty'), cols[1], y); c.fillText(L('Price'), cols[2], y); c.fillText(L('Total'), cols[3] - 10, y); c.textAlign = 'left';
+      c.fillStyle = '#888'; c.font = `700 ${MULTI ? 15 : 18}px ${FONT}`;
+      c.fillText(fit(L('Product'), cols[1] - cols[0] - 200), cols[0] + 14, y); c.textAlign = 'right'; c.fillText(fit(L('Qty'), 160), cols[1], y); c.fillText(fit(L('Price'), 160), cols[2], y); c.fillText(fit(L('Total'), 160), cols[3] - 10, y); c.textAlign = 'left';
       y += 34;
       its.forEach(i => {
         need(38);
@@ -12091,7 +12101,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       money2(L('Shipping, tax, other'), money(+p.extra_cost || 0));
       money2(L('Total'), money(+p.total), null, true);
       if (+p.returned_amount > 0) money2(L('Returned for money back'), '− ' + money(+p.returned_amount), '#1B8A4B');
-      money2(L('Paid') + (pays.some(x => x.kind === 'refund') ? ' (' + L('after money back') + ')' : ''), money(+p.paid_amount));
+      money2((pays.some(x => x.kind === 'refund') ? L('Paid (after money back)') : L('Paid')), money(+p.paid_amount));
       const owe = K.poOwed(p), credit = K.poCredit(p);
       if (credit > 0) money2(L('Supplier owes you'), money(credit), '#1D5FD1', true);
       else money2(owe > 0 ? L('Still owe supplier') : L('Fully paid'), money(owe), owe > 0 ? '#C8102E' : '#1B8A4B', true);
@@ -12104,9 +12114,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         need(Math.max(ih + 16, 70 + nl.length * 26));
         const y0 = y; nPay++;
         c.fillStyle = '#111'; c.font = `700 21px ${FONT}`;
-        c.fillText(dt(x.paid_on) + ' · ' + (x.kind === 'refund' ? L('Money back from supplier') : L('Paid to supplier')) + ' · ' + L(K.SPAY_METHODS[x.method] || x.method), M + 14, y);
+        const pt = wrap(dt(x.paid_on) + ' · ' + (x.kind === 'refund' ? L('Money back from supplier') : L('Paid to supplier')) + ' · ' + L(K.SPAY_METHODS[x.method] || x.method), (im ? W - M - 190 : W - M - 10) - M - 180);
+        pt.forEach((l, k2) => c.fillText(l, M + 14, y + k2 * 26));
         c.textAlign = 'right'; c.fillStyle = x.kind === 'refund' ? '#1D5FD1' : '#1B8A4B'; c.font = `800 21px ${FONT}`;
-        c.fillText((x.kind === 'refund' ? '+ ' : '') + money(+x.amount), im ? W - M - 190 : W - M - 10, y); c.textAlign = 'left'; y += 28;
+        c.fillText((x.kind === 'refund' ? '+ ' : '') + money(+x.amount), im ? W - M - 190 : W - M - 10, y); c.textAlign = 'left'; y += 28 + (pt.length - 1) * 26;
         c.fillStyle = '#555'; c.font = `400 19px ${FONT}`;
         nl.forEach(l => { c.fillText(l, M + 14, y); y += 26; });
         if (x.photo_url && !im) { c.fillStyle = '#888'; c.fillText(L('Receipt photo saved in the app'), M + 14, y); y += 26; }
@@ -12123,9 +12134,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           c.font = `400 19px ${FONT}`; const why = wrap(L('Why') + ': ' + (r.note || '-'), W - 2 * M - 40);
           need(90 + (r.items || []).length * 28 + why.length * 26);
           c.fillStyle = '#111'; c.font = `700 21px ${FONT}`;
-          c.fillText(r.return_no + ' · ' + dt(r.created_at) + ' · ' + (r.settle === 'money' ? L('Money back / taken off what we owe') : L('Changed: supplier sends new goods')), M + 14, y);
+          const rt = wrap(r.return_no + ' · ' + dt(r.created_at) + ' · ' + (r.settle === 'money' ? L('Money back / taken off what we owe') : L('Changed: supplier sends new goods')), W - 2 * M - (MULTI ? 400 : 230));
+          rt.forEach((l, k2) => c.fillText(l, M + 14, y + k2 * 26));
           c.textAlign = 'right'; c.fillStyle = r.status === 'replaced' ? '#1B8A4B' : r.status === 'undone' ? '#888' : '#C26A00'; c.font = `800 20px ${FONT}`;
-          c.fillText(L(RT_TXT[r.status] || r.status), W - M - 10, y); c.textAlign = 'left'; y += 30;
+          c.fillText(L(RT_TXT[r.status] || r.status), W - M - 10, y); c.textAlign = 'left'; y += 30 + (rt.length - 1) * 26;
           (r.items || []).forEach(z => { c.fillStyle = '#333'; c.font = `400 19px ${FONT}`; const pr = z.products || {};
             c.fillText(fit('• ' + pr.name + (pr.sku ? ' (' + pr.sku + ')' : '') + ' × ' + z.qty, W - 2 * M - 260), M + 30, y);
             if (z.unit_value != null) { c.textAlign = 'right'; c.fillText(money(z.qty * z.unit_value), W - M - 10, y); c.textAlign = 'left'; } y += 28; });
@@ -12146,13 +12158,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (sumC > 0) rows.push(['Suppliers owe you', sumC]);
     need(110 + rows.length * 34);
     c.fillStyle = '#FDECEE'; c.fillRect(M, y - 10, W - 2 * M, 80 + rows.length * 34);
-    c.fillStyle = '#111'; c.font = `800 26px ${FONT}`; c.fillText((LG === 'en' ? pos.length + ' purchase' + (pos.length === 1 ? '' : 's') + ' · ' + nPay + ' payment' + (nPay === 1 ? '' : 's') + ' · ' + nRet + ' return' + (nRet === 1 ? '' : 's') : L('Purchases') + ' ' + pos.length + ' · ' + L('Payments') + ' ' + nPay + ' · ' + L('Returns') + ' ' + nRet), M + 20, y + 32);
+    c.fillStyle = '#111'; c.font = `800 26px ${FONT}`; c.fillText((EN ? pos.length + ' purchase' + (pos.length === 1 ? '' : 's') + ' · ' + nPay + ' payment' + (nPay === 1 ? '' : 's') + ' · ' + nRet + ' return' + (nRet === 1 ? '' : 's') : L('Purchases') + ' ' + pos.length + ' · ' + L('Payments') + ' ' + nPay + ' · ' + L('Returns') + ' ' + nRet), M + 20, y + 32);
     c.font = `700 24px ${FONT}`;
     rows.forEach(([l, v], k) => { l = L(l);
       c.textAlign = 'left'; c.fillStyle = k === 3 ? '#C8102E' : '#111'; c.fillText(l, M + 20, y + 74 + k * 34);
       c.textAlign = 'right'; c.fillText(money(v), W - M - 20, y + 74 + k * 34); });
     c.textAlign = 'left';
-    const nw = new Date(), when = LG !== 'en' ? numDay(nw) + ' ' + String(nw.getHours()).padStart(2, '0') + ':' + String(nw.getMinutes()).padStart(2, '0') : nw.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const nw = new Date(), when = !EN ? numDay(nw) + ' ' + String(nw.getHours()).padStart(2, '0') + ':' + String(nw.getMinutes()).padStart(2, '0') : nw.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     pages.forEach((p, k) => { const x = p.getContext('2d'); x.fillStyle = '#999'; x.font = `400 18px ${FONT}`; x.fillText(L('Made') + ' ' + when, M, H - 40); x.textAlign = 'right'; x.fillText(L('Page') + ' ' + (k + 1) + ' / ' + pages.length, W - M, H - 40); x.textAlign = 'left'; });
     return pages;
   }
@@ -12169,18 +12181,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const now = new Date(), m0 = new Date(now.getFullYear(), now.getMonth(), 1), l0 = new Date(now.getFullYear(), now.getMonth() - 1, 1), l1 = new Date(now.getFullYear(), now.getMonth(), 0);
     const P = { month: [iso(m0), iso(now)], last: [iso(l0), iso(l1)], year: [now.getFullYear() + '-01-01', iso(now)] };
     let per = 'month';
+    // remembered on this phone / computer: the name at the top and the languages
+    const lsGet = k => { try { return localStorage.getItem(k); } catch (er) { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (er) {} };
+    const pdfName0 = lsGet('kt_pdf_name') || (K.COMPANY && K.COMPANY.name) || 'K-TRONiCS';
+    let plangs = pdfLangs((lsGet('kt_pdf_langs') || (K.lang ? K.lang() : 'en')).split(','));
     const s = K.sheet('📄 Download purchases PDF', `
       <div class="chips" style="padding:0">${[['month', 'This month'], ['last', 'Last month'], ['year', 'This year'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${k === per ? 'on' : ''}" data-pp="${k}">${l}</button>`).join('')}</div>
       <div class="btns"><label class="f">From<input class="inp" id="ppf" type="date" value="${P.month[0]}"></label><label class="f">To<input class="inp" id="ppt" type="date" value="${P.month[1]}"></label></div>
       <label class="f">Supplier<select class="inp" id="pps"><option value="">All suppliers</option>${sups.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
-      <label class="f">PDF language<div class="seg" id="ppl">${[['en', 'English'], ['km', 'ភាសាខ្មែរ'], ['zh', '中文']].map(([k, l]) => `<button type="button" data-pl="${k}" class="${k === (K.lang ? K.lang() : 'en') ? 'on' : ''}">${l}</button>`).join('')}</div></label>
+      <label class="f">Name at the top of the PDF<input class="inp" id="ppn" maxlength="60" value="${esc(pdfName0)}"></label>
+      <div class="f">PDF language (tap 1, 2 or all 3)<div class="seg" id="ppl">${[['en', 'English'], ['km', 'ភាសាខ្មែរ'], ['zh', '中文']].map(([k, l]) => `<button type="button" data-pl="${k}" class="${plangs.includes(k) ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="small muted">Full information for each purchase: purchased and received dates (and by whom), warehouse, products, shipping, total, every payment with its date and receipt photo, money back, returned or changed products, and all changes. Totals at the end. Cancelled purchases are left out.</div>
       <button class="btn block" id="ppgo">📄 Download PDF</button><div class="small" id="ppi"></div>`);
     K.$$('[data-pp]', s.el).forEach(b => b.onclick = () => { per = b.dataset.pp; K.$$('[data-pp]', s.el).forEach(x => x.classList.toggle('on', x === b));
       if (P[per]) { K.$('#ppf', s.el).value = P[per][0]; K.$('#ppt', s.el).value = P[per][1]; } });
     ['#ppf', '#ppt'].forEach(id => K.$(id, s.el).oninput = () => { per = 'custom'; K.$$('[data-pp]', s.el).forEach(x => x.classList.toggle('on', x.dataset.pp === 'custom')); });
-    let plang = K.lang ? K.lang() : 'en';
-    K.$$('[data-pl]', s.el).forEach(b => b.onclick = () => { plang = b.dataset.pl; K.$$('[data-pl]', s.el).forEach(z => z.classList.toggle('on', z === b)); });
+    K.$$('[data-pl]', s.el).forEach(b => b.onclick = () => { const k = b.dataset.pl;
+      if (plangs.includes(k)) { if (plangs.length === 1) return K.toast('Keep at least one language'); plangs = plangs.filter(x => x !== k); } else plangs = pdfLangs([...plangs, k]);
+      K.$$('[data-pl]', s.el).forEach(z => z.classList.toggle('on', plangs.includes(z.dataset.pl))); });
     K.$('#ppgo', s.el).onclick = async e => {
       const f = K.$('#ppf', s.el).value, t = K.$('#ppt', s.el).value, sid = +K.$('#pps', s.el).value || null;
       if (!f || !t || f > t) return K.toast('Choose the dates (From before To)');
@@ -12200,12 +12218,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           (await Promise.all(urls.slice(k, k + 6).map(loadImg))).forEach((im, j) => { if (im) imgs[urls[k + j]] = im; }); }
         K.$('#ppi', s.el).textContent = 'Making the PDF…';
         try { await document.fonts.load(`800 20px "Plus Jakarta Sans"`); } catch (er) {}
-        if (plang === 'km') { try { await document.fonts.load(`700 20px "Noto Sans Khmer"`); } catch (er) {} }
-        const LT = w => plang === 'km' ? (PDF_KM[w] || w) : plang === 'zh' ? (PDF_ZH[w] || w) : w;
+        if (plangs.includes('km')) { try { await document.fonts.load(`700 20px "Noto Sans Khmer"`); } catch (er) {} }
+        const coName = K.$('#ppn', s.el).value.trim() || (K.COMPANY && K.COMPANY.name) || 'K-TRONiCS';
+        lsSet('kt_pdf_name', coName); lsSet('kt_pdf_langs', plangs.join());
+        const LT = w => [...new Set(plangs.map(lg => L1(w, lg)))].join(' / ');
         const supName = sid ? (sups.find(x => x.id === sid) || {}).name : LT('All suppliers');
-        const pages = drawPages(LT('Purchases') + ' · ' + supName, K.pdfDay(f, plang) + ' – ' + K.pdfDay(t, plang), full, imgs, plang);
+        const pages = drawPages(LT('Purchases') + ' · ' + supName, K.pdfDay(f, plangs) + ' – ' + K.pdfDay(t, plangs), full, imgs, plangs, coName);
         const a = document.createElement('a'); a.href = URL.createObjectURL(pdfPages(pages));
-        a.download = 'purchases-' + (plang !== 'en' ? plang + '-' : '') + (sid ? supName.replace(/[^\wក-៿-]+/g, '-') + '-' : '') + f + '-to-' + t + '.pdf';
+        a.download = 'purchases-' + (plangs.join() !== 'en' ? plangs.join('-') + '-' : '') + (sid ? supName.replace(/[^\wក-៿-]+/g, '-') + '-' : '') + f + '-to-' + t + '.pdf';
         document.body.appendChild(a); a.click(); a.remove();
         K.$('#ppi', s.el).textContent = '✓ ' + list.length + ' purchases · ' + pages.length + (pages.length === 1 ? ' page' : ' pages'); K.toast('PDF downloaded');
       } catch (er) { K.$('#ppi', s.el).textContent = ''; K.toast(er.message || String(er)); }
