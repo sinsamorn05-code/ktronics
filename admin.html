@@ -1560,6 +1560,12 @@ window.makeSupabaseApi = function (cfg) {
       }
       return q(sb.rpc('old_photos_done', { p_paths: paths }));
     },
+    backupStatus: () => q(sb.rpc('backup_status')),
+    backupSave: x => q(sb.rpc('backup_settings_save', { p: Object.assign({ url: cfg.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/backup', apikey: cfg.SUPABASE_ANON_KEY }, x) })),
+    backupTest: () => q(sb.rpc('backup_test')),
+    async backupNow() { const { data, error } = await sb.functions.invoke('backup', { body: { action: 'now' } });
+      if (error) { let m = error.message; try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch (e) {} throw new Error(/Failed to send|not found|404/i.test(m) ? 'The backup function is not set up on the server yet' : m); }
+      if (data && data.error) throw new Error(data.error); return data; },
     backupRows: (t, off, lim) => q(sb.rpc('backup_rows', { p_table: t, p_offset: off || 0, p_limit: lim || 2000 })),
     exchangeDecide: (id, ok, note, method) => q(sb.rpc('exchange_decide', { p_id: id, p_approve: !!ok, p_note: note || null, p_refund_method: method || null })),
     waitingExchanges: () => sb.from('order_exchanges').select('*, profiles!order_exchanges_created_by_fkey(full_name), orders(order_no, customers(name))').eq('status', 'waiting').order('id').then(r => r.data || []),
@@ -3765,6 +3771,17 @@ window.makeDemoApi = function () {
       if (!me || me.role !== 'admin') fail('Only the admin can export everything');
       return wait(Object.keys(D).filter(k => Array.isArray(D[k]) && D[k].length && typeof D[k][0] === 'object').sort().map(k => ({ name: k, rows: D[k].length })));
     },
+    // Daily backup to Telegram (18 Nov 2026): in the demo nothing is sent, the list just grows
+    async backupStatus() { if (!me || me.role !== 'admin') fail('Only the admin can change the daily backup'); const B = D.backup || {};
+      return wait({ chat: B.chat || '', title: B.title || '', time: B.time || '23:00', ready: !!(D.tg || {}).token, bot: (D.tg || {}).bot || 'ktronics_bot', function_set: true, log: clone((B.log || []).slice(0, 10)) }); },
+    async backupSave(x) { if (!me || me.role !== 'admin') fail('Only the admin can change the daily backup');
+      if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(x.time || '23:00')) fail('Time must be like 23:00'); if (x.chat && !/^-[0-9]{5,20}$/.test(x.chat)) fail('Choose a GROUP, not a person');
+      D.backup = Object.assign(D.backup || {}, { chat: x.chat, title: x.title || '', time: x.time || '23:00' }); save(); return wait(null); },
+    async backupTest() { if (!me || me.role !== 'admin') fail('Only the admin can change the daily backup'); if (!(D.backup || {}).chat) fail('Choose the backup group first'); (D.tg = D.tg || {}).last = { ok: true }; save(); return wait(1); },
+    async backupNow() { if (!me || me.role !== 'admin') fail('Only the admin can change the daily backup'); const B = D.backup || {}; if (!B.chat) fail('Choose the backup group first');
+      const tabs = Object.keys(D).filter(k => Array.isArray(D[k]) && D[k].length && typeof D[k][0] === 'object'), rows = tabs.reduce((a, k) => a + D[k].length, 0);
+      (B.log = B.log || []).unshift({ id: Date.now(), kind: 'manual', by: me.full_name, started_at: new Date().toISOString(), finished_at: new Date().toISOString(), ok: true, tables: tabs.length, rows, bytes: rows * 60 });
+      D.backup = B; save(); return wait({ ok: true, tables: tabs.length, rows }); },
     async backupRows(t, off, lim) {
       if (!me || me.role !== 'admin') fail('Only the admin can export everything');
       if (!Array.isArray(D[t])) fail('Unknown table');
@@ -6903,6 +6920,8 @@ Object.assign(window.KT_KM, { '(your stock)': '(ស្តុករបស់អ�
 // Quantity prices (17 Nov 2026)
 Object.assign(window.KT_KM, { 'Quantity prices': 'តម្លៃតាមចំនួន', 'From pcs': 'ចាប់ពី (ដុំ)', 'Price each ($)': 'តម្លៃមួយដុំ ($)', 'Pieces of this product in one order. Empty price = not used.': 'ចំនួនដុំនៃផលិតផលនេះក្នុងការបញ្ជាទិញមួយ។ តម្លៃទទេ = មិនប្រើ។' });
 
+Object.assign(window.KT_KM, {"🛟 Daily backup to Telegram": "🛟 ការបម្រុងទុកប្រចាំថ្ងៃទៅ Telegram", "Not set up": "មិនទាន់រៀបចំ", "Every night the server sends 2 files to your private Telegram group: an Excel file with": "រៀងរាល់យប់ ម៉ាស៊ីនមេផ្ញើឯកសារ ២ ទៅក្រុម Telegram ឯកជនរបស់អ្នក៖ ឯកសារ Excel មួយដែលមាន", "list of your app (one sheet each) and an exact copy (.json.gz) for bringing data back. You do nothing. If a night fails, you get a bell here and a message in the group.": "បញ្ជីនៃកម្មវិធីរបស់អ្នក (មួយសន្លឹកសម្រាប់មួយបញ្ជី) និងច្បាប់ចម្លងពិតប្រាកដ (.json.gz) សម្រាប់យកទិន្នន័យមកវិញ។ អ្នកមិនចាំបាច់ធ្វើអ្វីទេ។ បើយប់ណាមួយបរាជ័យ អ្នកនឹងទទួលបានការជូនដំណឹងនៅទីនេះ និងសារក្នុងក្រុម។", "Group:": "ក្រុម៖", "every night at": "រៀងរាល់យប់ម៉ោង", "last:": "ចុងក្រោយ៖", "First save your Telegram bot in Settings → Telegram alerts.": "សូមរក្សាទុក Telegram bot របស់អ្នកជាមុនសិន ក្នុង ការកំណត់ → ការជូនដំណឹង Telegram។", "Change group or time": "ប្តូរក្រុម ឬម៉ោង", "Set it up (5 steps)": "រៀបចំ (៥ ជំហាន)", "Every night at (Phnom Penh time)": "រៀងរាល់យប់ម៉ោង (ម៉ោងភ្នំពេញ)", "🛟 Back up now": "🛟 បម្រុងទុកឥឡូវនេះ", "Last backups": "ការបម្រុងទុកចុងក្រោយ", "Not inside: photos (only their links), passwords and the Telegram bot key.": "មិនរួមបញ្ចូល៖ រូបថត (មានតែតំណ) ពាក្យសម្ងាត់ និងកូនសោ Telegram bot។", "Nightly": "ប្រចាំយប់", "making it now…": "កំពុងធ្វើ…", "Making the backup and sending it to Telegram… (up to 1 minute)": "កំពុងធ្វើការបម្រុងទុក និងផ្ញើទៅ Telegram… (រហូតដល់ ១ នាទី)", "Backup sent to Telegram": "បានផ្ញើការបម្រុងទុកទៅ Telegram", "Backup failed": "ការបម្រុងទុកបរាជ័យ", "Only the admin can change the daily backup": "មានតែម្ចាស់ទេ ដែលអាចប្តូរការបម្រុងទុកប្រចាំថ្ងៃបាន", "Choose the backup group first": "សូមជ្រើសក្រុមបម្រុងទុកជាមុនសិន", "Choose a GROUP, not a person": "សូមជ្រើសក្រុម មិនមែនមនុស្សម្នាក់ទេ", "Time must be like 23:00": "ម៉ោងត្រូវតែដូចជា 23:00", "The backup function is not set up on the server yet": "មុខងារបម្រុងទុកមិនទាន់បានរៀបចំនៅលើម៉ាស៊ីនមេនៅឡើយទេ", "A backup is being made now. Please wait a few minutes.": "កំពុងធ្វើការបម្រុងទុក។ សូមរង់ចាំបន្តិច។", "e.g. K-TRONiCS backup": "ឧ. K-TRONiCS backup"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -8920,6 +8939,8 @@ Object.assign(window.KT_ZH, { 'In stock': '有货', 'Out of stock': '缺货' });
 Object.assign(window.KT_ZH, { 'All categories': '所有类别' });
 // Quantity prices (17 Nov 2026)
 Object.assign(window.KT_ZH, { 'Quantity prices': '数量价格', 'From pcs': '起订数量', 'Price each ($)': '单价 ($)', 'Pieces of this product in one order. Empty price = not used.': '同一订单中该产品的数量。价格为空 = 不使用。' });
+
+Object.assign(window.KT_ZH, {"🛟 Daily backup to Telegram": "🛟 每日备份到 Telegram", "Not set up": "未设置", "Every night the server sends 2 files to your private Telegram group: an Excel file with": "每天晚上服务器会把 2 个文件发送到您的私人 Telegram 群组：一个 Excel 文件，包含", "list of your app (one sheet each) and an exact copy (.json.gz) for bringing data back. You do nothing. If a night fails, you get a bell here and a message in the group.": "应用的列表（每个一张表），以及一份完整副本（.json.gz），用于恢复数据。您什么都不用做。如果某晚失败，您会在这里收到提醒，群组里也会有消息。", "Group:": "群组：", "every night at": "每晚", "last:": "上次：", "First save your Telegram bot in Settings → Telegram alerts.": "请先在 设置 → Telegram 提醒 中保存您的 Telegram 机器人。", "Change group or time": "更改群组或时间", "Set it up (5 steps)": "设置（5 步）", "Every night at (Phnom Penh time)": "每晚时间（金边时间）", "🛟 Back up now": "🛟 立即备份", "Last backups": "最近的备份", "Not inside: photos (only their links), passwords and the Telegram bot key.": "不包含：照片（只有链接）、密码和 Telegram 机器人密钥。", "Nightly": "每晚自动", "making it now…": "正在制作…", "Making the backup and sending it to Telegram… (up to 1 minute)": "正在制作备份并发送到 Telegram…（最多 1 分钟）", "Backup sent to Telegram": "备份已发送到 Telegram", "Backup failed": "备份失败", "Only the admin can change the daily backup": "只有老板可以更改每日备份", "Choose the backup group first": "请先选择备份群组", "Choose a GROUP, not a person": "请选择群组，不是个人", "Time must be like 23:00": "时间格式应如 23:00", "The backup function is not set up on the server yet": "服务器上尚未设置备份功能", "A backup is being made now. Please wait a few minutes.": "正在制作备份，请稍等几分钟。", "e.g. K-TRONiCS backup": "例如 K-TRONiCS 备份"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -14845,7 +14866,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       } else if (tab === 'messages') {
         $('#body').innerHTML = '<div id="tpl"></div>'; K.templatesEditor($('#tpl'), st); return;
       } else if (tab === 'data') {
-        $('#body').innerHTML = '<div id="fbk" style="margin-bottom:14px"></div><div id="oph" style="margin-bottom:14px"></div><div id="bkp" style="margin-bottom:14px"></div><div id="clr"></div>'; K.fullBackupCard($('#fbk')); K.oldPhotosCard($('#oph')); K.backupCard($('#bkp')); K.clearDataCard($('#clr')); return;
+        $('#body').innerHTML = '<div id="dbk" style="margin-bottom:14px"></div><div id="fbk" style="margin-bottom:14px"></div><div id="oph" style="margin-bottom:14px"></div><div id="bkp" style="margin-bottom:14px"></div><div id="clr"></div>'; K.dailyBackupCard($('#dbk')); K.fullBackupCard($('#fbk')); K.oldPhotosCard($('#oph')); K.backupCard($('#bkp')); K.clearDataCard($('#clr')); return;
       } else {
         h = `<div class="agrid"><div class="card"><b>Look on this device</b>${K.themeButtons()}</div><div class="card"><b>Language on this device</b><div class="small muted">Each person can choose English, Khmer or Chinese on their own phone (More → Language).</div>${K.langButtons()}</div>
           <div class="card"><b>Phone notifications</b><div class="small muted">Staff get a notification for new orders to approve, approved orders, payments to check, new shops, leave requests, goods from suppliers and chat messages. Each person turns it on once on their phone (More → Notifications).</div>
@@ -14990,6 +15011,59 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const r = await K.api.oldPhotosDelete(d.paths, (done, all) => { info.textContent = done + ' / ' + all; });
         const m = +r.visits + +r.attendance; K.toast(m + (m === 1 ? ' photo deleted' : ' photos deleted')); K.oldPhotosCard(el);
       } catch (er) { btn.disabled = false; info.textContent = ''; K.toast(er.message); }
+    };
+  };
+
+  // ---------- Daily backup to Telegram (18 Nov 2026, Mr. Lee chose a private Telegram group; every night 23:00) ----------
+  K.dailyBackupCard = async function (el) {
+    if (!K.S.me || K.S.me.role !== 'admin') { el.innerHTML = ''; return; }
+    const st = await api.backupStatus().catch(e => { toast(e.message); return null; });
+    if (!st || !el.isConnected) return;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const answer = async id => { for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const r = await api.tgResult(id); if (!r || !r.pending) return r || { ok: false, error: 'No answer' }; } return { ok: false, error: 'Telegram did not answer. Please try again.' }; };
+    const size = n => !n ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+    const when = t => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const on = !!st.chat, last = (st.log || []).find(l => l.finished_at);
+    const logHtml = (st.log || []).slice(0, 7).map(l => `<div class="row small" style="gap:8px;align-items:flex-start"><span>${!l.finished_at ? '⏳' : l.ok ? '✅' : '❌'}</span>
+      <div class="grow">${esc(when(l.started_at))} · ${l.kind === 'auto' ? '<span>Nightly</span>' : esc(l.by || 'Admin')}${l.ok ? ` · ${(+l.rows).toLocaleString('en-US')} <span>rows</span> · ${size(+l.bytes)}` : ''}
+      ${!l.finished_at ? ' · <span>making it now…</span>' : !l.ok ? `<div style="color:var(--rd)">${esc(l.error || '')}</div>` : ''}</div></div>`).join('');
+    el.innerHTML = `<div class="card" style="gap:10px;border-color:#BFE3CC"><div class="row" style="gap:8px"><b class="grow">🛟 Daily backup to Telegram</b>${on ? '<span class="pill gr">On</span>' : '<span class="pill gy">Not set up</span>'}</div>
+      <div class="small muted" style="line-height:1.5">Every night the server sends 2 files to your private Telegram group: an Excel file with <b>every</b> list of your app (one sheet each) and an exact copy (.json.gz) for bringing data back. You do nothing. If a night fails, you get a bell here and a message in the group.</div>
+      ${on ? `<div class="small"><span>Group:</span> <b>${esc(st.title || st.chat)}</b> · <span>every night at</span> <b>${esc(st.time)}</b>${last ? ` · <span>last:</span> ${last.ok ? '✅' : '❌'} ${esc(when(last.started_at))}` : ''}</div>` : ''}
+      ${!st.ready ? '<div class="small" style="color:var(--rd)">First save your Telegram bot in Settings → Telegram alerts.</div>' : ''}
+      <details ${on ? '' : 'open'}><summary class="small" style="cursor:pointer"><b>${on ? 'Change group or time' : 'Set it up (5 steps)'}</b></summary>
+        <div class="small muted" style="line-height:1.6;margin:8px 0">1. In Telegram make a <b>new group with only you</b> (no staff — the file has salaries and all your numbers).<br>2. Add your bot${st.bot ? ' <b>@' + esc(st.bot) + '</b>' : ''} to the group.<br>3. Send <b>/start</b> in the group.<br>4. Press <b>Find my groups</b> below and tap the group.<br>5. Press <b>Save</b>, then <b>Send test</b>.</div>
+        <button class="btn out block" id="dbf">${icon('search', 18)}Find my groups</button><div id="dbl" style="display:flex;flex-direction:column;gap:6px;margin-top:6px"></div>
+        <div class="btns"><label class="f">Group name<input class="inp" id="dbn" value="${esc(st.title || '')}" placeholder="e.g. K-TRONiCS backup"></label><label class="f">Group ID<input class="inp" id="dbi" value="${esc(st.chat || '')}" placeholder="-100…"></label></div>
+        <label class="f">Every night at (Phnom Penh time)<input class="inp" id="dbt" type="time" value="${esc(st.time || '23:00')}"></label>
+        <button class="btn block" id="dbs">${icon('check', 18)}Save</button></details>
+      ${on ? `<div class="btns" style="margin:0"><button class="btn out" id="dbx">${icon('send', 18)}Send test</button><button class="btn green" id="dbg">🛟 Back up now</button></div>` : ''}
+      <div class="small" id="dbinfo"></div>
+      ${logHtml ? `<div class="sec" style="margin:4px 0 0">Last backups</div>${logHtml}` : ''}
+      <div class="small muted">Not inside: photos (only their links), passwords and the Telegram bot key.</div></div>`;
+    const again = () => K.dailyBackupCard(el);
+    $('#dbf', el).onclick = async e => {
+      const r = await busy(e.currentTarget, async () => answer(await api.tgFindChats())).catch(err => ({ ok: false, error: err.message }));
+      const groups = ((r && r.chats) || []).filter(c => c.type !== 'private');
+      $('#dbl', el).innerHTML = !r || !r.ok ? `<div class="small" style="color:var(--rd)">${esc((r && r.error) || 'Could not ask Telegram')}</div>`
+        : groups.length ? groups.map(c => `<button class="btn out block" style="justify-content:flex-start" data-cid="${esc(c.id)}" data-ct="${esc(c.title)}">👥 ${esc(c.title)}</button>`).join('')
+        : '<div class="small muted">No groups found yet. Add the bot to the group, send /start there, wait a few seconds and press Find again.</div>';
+      $$('[data-cid]', el).forEach(x => x.onclick = () => { $('#dbi', el).value = x.dataset.cid; $('#dbn', el).value = x.dataset.ct;
+        $$('[data-cid]', el).forEach(y => { y.style.borderColor = y === x ? 'var(--p)' : ''; }); });
+    };
+    $('#dbs', el).onclick = async e => {
+      const chat = $('#dbi', el).value.trim();
+      if (!chat) return toast('Choose a group (or paste its ID)');
+      await busy(e.currentTarget, () => api.backupSave({ chat, title: $('#dbn', el).value.trim(), time: $('#dbt', el).value || '23:00' }));
+      toast('Saved. Press Send test to check it'); again();
+    };
+    if ($('#dbx', el)) $('#dbx', el).onclick = async e => { const r = await busy(e.currentTarget, async () => answer(await api.backupTest())).catch(err => ({ ok: false, error: err.message }));
+      toast(r && r.ok ? 'Sent. Check the group in Telegram' : (r && r.error) || 'Not sent'); };
+    if ($('#dbg', el)) $('#dbg', el).onclick = async e => {
+      $('#dbinfo', el).textContent = 'Making the backup and sending it to Telegram… (up to 1 minute)';
+      const r = await busy(e.currentTarget, () => api.backupNow()).catch(err => ({ error: err.message }));
+      $('#dbinfo', el).textContent = '';
+      if (r && r.ok) { toast('Backup sent to Telegram'); again(); } else { toast((r && r.error) || 'Backup failed'); again(); }
     };
   };
 
