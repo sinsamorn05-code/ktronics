@@ -1740,6 +1740,7 @@ window.makeSupabaseApi = function (cfg) {
     cancelPurchase: id => q(sb.rpc('cancel_purchase', { p_id: id })),
     listSupplierPayments: () => all(() => sb.from('supplier_payments').select('*').order('id', { ascending: false }), 5000),
     paySupplier: (pid, amount, method, note, date) => q(sb.rpc('pay_supplier', { p_purchase: pid, p_amount: +amount, p_method: method, p_note: note || null, p_paid_on: date || null })),
+    supplierPaymentPhoto: (id, url) => q(sb.rpc('supplier_payment_photo', { p_id: id, p_url: url })),
     deleteSupplierPayment: id => q(sb.rpc('delete_supplier_payment', { p_id: id })),
     reportReps: (from, to) => q(sb.rpc('report_reps', { p_from: from, p_to: to })),
     reportStock: (from, to) => all(() => sb.rpc('report_stock', { p_from: from, p_to: to })),
@@ -4890,7 +4891,7 @@ window.makeDemoApi = function () {
       const due = p.paid_amount - (p.total - (p.returned_amount || 0)); if (!(+amount > 0)) fail('Enter the amount');
       if (+amount > due + 0.01) fail('The supplier only owes you $' + Math.max(0, due).toFixed(2));
       D.spays.push({ id: ++D.seq.spay, purchase_id: pid, supplier_id: p.supplier_id, amount: +amount, kind: 'refund', method: method || 'bank', note: note || '', paid_on: date || localDay(now()), created_by: me.id, created_at: now() });
-      api._poRecalc(p); save(); return wait(null);
+      api._poRecalc(p); save(); return wait(D.seq.spay);
     },
     async createPurchase(x) {
       if (!allow('purchases.manage')) fail('You are not allowed to make purchases');
@@ -4934,8 +4935,10 @@ window.makeDemoApi = function () {
       if (!(+amount > 0)) fail('Enter the amount');
       if (+amount > p.total - (p.returned_amount || 0) - p.paid_amount + 0.01) fail('That is more than you still owe ($' + Math.max(0, p.total - (p.returned_amount || 0) - p.paid_amount).toFixed(2) + ')');
       D.spays.push({ id: ++D.seq.spay, purchase_id: pid, supplier_id: p.supplier_id, amount: +amount, method: method || 'bank', note: note || '', paid_on: date || localDay(now()), created_by: me.id, created_at: now() });
-      api._poRecalc(p); save(); return wait(null);
+      api._poRecalc(p); save(); return wait(D.seq.spay);
     },
+    async supplierPaymentPhoto(id, url) { if (!allow('purchases.manage')) fail('You are not allowed to change supplier payments');
+      const x = D.spays.find(y => y.id === id); if (!x) fail('Payment not found'); x.photo_url = url || null; save(); return wait(null); },
     async deleteSupplierPayment(id) {
       if (!allow('purchases.manage')) fail('You are not allowed to change supplier payments');
       const i = D.spays.findIndex(x => x.id === id); if (i < 0) fail('Payment not found'); const pid = D.spays[i].purchase_id; D.spays.splice(i, 1);
@@ -7225,6 +7228,10 @@ Object.assign(window.KT_KM, {"The alerts you tick in Settings → Telegram alert
 Object.assign(window.KT_KM, {"Delete supplier completely": "លុបអ្នកផ្គត់ផ្គង់ទាំងស្រុង", "The supplier is deleted for ever. Only a supplier with no purchases can be deleted.": "អ្នកផ្គត់ផ្គង់នឹងត្រូវលុបជារៀងរហូត។ មានតែអ្នកផ្គត់ផ្គង់ដែលគ្មានការទិញចូលទេ ទើបអាចលុបបាន។", "Supplier deleted": "បានលុបអ្នកផ្គត់ផ្គង់"});
 Object.assign(window.KT_KM, {"📄 Download purchases PDF": "📄 ទាញយក PDF ការទិញចូល", "All suppliers": "អ្នកផ្គត់ផ្គង់ទាំងអស់", "Each purchase with its products, price and line total, then total, paid and still owe. Totals at the end. Cancelled purchases are left out.": "ការទិញចូលនីមួយៗ ជាមួយផលិតផល តម្លៃ និងសរុបតាមជួរ បន្ទាប់មកសរុប បានបង់ និងនៅជំពាក់។ សរុបនៅខាងចុង។ ការទិញដែលបានបោះបង់មិនរួមបញ្ចូលទេ។", "📄 Download PDF": "📄 ទាញយក PDF", "Making the PDF…": "កំពុងធ្វើ PDF…", "Choose the dates (From before To)": "សូមជ្រើសកាលបរិច្ឆេទ (ចាប់ពី មុន ដល់)", "No purchases for these dates": "គ្មានការទិញចូលសម្រាប់កាលបរិច្ឆេទទាំងនេះទេ", "PDF downloaded": "បានទាញយក PDF"});
 
+Object.assign(window.KT_KM, {"Full information for each purchase: purchased and received dates (and by whom), warehouse, products, shipping, total, every payment with its date and receipt photo, money back, returned or changed products, and all changes. Totals at the end. Cancelled purchases are left out.": "ព័ត៌មានពេញលេញនៃការទិញចូលនីមួយៗ៖ ថ្ងៃទិញ និងថ្ងៃទទួល (និងដោយនរណា) ឃ្លាំង ផលិតផល ថ្លៃដឹក សរុប ការបង់ប្រាក់នីមួយៗជាមួយកាលបរិច្ឆេទ និងរូបបង្កាន់ដៃ ប្រាក់សងត្រឡប់ ទំនិញដែលបានប្រគល់ត្រឡប់ ឬប្តូរ និងការកែប្រែទាំងអស់។ សរុបនៅខាងចុង។ ការទិញដែលបានបោះបង់មិនរួមបញ្ចូលទេ។", "📷 Receipt photo (optional)": "📷 រូបបង្កាន់ដៃ (មិនចាំបាច់)", "Receipt photo saved": "បានរក្សាទុករូបបង្កាន់ដៃ", "Receipt photo": "រូបបង្កាន់ដៃ", "Reading purchases… ": "កំពុងអានការទិញចូល… ", "Loading receipt photos… ": "កំពុងផ្ទុករូបបង្កាន់ដៃ… "});
+
+Object.assign(window.KT_KM, {"PDF language":"ភាសា PDF"});
+
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
 window.KT_ZH = {
@@ -9254,6 +9261,10 @@ Object.assign(window.KT_ZH, {"3 · 👥 Sales reps' own groups": "3 · 👥 销�
 Object.assign(window.KT_ZH, {"The alerts you tick in Settings → Telegram alerts → Sales reps' own groups, only this rep's own.": "您在 设置 → Telegram 提醒 → 销售自己的群组 中勾选的提醒，只有这位销售自己的。", "The daily report you set in Settings → Telegram alerts → Sales reps' own groups, with only their own numbers.": "您在 设置 → Telegram 提醒 → 销售自己的群组 中设置的每日报告，只有他自己的数字。", "alerts": "提醒", "Only this rep's own alerts and daily report go to their group (what you tick in Settings → Telegram alerts → Sales reps' own groups). Your company groups keep getting everything.": "只有这位销售自己的提醒和每日报告会发到他的群组（您在 设置 → Telegram 提醒 → 销售自己的群组 中勾选的）。您公司的群组仍然收到全部。"});
 Object.assign(window.KT_ZH, {"Delete supplier completely": "彻底删除供应商", "The supplier is deleted for ever. Only a supplier with no purchases can be deleted.": "供应商将被永久删除。只有没有采购单的供应商才能删除。", "Supplier deleted": "供应商已删除"});
 Object.assign(window.KT_ZH, {"📄 Download purchases PDF": "📄 下载采购 PDF", "All suppliers": "所有供应商", "Each purchase with its products, price and line total, then total, paid and still owe. Totals at the end. Cancelled purchases are left out.": "每张采购单及其产品、价格和小计，然后是总额、已付和仍欠。最后是合计。已取消的采购单不包括。", "📄 Download PDF": "📄 下载 PDF", "Making the PDF…": "正在生成 PDF…", "Choose the dates (From before To)": "请选择日期（开始早于结束）", "No purchases for these dates": "这些日期没有采购单", "PDF downloaded": "PDF 已下载"});
+
+Object.assign(window.KT_ZH, {"Full information for each purchase: purchased and received dates (and by whom), warehouse, products, shipping, total, every payment with its date and receipt photo, money back, returned or changed products, and all changes. Totals at the end. Cancelled purchases are left out.": "每张采购单的完整信息：采购和收货日期（及经手人）、仓库、产品、运费、总额、每笔付款的日期和收据照片、退款、退回或换货的产品，以及所有修改。最后是合计。已取消的采购单不包括。", "📷 Receipt photo (optional)": "📷 收据照片（可选）", "Receipt photo saved": "收据照片已保存", "Receipt photo": "收据照片", "Reading purchases… ": "正在读取采购单… ", "Loading receipt photos… ": "正在加载收据照片… "});
+
+Object.assign(window.KT_ZH, {"PDF language":"PDF 语言"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -13541,16 +13552,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="paybar"><div style="width:${Math.min(100, (+p.total - +(p.returned_amount || 0)) > 0 ? p.paid_amount / (+p.total - +(p.returned_amount || 0)) * 100 : 100)}%"></div></div>
         ${credit > 0 ? `<div class="row"><span class="grow"><b>Supplier owes you</b></span><b style="color:var(--bl)">${money(credit)}</b></div>`
           : `<div class="row"><span class="grow">${owed(p) > 0 ? 'Still to pay supplier' : K.poAllReturned(p) && !+p.paid_amount ? 'Nothing to pay' : 'Fully paid'}</span><b style="color:${owed(p) > 0 ? 'var(--rd)' : 'var(--gr)'}">${money(owed(p))}</b></div>`}</div>` : ''}
-      ${mgr && p.payments.length ? `<div class="card flush">${p.payments.map(x => `<div class="list-item"><div class="ic-av sq" style="background:${x.kind === 'refund' ? 'var(--bls)' : 'var(--grs)'};color:${x.kind === 'refund' ? 'var(--bl)' : 'var(--gr)'}">${icon('cash', 20)}</div><div class="grow"><div class="tt" style="font-size:14px">${x.kind === 'refund' ? 'Money back from supplier · ' : ''}${money(x.amount)} · ${esc(K.SPAY_METHODS[x.method] || x.method)}</div><div class="st">${dstr(x.paid_on)}${x.note ? ' · ' + esc(x.note) : ''}</div></div><button class="btn sm out" data-dp="${x.id}" aria-label="Delete payment">${icon('x', 16)}</button></div>`).join('')}</div>` : ''}
+      ${mgr && p.payments.length ? `<div class="card flush">${p.payments.map(x => `<div class="list-item"><div class="ic-av sq" style="background:${x.kind === 'refund' ? 'var(--bls)' : 'var(--grs)'};color:${x.kind === 'refund' ? 'var(--bl)' : 'var(--gr)'}">${icon('cash', 20)}</div><div class="grow"><div class="tt" style="font-size:14px">${x.kind === 'refund' ? 'Money back from supplier · ' : ''}${money(x.amount)} · ${esc(K.SPAY_METHODS[x.method] || x.method)}</div><div class="st">${dstr(x.paid_on)}${x.note ? ' · ' + esc(x.note) : ''}</div></div>${x.photo_url ? `<a href="${esc(x.photo_url)}" target="_blank" rel="noopener"><img src="${esc(x.photo_url)}" alt="Receipt" style="width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--line)"></a>` : ''}<button class="btn sm out" data-rcp="${x.id}" aria-label="Receipt photo">📷</button><button class="btn sm out" data-dp="${x.id}" aria-label="Delete payment">${icon('x', 16)}</button></div>`).join('')}</div>` : ''}
       ${mgr && p.status !== 'cancelled' && owed(p) > 0 ? `<div class="card" style="background:var(--bg)"><b>Pay supplier</b>
         <div class="btns"><label class="f">Amount ($)<input class="inp" id="pa" type="number" step="0.01" inputmode="decimal" value="${owed(p)}"></label><label class="f">Date<input class="inp" id="pd" type="date" value="${K.period ? K.period.today() : ''}"></label></div>
         <div class="seg">${Object.entries(K.SPAY_METHODS).map(([k, l]) => `<button data-pm="${k}" class="${k === 'bank' ? 'on' : ''}">${l}</button>`).join('')}</div>
         <input class="inp" id="pn" placeholder="Note (optional), e.g. deposit 30%">
+        <label class="f">📷 Receipt photo (optional)<input class="inp" id="pph" type="file" accept="image/*"></label>
         <button class="btn green" id="pay">${icon('cash', 18)}Save payment</button></div>` : ''}
       ${mgr && p.status !== 'cancelled' && credit > 0 ? `<div class="card" style="background:var(--bls)"><b>Money back from supplier</b><div class="small muted">You paid more than you owe now (goods returned, or the purchase was made smaller). When the supplier pays you back, save it here.</div>
         <div class="btns"><label class="f">Amount ($)<input class="inp" id="ra" type="number" step="0.01" inputmode="decimal" value="${credit}"></label><label class="f">Date<input class="inp" id="rd" type="date" value="${K.period ? K.period.today() : ''}"></label></div>
         <div class="seg">${Object.entries(K.SPAY_METHODS).map(([k, l]) => `<button data-rm="${k}" class="${k === 'bank' ? 'on' : ''}">${l}</button>`).join('')}</div>
         <input class="inp" id="rn" placeholder="Note (optional)">
+        <label class="f">📷 Receipt photo (optional)<input class="inp" id="rph" type="file" accept="image/*"></label>
         <button class="btn" id="refund">${icon('cash', 18)}Save money back</button></div>` : ''}
       ${mgr && (p.edits || []).length ? `<details class="small"><summary class="muted" style="cursor:pointer">Changes (${p.edits.length})</summary>${p.edits.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--line)">${dstr(e.created_at)}${e.profiles ? ' · ' + esc(e.profiles.full_name) : ''}<br><span class="muted">${esc(e.summary)}</span></div>`).join('')}</details>` : ''}
       <div class="btns">${p.status === 'ordered' && mgr ? '<button class="btn out" id="cx">Cancel purchase</button>' : ''}${p.status === 'ordered' && rcv ? `<button class="btn green" id="rv">${icon('check', 18)}Goods arrived · add to stock</button>` : ''}</div>`;
@@ -13560,9 +13573,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const done = msg => { s.close(); K.forget('purchases', 'products', 'spays'); K.toast(msg); onDone && onDone(); };
     const reopen = msg => { s.close(); K.toast(msg); K.reopenPurchase(p.id, onDone); };
     if (K.$('#pay', s.el)) K.$('#pay', s.el).onclick = async e => { const a = +K.$('#pa', s.el).value; if (!(a > 0)) return K.toast('Enter the amount');
-      await K.busy(e.currentTarget, () => K.api.paySupplier(p.id, a, pm, K.$('#pn', s.el).value.trim(), K.$('#pd', s.el).value)); done('Payment saved'); };
+      const f = (K.$('#pph', s.el).files || [])[0];
+      await K.busy(e.currentTarget, async () => { const pid = await K.api.paySupplier(p.id, a, pm, K.$('#pn', s.el).value.trim(), K.$('#pd', s.el).value);
+        if (f && pid) await K.api.supplierPaymentPhoto(pid, await K.api.uploadPhoto(f, 'receipts')); }); done('Payment saved'); };
     if (K.$('#refund', s.el)) K.$('#refund', s.el).onclick = async e => { const a = +K.$('#ra', s.el).value; if (!(a > 0)) return K.toast('Enter the amount');
-      await K.busy(e.currentTarget, () => K.api.supplierRefund(p.id, a, rm, K.$('#rn', s.el).value.trim(), K.$('#rd', s.el).value)); reopen('Money back saved'); };
+      const f = (K.$('#rph', s.el).files || [])[0];
+      await K.busy(e.currentTarget, async () => { const rid = await K.api.supplierRefund(p.id, a, rm, K.$('#rn', s.el).value.trim(), K.$('#rd', s.el).value);
+        if (f && rid) await K.api.supplierPaymentPhoto(rid, await K.api.uploadPhoto(f, 'receipts')); }); reopen('Money back saved'); };
+    // 18 Nov 2026: add or change the receipt photo of a payment already saved
+    K.$$('[data-rcp]', s.el).forEach(b => b.onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+      inp.onchange = async () => { const f = inp.files[0]; if (!f) return;
+        try { await K.busy(b, async () => K.api.supplierPaymentPhoto(+b.dataset.rcp, await K.api.uploadPhoto(f, 'receipts'))); reopen('Receipt photo saved'); } catch (er) { K.toast(er.message); } };
+      inp.click(); });
     K.$$('[data-dp]', s.el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Delete this payment?', 'Use this if it was typed by mistake.', 'Delete', true))) return; await K.api.deleteSupplierPayment(+b.dataset.dp); done('Payment deleted'); });
     if (K.$('#rv', s.el)) K.$('#rv', s.el).onclick = async e => { const _b = e.currentTarget;
       if (!(await K.confirmSheet('Goods arrived?', p.items.reduce((a, i) => a + i.qty, 0) + ' pcs will be added to ' + (p.warehouses ? p.warehouses.name : 'stock') + '. Check the goods first.', 'Add to stock'))) return;
@@ -13746,10 +13768,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   const W = 1240, H = 1754, M = 80, FONT = '"Plus Jakarta Sans","Noto Sans Khmer",sans-serif';
   const dmy = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-  // draw the report on as many A4 pages as needed
-  function drawPages(title, sub, pos, itemsOf) {
+  const PDF_KM = {"by": "ដោយ", "Amount": "ចំនួនទឹកប្រាក់", "Why": "មូលហេតុ", "New goods arrived": "ទំនិញថ្មីបានមកដល់", "Undone": "បានលុបចោល", "Sent back": "បានប្រគល់ត្រឡប់", "Made": "បង្កើតនៅ", "Page": "ទំព័រ", "Products": "ផលិតផល", "pcs": "គ្រាប់", "Payments": "ការបង់ប្រាក់", "Returned or changed products": "ទំនិញប្រគល់ត្រឡប់ ឬប្តូរ", "Changes to this purchase": "ការកែប្រែលើការទិញនេះ", "Goods": "ទំនិញ", "Paid": "បានបង់", "after money back": "ក្រោយទទួលប្រាក់វិញ", "Bank transfer": "ផ្ទេរតាមធនាគារ", "ABA": "ABA", "Cash": "សាច់ប្រាក់", "Other": "ផ្សេងៗ", "Purchases": "ការទិញចូល", "Returns": "ការប្រគល់ត្រឡប់", "Changed: supplier sends new goods": "ប្តូរ៖ អ្នកផ្គត់ផ្គង់ផ្ញើទំនិញថ្មី", "Currency": "រូបិយប័ណ្ណ", "Fully paid": "បង់គ្រប់", "Goods in USD": "ទំនិញជាដុល្លារ", "Into warehouse": "ចូលឃ្លាំង", "Last edited": "កែចុងក្រោយ", "Money back / taken off what we owe": "ទទួលប្រាក់វិញ / កាត់ពីប្រាក់ជំពាក់", "Money back from supplier": "ប្រាក់វិញពីអ្នកផ្គត់ផ្គង់", "No payment yet": "មិនទាន់បង់", "No receipt photo": "គ្មានរូបបង្កាន់ដៃ", "Not received yet": "មិនទាន់ទទួល", "Note": "កំណត់ចំណាំ", "Paid to supplier": "បង់ឲ្យអ្នកផ្គត់ផ្គង់", "Price": "តម្លៃ", "Product": "ផលិតផល", "Purchased on": "ថ្ងៃទិញ", "Qty": "ចំនួន", "Receipt photo saved in the app": "រូបបង្កាន់ដៃមាននៅក្នុងកម្មវិធី", "Received": "បានទទួល", "Returned for money back": "ប្រគល់ត្រឡប់យកប្រាក់វិញ", "Shipping, tax, other": "ថ្លៃដឹក ពន្ធ និងផ្សេងៗ", "Still owe supplier": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Supplier owes you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "Total": "សរុប", "Waiting to arrive": "កំពុងរង់ចាំមកដល់", "Total bought": "ទិញសរុប", "Total paid (after money back)": "បង់សរុប (ក្រោយទទួលប្រាក់វិញ)", "Still owe suppliers": "នៅជំពាក់អ្នកផ្គត់ផ្គង់", "Suppliers owe you": "អ្នកផ្គត់ផ្គង់ជំពាក់អ្នក", "All suppliers": "អ្នកផ្គត់ផ្គង់ទាំងអស់"};
+  const PDF_ZH = {"by": "经手人", "Amount": "金额", "Why": "原因", "New goods arrived": "新货已到", "Undone": "已撤销", "Sent back": "已退回", "Made": "生成于", "Page": "页", "Products": "产品", "pcs": "件", "Payments": "付款", "Returned or changed products": "退货或换货", "Changes to this purchase": "此采购单的修改", "Goods": "货款", "Paid": "已付", "after money back": "扣除退款后", "Bank transfer": "银行转账", "ABA": "ABA", "Cash": "现金", "Other": "其他", "Purchases": "采购单", "Returns": "退货", "Changed: supplier sends new goods": "换货：供应商发新货", "Currency": "货币", "Fully paid": "已付清", "Goods in USD": "货款（美元）", "Into warehouse": "入库仓库", "Last edited": "最后修改", "Money back / taken off what we owe": "退款 / 从欠款中扣除", "Money back from supplier": "供应商退款", "No payment yet": "尚未付款", "No receipt photo": "无收据照片", "Not received yet": "尚未收货", "Note": "备注", "Paid to supplier": "付给供应商", "Price": "单价", "Product": "产品", "Purchased on": "采购日期", "Qty": "数量", "Receipt photo saved in the app": "收据照片已存于应用中", "Received": "已收货", "Returned for money back": "退货退款", "Shipping, tax, other": "运费、税及其他", "Still owe supplier": "仍欠供应商", "Supplier owes you": "供应商欠您", "Total": "合计", "Waiting to arrive": "等待到货", "Total bought": "采购总额", "Total paid (after money back)": "已付总额（扣除退款后）", "Still owe suppliers": "仍欠供应商", "Suppliers owe you": "供应商欠您", "All suppliers": "全部供应商"};
+  // 18 Nov 2026: PDF language (Mr. Lee: "Can this report select language … all 3 languages"). LG = 'en' | 'km' | 'zh', set by drawPages.
+  let LG = 'en';
+  const L = x => { if (LG === 'en' || x == null) return x; const D = LG === 'zh' ? PDF_ZH : PDF_KM; return D[x] || ((LG === 'zh' ? window.KT_ZH : window.KT_KM) || {})[x] || x; };
+  const numDay = d => { const z = new Date(String(d).length === 10 ? d + 'T00:00:00' : d), p2 = n => String(n).padStart(2, '0'); return p2(z.getDate()) + '/' + p2(z.getMonth() + 1) + '/' + z.getFullYear(); };
+  K.pdfDay = (d, lang) => lang === 'km' || lang === 'zh' ? numDay(d) : dmy(d);
+  const dt = d => d ? (LG !== 'en' ? numDay(d) : String(d).length === 10 ? dmy(d) : new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : '';
+  const RT_TXT = { returned: 'Sent back', replaced: 'New goods arrived', undone: 'Undone' };
+  // 18 Nov 2026: full information for each purchase (Mr. Lee: "purchased dates, pay date, return or change products, anything more").
+  // pos = full purchases from K.api.getPurchase (items, payments, returns, edits). imgs = { photo url: loaded Image } for receipt photos.
+  function drawPages(title, sub, pos, imgs, lang) {
+    imgs = imgs || {}; LG = lang === 'km' || lang === 'zh' ? lang : 'en';
     const pages = []; let cv, c, y;
     const fit = (t, w) => { t = String(t); if (c.measureText(t).width <= w) return t; while (t.length > 1 && c.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
+    const wrap = (t, w) => { const out = []; let line = ''; String(t || '').split(/\s+/).forEach(wd => { const tr = line ? line + ' ' + wd : wd; if (c.measureText(tr).width > w && line) { out.push(line); line = wd; } else line = tr; }); if (line) out.push(line); return out.length ? out : ['']; };
     const page = () => {
       cv = document.createElement('canvas'); cv.width = W; cv.height = H; c = cv.getContext('2d'); pages.push(cv);
       c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.textBaseline = 'alphabetic';
@@ -13761,19 +13795,36 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       y = 160;
     };
     const need = h => { if (y + h > H - 90) page(); };
+    const sec = (label, color) => { need(80); c.fillStyle = color || '#C8102E'; c.font = `800 19px ${FONT}`; c.fillText(label.toUpperCase(), M + 14, y); y += 10;
+      c.strokeStyle = '#eee'; c.lineWidth = 2; c.beginPath(); c.moveTo(M + 14, y); c.lineTo(W - M, y); c.stroke(); y += 30; };
+    const kv = (k, v, bold) => { c.font = `400 20px ${FONT}`; c.fillStyle = '#777'; c.fillText(k, M + 14, y);
+      c.font = `${bold ? 800 : 600} 20px ${FONT}`; c.fillStyle = '#111'; const ls = wrap(v, W - 2 * M - 260); ls.forEach((l, k2) => { if (k2) { y += 28; need(28); } c.fillText(l, M + 240, y); }); y += 32; };
+    const money2 = (k, v, color, big) => { need(34); c.font = `${big ? 800 : 400} ${big ? 22 : 20}px ${FONT}`; c.fillStyle = big ? '#111' : '#555'; c.fillText(k, W - M - 520, y);
+      c.textAlign = 'right'; c.fillStyle = color || '#111'; c.font = `${big ? 800 : 700} ${big ? 22 : 20}px ${FONT}`; c.fillText(v, W - M - 10, y); c.textAlign = 'left'; y += big ? 34 : 30; };
     const cols = [M, W - M - 470, W - M - 300, W - M];   // product | qty | price | total (right edges for numbers)
     page();
-    let sumT = 0, sumP = 0, sumO = 0;
-    pos.forEach(p => {
-      const its = itemsOf(p.id), cur = p.currency || 'USD';
-      need(150 + Math.min(its.length, 3) * 38);
-      c.fillStyle = '#F6F6F7'; c.fillRect(M, y - 34, W - 2 * M, 48);
-      c.fillStyle = '#111'; c.font = `800 24px ${FONT}`; c.fillText(p.purchase_no, M + 14, y);
-      c.font = `400 22px ${FONT}`; c.fillStyle = '#333';
-      c.fillText(fit(dmy(p.ordered_on) + ' · ' + ((p.suppliers || {}).name || '') + ' · ' + (p.status === 'received' ? 'Received' : 'Waiting to arrive') + (cur !== 'USD' ? ' · ' + cur + ' (rate ' + p.rate + ')' : ''), W - 2 * M - 220), M + 200, y);
-      y += 46;
+    let sumT = 0, sumP = 0, sumO = 0, sumR = 0, sumC = 0, nPay = 0, nRet = 0;
+    pos.forEach((p, pi) => {
+      const its = p.items || [], cur = p.currency || 'USD', pays = (p.payments || []).slice().sort((a, b) => (a.paid_on + a.id).localeCompare(b.paid_on + b.id) || a.id - b.id),
+        rets = p.returns || [], eds = (p.edits || []).slice().reverse(), goods = its.reduce((a, i) => a + i.qty * i.unit_cost, 0);
+      if (pi) { need(300); }
+      need(260);
+      c.fillStyle = '#F6F6F7'; c.fillRect(M, y - 36, W - 2 * M, 52);
+      c.fillStyle = '#C8102E'; c.fillRect(M, y - 36, 8, 52);
+      c.fillStyle = '#111'; c.font = `800 26px ${FONT}`; c.fillText(p.purchase_no, M + 22, y);
+      c.font = `600 22px ${FONT}`; c.fillStyle = '#333'; c.fillText(fit((p.suppliers || {}).name || '', 560), M + 230, y);
+      const st = p.status === 'received' ? L('Received') : L('Waiting to arrive'); c.textAlign = 'right'; c.fillStyle = p.status === 'received' ? '#1B8A4B' : '#C26A00'; c.font = `800 20px ${FONT}`; c.fillText(st, W - M - 16, y); c.textAlign = 'left';
+      y += 50;
+      kv(L('Purchased on'), dt(p.ordered_on) + (p.creator && p.creator.full_name ? ' · ' + L('by') + ' ' + p.creator.full_name : ''));
+      kv(L('Received'), p.received_at ? dt(p.received_at) + (p.receiver && p.receiver.full_name ? ' · ' + L('by') + ' ' + p.receiver.full_name : '') : L('Not received yet'));
+      kv(L('Into warehouse'), (p.warehouses || {}).name || '');
+      if (cur !== 'USD') kv(L('Currency'), cur + ' · $1 = ' + (+p.rate).toLocaleString() + ' ' + cur);
+      if (p.edited_at) kv(L('Last edited'), dt(p.edited_at) + (p.editor && p.editor.full_name ? ' · ' + L('by') + ' ' + p.editor.full_name : ''));
+      if (p.note) kv(L('Note'), p.note);
+      y += 6;
+      sec(L('Products') + ' (' + its.reduce((a, i) => a + i.qty, 0) + ' ' + L('pcs') + ')');
       c.fillStyle = '#888'; c.font = `700 18px ${FONT}`;
-      c.fillText('Product', cols[0] + 14, y); c.textAlign = 'right'; c.fillText('Qty', cols[1], y); c.fillText('Price', cols[2], y); c.fillText('Total', cols[3] - 10, y); c.textAlign = 'left';
+      c.fillText(L('Product'), cols[0] + 14, y); c.textAlign = 'right'; c.fillText(L('Qty'), cols[1], y); c.fillText(L('Price'), cols[2], y); c.fillText(L('Total'), cols[3] - 10, y); c.textAlign = 'left';
       y += 34;
       its.forEach(i => {
         need(38);
@@ -13782,26 +13833,81 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         c.textAlign = 'right'; c.fillText(String(i.qty), cols[1], y); c.fillText(K.curMoney(+i.unit_cost, cur), cols[2], y); c.fillText(K.curMoney(i.qty * i.unit_cost, cur), cols[3] - 10, y); c.textAlign = 'left';
         y += 36;
       });
-      need(80);
-      const owe = K.poOwed(p), extra = +p.extra_cost || 0;
-      c.strokeStyle = '#eee'; c.beginPath(); c.moveTo(M, y - 20); c.lineTo(W - M, y - 20); c.stroke();
-      c.font = `700 21px ${FONT}`; c.fillStyle = '#111'; c.textAlign = 'right';
-      c.fillText((extra ? 'Shipping/other ' + money(extra) + ' · ' : '') + 'Total ' + money(+p.total) + ' · Paid ' + money(+p.paid_amount) + ' · Still owe ' + money(owe), W - M - 10, y + 8);
-      c.textAlign = 'left'; y += 64;
-      sumT += +p.total; sumP += +p.paid_amount; sumO += owe;
+      y += 6; c.strokeStyle = '#eee'; c.beginPath(); c.moveTo(W - M - 520, y - 22); c.lineTo(W - M, y - 22); c.stroke(); y += 6;
+      if (cur !== 'USD') money2(L('Goods') + ' (' + cur + ')', K.curMoney(goods, cur));
+      money2(L('Goods in USD'), money(goods / (+p.rate || 1)));
+      money2(L('Shipping, tax, other'), money(+p.extra_cost || 0));
+      money2(L('Total'), money(+p.total), null, true);
+      if (+p.returned_amount > 0) money2(L('Returned for money back'), '− ' + money(+p.returned_amount), '#1B8A4B');
+      money2(L('Paid') + (pays.some(x => x.kind === 'refund') ? ' (' + L('after money back') + ')' : ''), money(+p.paid_amount));
+      const owe = K.poOwed(p), credit = K.poCredit(p);
+      if (credit > 0) money2(L('Supplier owes you'), money(credit), '#1D5FD1', true);
+      else money2(owe > 0 ? L('Still owe supplier') : L('Fully paid'), money(owe), owe > 0 ? '#C8102E' : '#1B8A4B', true);
+      y += 10;
+      sec(L('Payments') + ' (' + pays.length + ')', '#1B8A4B');
+      if (!pays.length) { c.fillStyle = '#999'; c.font = `400 20px ${FONT}`; c.fillText(L('No payment yet'), M + 14, y); y += 36; }
+      pays.forEach(x => {
+        const im = x.photo_url && imgs[x.photo_url], ih = im ? 150 : 0;
+        c.font = `400 19px ${FONT}`; const nl = x.note ? wrap(x.note, W - 2 * M - 420) : [];
+        need(Math.max(ih + 16, 70 + nl.length * 26));
+        const y0 = y; nPay++;
+        c.fillStyle = '#111'; c.font = `700 21px ${FONT}`;
+        c.fillText(dt(x.paid_on) + ' · ' + (x.kind === 'refund' ? L('Money back from supplier') : L('Paid to supplier')) + ' · ' + L(K.SPAY_METHODS[x.method] || x.method), M + 14, y);
+        c.textAlign = 'right'; c.fillStyle = x.kind === 'refund' ? '#1D5FD1' : '#1B8A4B'; c.font = `800 21px ${FONT}`;
+        c.fillText((x.kind === 'refund' ? '+ ' : '') + money(+x.amount), im ? W - M - 190 : W - M - 10, y); c.textAlign = 'left'; y += 28;
+        c.fillStyle = '#555'; c.font = `400 19px ${FONT}`;
+        nl.forEach(l => { c.fillText(l, M + 14, y); y += 26; });
+        if (x.photo_url && !im) { c.fillStyle = '#888'; c.fillText(L('Receipt photo saved in the app'), M + 14, y); y += 26; }
+        else if (!x.photo_url) { c.fillStyle = '#bbb'; c.fillText(L('No receipt photo'), M + 14, y); y += 26; }
+        if (im) { const r = Math.min(160 / im.width, ih / im.height), w2 = im.width * r, h2 = im.height * r;
+          try { c.drawImage(im, W - M - w2, y0 - 24, w2, h2); } catch (er) {}
+          c.strokeStyle = '#ddd'; c.strokeRect(W - M - w2, y0 - 24, w2, h2); y = Math.max(y, y0 - 24 + h2 + 30); }
+        y += 10;
+      });
+      if (rets.length) {
+        sec(L('Returned or changed products') + ' (' + rets.length + ')', '#C26A00');
+        rets.forEach(r => {
+          nRet++;
+          c.font = `400 19px ${FONT}`; const why = wrap(L('Why') + ': ' + (r.note || '-'), W - 2 * M - 40);
+          need(90 + (r.items || []).length * 28 + why.length * 26);
+          c.fillStyle = '#111'; c.font = `700 21px ${FONT}`;
+          c.fillText(r.return_no + ' · ' + dt(r.created_at) + ' · ' + (r.settle === 'money' ? L('Money back / taken off what we owe') : L('Changed: supplier sends new goods')), M + 14, y);
+          c.textAlign = 'right'; c.fillStyle = r.status === 'replaced' ? '#1B8A4B' : r.status === 'undone' ? '#888' : '#C26A00'; c.font = `800 20px ${FONT}`;
+          c.fillText(L(RT_TXT[r.status] || r.status), W - M - 10, y); c.textAlign = 'left'; y += 30;
+          (r.items || []).forEach(z => { c.fillStyle = '#333'; c.font = `400 19px ${FONT}`; const pr = z.products || {};
+            c.fillText(fit('• ' + pr.name + (pr.sku ? ' (' + pr.sku + ')' : '') + ' × ' + z.qty, W - 2 * M - 260), M + 30, y);
+            if (z.unit_value != null) { c.textAlign = 'right'; c.fillText(money(z.qty * z.unit_value), W - M - 10, y); c.textAlign = 'left'; } y += 28; });
+          c.fillStyle = '#555'; c.font = `400 19px ${FONT}`; why.forEach(l => { c.fillText(l, M + 14, y); y += 26; });
+          c.fillText(L('Amount') + ' ' + money(+r.amount || 0) + (r.done_at ? ' · ' + (r.status === 'replaced' ? L('New goods arrived') : L('Undone')) + ' ' + dt(r.done_at) : ''), M + 14, y); y += 36;
+        });
+      }
+      if (eds.length) {
+        sec(L('Changes to this purchase') + ' (' + eds.length + ')', '#666');
+        eds.forEach(e => { c.font = `400 19px ${FONT}`; const ls = wrap(e.summary, W - 2 * M - 360); need(ls.length * 26 + 14);
+          c.fillStyle = '#111'; c.font = `600 19px ${FONT}`; c.fillText(fit(dt(e.created_at) + (e.profiles && e.profiles.full_name ? ' · ' + e.profiles.full_name : ''), 320), M + 14, y);
+          c.fillStyle = '#555'; c.font = `400 19px ${FONT}`; ls.forEach(l => { c.fillText(l, M + 350, y); y += 26; }); y += 8; });
+      }
+      y += 30; c.strokeStyle = '#C8102E'; c.lineWidth = 2; c.setLineDash([8, 8]); c.beginPath(); c.moveTo(M, y - 20); c.lineTo(W - M, y - 20); c.stroke(); c.setLineDash([]); y += 30;
+      sumT += +p.total; sumP += +p.paid_amount; sumO += owe; sumR += +p.returned_amount || 0; sumC += credit;
     });
-    need(170);
-    c.fillStyle = '#FDECEE'; c.fillRect(M, y - 10, W - 2 * M, 150);
-    c.fillStyle = '#111'; c.font = `800 26px ${FONT}`; c.fillText(pos.length + ' purchase' + (pos.length === 1 ? '' : 's'), M + 20, y + 32);
+    const rows = [['Total bought', sumT], ['Returned for money back', sumR], ['Total paid (after money back)', sumP], ['Still owe suppliers', sumO]];
+    if (sumC > 0) rows.push(['Suppliers owe you', sumC]);
+    need(110 + rows.length * 34);
+    c.fillStyle = '#FDECEE'; c.fillRect(M, y - 10, W - 2 * M, 80 + rows.length * 34);
+    c.fillStyle = '#111'; c.font = `800 26px ${FONT}`; c.fillText((LG === 'en' ? pos.length + ' purchase' + (pos.length === 1 ? '' : 's') + ' · ' + nPay + ' payment' + (nPay === 1 ? '' : 's') + ' · ' + nRet + ' return' + (nRet === 1 ? '' : 's') : L('Purchases') + ' ' + pos.length + ' · ' + L('Payments') + ' ' + nPay + ' · ' + L('Returns') + ' ' + nRet), M + 20, y + 32);
     c.font = `700 24px ${FONT}`;
-    [['Total bought', sumT], ['Total paid', sumP], ['Still owe', sumO]].forEach(([l, v], k) => {
-      c.textAlign = 'left'; c.fillStyle = k === 2 ? '#C8102E' : '#111'; c.fillText(l, M + 20, y + 72 + k * 32);
-      c.textAlign = 'right'; c.fillText(money(v), W - M - 20, y + 72 + k * 32); });
+    rows.forEach(([l, v], k) => { l = L(l);
+      c.textAlign = 'left'; c.fillStyle = k === 3 ? '#C8102E' : '#111'; c.fillText(l, M + 20, y + 74 + k * 34);
+      c.textAlign = 'right'; c.fillText(money(v), W - M - 20, y + 74 + k * 34); });
     c.textAlign = 'left';
-    const when = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    pages.forEach((p, k) => { const x = p.getContext('2d'); x.fillStyle = '#999'; x.font = `400 18px ${FONT}`; x.fillText('Made ' + when, M, H - 40); x.textAlign = 'right'; x.fillText('Page ' + (k + 1) + ' of ' + pages.length, W - M, H - 40); x.textAlign = 'left'; });
+    const nw = new Date(), when = LG !== 'en' ? numDay(nw) + ' ' + String(nw.getHours()).padStart(2, '0') + ':' + String(nw.getMinutes()).padStart(2, '0') : nw.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    pages.forEach((p, k) => { const x = p.getContext('2d'); x.fillStyle = '#999'; x.font = `400 18px ${FONT}`; x.fillText(L('Made') + ' ' + when, M, H - 40); x.textAlign = 'right'; x.fillText(L('Page') + ' ' + (k + 1) + ' / ' + pages.length, W - M, H - 40); x.textAlign = 'left'; });
     return pages;
   }
+  // load a receipt photo for the PDF (null if it cannot be read)
+  const loadImg = url => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const tm = setTimeout(() => res(null), 15000);
+    im.onload = () => { clearTimeout(tm); try { const t2 = document.createElement('canvas').getContext('2d'); t2.drawImage(im, 0, 0, 1, 1); t2.getImageData(0, 0, 1, 1); res(im); } catch (er) { res(null); } };
+    im.onerror = () => { clearTimeout(tm); res(null); }; im.src = url; });
   K.purchasesPdfDraw = drawPages;
 
   // the sheet: dates + supplier → Download PDF
@@ -13815,27 +13921,39 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="chips" style="padding:0">${[['month', 'This month'], ['last', 'Last month'], ['year', 'This year'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${k === per ? 'on' : ''}" data-pp="${k}">${l}</button>`).join('')}</div>
       <div class="btns"><label class="f">From<input class="inp" id="ppf" type="date" value="${P.month[0]}"></label><label class="f">To<input class="inp" id="ppt" type="date" value="${P.month[1]}"></label></div>
       <label class="f">Supplier<select class="inp" id="pps"><option value="">All suppliers</option>${sups.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
-      <div class="small muted">Each purchase with its products, price and line total, then total, paid and still owe. Totals at the end. Cancelled purchases are left out.</div>
+      <label class="f">PDF language<div class="seg" id="ppl">${[['en', 'English'], ['km', 'ភាសាខ្មែរ'], ['zh', '中文']].map(([k, l]) => `<button type="button" data-pl="${k}" class="${k === (K.lang ? K.lang() : 'en') ? 'on' : ''}">${l}</button>`).join('')}</div></label>
+      <div class="small muted">Full information for each purchase: purchased and received dates (and by whom), warehouse, products, shipping, total, every payment with its date and receipt photo, money back, returned or changed products, and all changes. Totals at the end. Cancelled purchases are left out.</div>
       <button class="btn block" id="ppgo">📄 Download PDF</button><div class="small" id="ppi"></div>`);
     K.$$('[data-pp]', s.el).forEach(b => b.onclick = () => { per = b.dataset.pp; K.$$('[data-pp]', s.el).forEach(x => x.classList.toggle('on', x === b));
       if (P[per]) { K.$('#ppf', s.el).value = P[per][0]; K.$('#ppt', s.el).value = P[per][1]; } });
     ['#ppf', '#ppt'].forEach(id => K.$(id, s.el).oninput = () => { per = 'custom'; K.$$('[data-pp]', s.el).forEach(x => x.classList.toggle('on', x.dataset.pp === 'custom')); });
+    let plang = K.lang ? K.lang() : 'en';
+    K.$$('[data-pl]', s.el).forEach(b => b.onclick = () => { plang = b.dataset.pl; K.$$('[data-pl]', s.el).forEach(z => z.classList.toggle('on', z === b)); });
     K.$('#ppgo', s.el).onclick = async e => {
       const f = K.$('#ppf', s.el).value, t = K.$('#ppt', s.el).value, sid = +K.$('#pps', s.el).value || null;
       if (!f || !t || f > t) return K.toast('Choose the dates (From before To)');
       const btn = e.currentTarget; btn.disabled = true; K.$('#ppi', s.el).textContent = 'Making the PDF…';
       try {
-        const [pos, items] = await Promise.all([K.api.listPurchases(), K.api.listPurchaseItems()]);
+        const pos = await K.api.listPurchases();
         const ps = new Set(sups.map(x => x.id));
         const list = pos.filter(p => p.status !== 'cancelled' && ps.has(p.supplier_id) && (!sid || p.supplier_id === sid) && p.ordered_on >= f && p.ordered_on <= t)
           .sort((a, b) => (a.ordered_on + a.purchase_no).localeCompare(b.ordered_on + b.purchase_no));
         if (!list.length) { K.$('#ppi', s.el).textContent = ''; btn.disabled = false; return K.toast('No purchases for these dates'); }
-        const byPo = {}; items.forEach(i => { (byPo[i.purchase_id] = byPo[i.purchase_id] || []).push(i); });
+        // full details of each purchase (payments, returns, changes), 5 at a time
+        const full = [];
+        for (let k = 0; k < list.length; k += 5) { K.$('#ppi', s.el).textContent = 'Reading purchases… ' + Math.min(k + 5, list.length) + ' / ' + list.length;
+          full.push(...await Promise.all(list.slice(k, k + 5).map(p => K.api.getPurchase(p.id)))); }
+        const urls = [...new Set(full.flatMap(p => (p.payments || []).map(x => x.photo_url).filter(Boolean)))], imgs = {};
+        for (let k = 0; k < urls.length; k += 6) { K.$('#ppi', s.el).textContent = 'Loading receipt photos… ' + Math.min(k + 6, urls.length) + ' / ' + urls.length;
+          (await Promise.all(urls.slice(k, k + 6).map(loadImg))).forEach((im, j) => { if (im) imgs[urls[k + j]] = im; }); }
+        K.$('#ppi', s.el).textContent = 'Making the PDF…';
         try { await document.fonts.load(`800 20px "Plus Jakarta Sans"`); } catch (er) {}
-        const supName = sid ? (sups.find(x => x.id === sid) || {}).name : 'All suppliers';
-        const pages = drawPages('Purchases · ' + supName, dmy(f) + ' – ' + dmy(t), list, id => (byPo[id] || []).slice().sort((a, b) => a.id - b.id));
+        if (plang === 'km') { try { await document.fonts.load(`700 20px "Noto Sans Khmer"`); } catch (er) {} }
+        const LT = w => plang === 'km' ? (PDF_KM[w] || w) : plang === 'zh' ? (PDF_ZH[w] || w) : w;
+        const supName = sid ? (sups.find(x => x.id === sid) || {}).name : LT('All suppliers');
+        const pages = drawPages(LT('Purchases') + ' · ' + supName, K.pdfDay(f, plang) + ' – ' + K.pdfDay(t, plang), full, imgs, plang);
         const a = document.createElement('a'); a.href = URL.createObjectURL(pdfPages(pages));
-        a.download = 'purchases-' + (sid ? supName.replace(/[^\wក-៿-]+/g, '-') + '-' : '') + f + '-to-' + t + '.pdf';
+        a.download = 'purchases-' + (plang !== 'en' ? plang + '-' : '') + (sid ? supName.replace(/[^\wក-៿-]+/g, '-') + '-' : '') + f + '-to-' + t + '.pdf';
         document.body.appendChild(a); a.click(); a.remove();
         K.$('#ppi', s.el).textContent = '✓ ' + list.length + ' purchases · ' + pages.length + (pages.length === 1 ? ' page' : ' pages'); K.toast('PDF downloaded');
       } catch (er) { K.$('#ppi', s.el).textContent = ''; K.toast(er.message || String(er)); }
