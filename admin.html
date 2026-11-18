@@ -1560,6 +1560,10 @@ window.makeSupabaseApi = function (cfg) {
       }
       return q(sb.rpc('old_photos_done', { p_paths: paths }));
     },
+    staffTgGroups: () => q(sb.rpc('staff_tg_groups_list')),
+    staffTgGroupSave: x => q(sb.rpc('staff_tg_group_save', { p: x })),
+    staffTgGroupDelete: id => q(sb.rpc('staff_tg_group_delete', { p_staff: id })),
+    staffTgGroupTest: id => q(sb.rpc('staff_tg_group_test', { p_staff: id })),
     backupStatus: () => q(sb.rpc('backup_status')),
     backupSave: x => q(sb.rpc('backup_settings_save', { p: Object.assign({ url: cfg.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/backup', apikey: cfg.SUPABASE_ANON_KEY }, x) })),
     backupTest: () => q(sb.rpc('backup_test')),
@@ -1889,7 +1893,7 @@ window.makeDemoApi = function () {
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
       shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'], field_behind: ['📉', 'Rep behind daily target'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
-    ITEMS: ['sales', 'sales_by_rep', 'by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'coverage', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps', 'field_targets'],
+    ITEMS: ['sales', 'sales_by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps', 'field_targets'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
       if (!name) fail('Give the alert a name');
       const events = [...new Set((p.events || []).filter(e => K_TG.EVENTS[e]))], fields = [...new Set((p.fields || []).filter(f => K_TG.FIELDS.includes(f)))];
@@ -1938,12 +1942,16 @@ window.makeDemoApi = function () {
         price_issues: ['🏷 Below list price: 2 orders · $14.50 under the list price', '🎁 Free items: 1 line · worth $4.50 at list price', '• SO-00121 · Mobile Zone Kandal · Sokha Chan · −$12.00 · 🎁', '• SO-00118 · Lucky Phone Shop · Chhin Kimlong · −$7.00',
           '💰 Big orders (' + big + '+): 1 · $820.00', '• SO-00125 · Lucky Phone Shop · Chhin Kimlong · $820.00'],
         stock_moves: ['🚚 Transfers sent: 2 · $410.00 · received: 1 · in transit now: 1', '• ❗ Missing 2 pcs · $5.40 · damaged 1 pcs · $2.70', '✏️ Adjustments: 3 · out $18.20 · in $4.50', '   ◦ Damaged: 2 · $13.70', '   ◦ Found: 1 · $4.50', '📋 Count sheets approved: 1 · difference −$8.10'] });
-      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => { out.push(''); out = out.concat(B[i] || []); });
+      let out = ['📊 ' + r.name, P[r.period] || P.today]; r.items.forEach(i => {   // 18 Nov 2026: no duplicates (same rules as the database)
+        if (i === 'coverage' || i === 'by_rep') return;
+        let b = B[i] || [];
+        if (i === 'visits_by_rep') b = b.filter(l => !(/^🏪 New shops created/.test(l) && r.items.includes('new_shops')) && !(/^• /.test(l) && r.items.includes('field_targets')));
+        out.push(''); out = out.concat(b); });
       if (r.staff_ids) {   // only the chosen staff: drop the lines of the others, say how many are shown
         const all = D.users.filter(u => u.active && !['guest', 'partner'].includes(u.role)), ok = u => r.staff_ids.includes(u.id) || (r.staff_auto_new && !(r.staff_known || []).includes(u.id));
         const hide = all.filter(u => !ok(u)).map(u => u.full_name).concat(['Chhin Kimlong', 'Sokha Chan', 'Minh Rambo'].filter(n => !all.some(u => u.full_name === n && ok(u))));
         out = out.filter(l => !hide.some(n => l.includes(n))); out.splice(2, 0, '👥 Showing ' + all.filter(ok).length + ' of ' + all.length + ' staff (totals are for the whole company)'); }
-      if (r.items.includes('by_rep')) out.push('', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Chhin Kimlong', P[r.period] || P.today), '', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Sokha Chan', P[r.period] || P.today));
+      if (false) out.push('', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Chhin Kimlong', P[r.period] || P.today), '', '━━━━━━━━ next message ━━━━━━━━', '', K_TG.repReport('Sokha Chan', P[r.period] || P.today));
       return out.join('\n'); },
     repReport(nm, day) {
       const k = nm === 'Chhin Kimlong';
@@ -3771,6 +3779,17 @@ window.makeDemoApi = function () {
       if (!me || me.role !== 'admin') fail('Only the admin can export everything');
       return wait(Object.keys(D).filter(k => Array.isArray(D[k]) && D[k].length && typeof D[k][0] === 'object').sort().map(k => ({ name: k, rows: D[k].length })));
     },
+    // A sales rep's own Telegram group (18 Nov 2026)
+    async staffTgGroups() { if (!hasRole('admin')) fail('Only the admin can change Telegram settings');
+      return wait(clone((D.staffTg || []).map(g => Object.assign({ name: (user(g.staff_id) || {}).full_name }, g)))); },
+    async staffTgGroupSave(x) { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); const u = user(x.staff_id);
+      if (!u || !u.active || !['sales', 'online_sales', 'supervisor', 'agent'].includes(u.role)) fail('Only active sales reps can have their own group');
+      if (!/^-[0-9]{5,20}$/.test(x.chat_id || '')) fail('Choose a GROUP, not a person');
+      if ((D.staffTg || []).some(g => g.chat_id === x.chat_id && g.staff_id !== x.staff_id) || ((D.tg || {}).rules || []).some(r => r.chat_id === x.chat_id)) fail('This group is already used for something else. Make a new group for this rep.');
+      D.staffTg = (D.staffTg || []).filter(g => g.staff_id !== x.staff_id).concat([{ staff_id: x.staff_id, chat_id: x.chat_id, title: x.title || '', orders: x.orders !== false, report: x.report !== false, enabled: x.enabled !== false }]); save(); return wait(null); },
+    async staffTgGroupDelete(id) { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); D.staffTg = (D.staffTg || []).filter(g => g.staff_id !== id); save(); return wait(null); },
+    async staffTgGroupTest(id) { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); if (!(D.tg || {}).token) fail('Save the bot token first');
+      if (!(D.staffTg || []).some(g => g.staff_id === id)) fail('Save the group first'); D.tg.last = { ok: true }; save(); return wait(1); },
     // Daily backup to Telegram (18 Nov 2026): in the demo nothing is sent, the list just grows
     async backupStatus() { if (!me || me.role !== 'admin') fail('Only the admin can change the daily backup'); const B = D.backup || {};
       return wait({ chat: B.chat || '', title: B.title || '', time: B.time || '23:00', ready: !!(D.tg || {}).token, bot: (D.tg || {}).bot || 'ktronics_bot', function_set: true, log: clone((B.log || []).slice(0, 10)) }); },
@@ -4651,7 +4670,7 @@ window.makeDemoApi = function () {
     async alertSettingsSave(obj) { if (!hasRole('admin')) fail('Only the admin can change alert settings');
       Object.entries(obj || {}).forEach(([k, v]) => { v = String(v ?? '').trim();
         if (['alert_not_visited_days', 'alert_sleeping_days', 'alert_new_unvisited_days'].includes(k)) { if (!/^\d+$/.test(v) || +v < 1 || +v > 365) fail('Days: type a number from 1 to 365'); }
-        else if (k === 'alert_absent_time') { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:30'); }
+        else if (k === 'alert_absent_time' || k === 'alert_unfinished_time') { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:30'); }
         else if (k === 'alert_to_rep') { if (!['on', 'off'].includes(v)) fail('Unknown value'); }
         else if (['alert_idle_from', 'alert_idle_to'].includes(k)) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail('Time: type it like 08:00'); }
         else if (k === 'alert_idle_after') { const m = /^(\d{1,2}):([0-5]\d)$/.exec(v), mins = m ? +m[1] * 60 + +m[2] : 0; if (v && (!m || mins < 10 || mins > 720)) fail('No shop visit: type hours:minutes from 0:10 to 12:00 (empty = off)'); }
@@ -6921,6 +6940,11 @@ Object.assign(window.KT_KM, { '(your stock)': '(ស្តុករបស់អ�
 Object.assign(window.KT_KM, { 'Quantity prices': 'តម្លៃតាមចំនួន', 'From pcs': 'ចាប់ពី (ដុំ)', 'Price each ($)': 'តម្លៃមួយដុំ ($)', 'Pieces of this product in one order. Empty price = not used.': 'ចំនួនដុំនៃផលិតផលនេះក្នុងការបញ្ជាទិញមួយ។ តម្លៃទទេ = មិនប្រើ។' });
 
 Object.assign(window.KT_KM, {"🛟 Daily backup to Telegram": "🛟 ការបម្រុងទុកប្រចាំថ្ងៃទៅ Telegram", "Not set up": "មិនទាន់រៀបចំ", "Every night the server sends 2 files to your private Telegram group: an Excel file with": "រៀងរាល់យប់ ម៉ាស៊ីនមេផ្ញើឯកសារ ២ ទៅក្រុម Telegram ឯកជនរបស់អ្នក៖ ឯកសារ Excel មួយដែលមាន", "list of your app (one sheet each) and an exact copy (.json.gz) for bringing data back. You do nothing. If a night fails, you get a bell here and a message in the group.": "បញ្ជីនៃកម្មវិធីរបស់អ្នក (មួយសន្លឹកសម្រាប់មួយបញ្ជី) និងច្បាប់ចម្លងពិតប្រាកដ (.json.gz) សម្រាប់យកទិន្នន័យមកវិញ។ អ្នកមិនចាំបាច់ធ្វើអ្វីទេ។ បើយប់ណាមួយបរាជ័យ អ្នកនឹងទទួលបានការជូនដំណឹងនៅទីនេះ និងសារក្នុងក្រុម។", "Group:": "ក្រុម៖", "every night at": "រៀងរាល់យប់ម៉ោង", "last:": "ចុងក្រោយ៖", "First save your Telegram bot in Settings → Telegram alerts.": "សូមរក្សាទុក Telegram bot របស់អ្នកជាមុនសិន ក្នុង ការកំណត់ → ការជូនដំណឹង Telegram។", "Change group or time": "ប្តូរក្រុម ឬម៉ោង", "Set it up (5 steps)": "រៀបចំ (៥ ជំហាន)", "Every night at (Phnom Penh time)": "រៀងរាល់យប់ម៉ោង (ម៉ោងភ្នំពេញ)", "🛟 Back up now": "🛟 បម្រុងទុកឥឡូវនេះ", "Last backups": "ការបម្រុងទុកចុងក្រោយ", "Not inside: photos (only their links), passwords and the Telegram bot key.": "មិនរួមបញ្ចូល៖ រូបថត (មានតែតំណ) ពាក្យសម្ងាត់ និងកូនសោ Telegram bot។", "Nightly": "ប្រចាំយប់", "making it now…": "កំពុងធ្វើ…", "Making the backup and sending it to Telegram… (up to 1 minute)": "កំពុងធ្វើការបម្រុងទុក និងផ្ញើទៅ Telegram… (រហូតដល់ ១ នាទី)", "Backup sent to Telegram": "បានផ្ញើការបម្រុងទុកទៅ Telegram", "Backup failed": "ការបម្រុងទុកបរាជ័យ", "Only the admin can change the daily backup": "មានតែម្ចាស់ទេ ដែលអាចប្តូរការបម្រុងទុកប្រចាំថ្ងៃបាន", "Choose the backup group first": "សូមជ្រើសក្រុមបម្រុងទុកជាមុនសិន", "Choose a GROUP, not a person": "សូមជ្រើសក្រុម មិនមែនមនុស្សម្នាក់ទេ", "Time must be like 23:00": "ម៉ោងត្រូវតែដូចជា 23:00", "The backup function is not set up on the server yet": "មុខងារបម្រុងទុកមិនទាន់បានរៀបចំនៅលើម៉ាស៊ីនមេនៅឡើយទេ", "A backup is being made now. Please wait a few minutes.": "កំពុងធ្វើការបម្រុងទុក។ សូមរង់ចាំបន្តិច។", "e.g. K-TRONiCS backup": "ឧ. K-TRONiCS backup"});
+Object.assign(window.KT_KM, {"📣 Own Telegram group": "📣 ក្រុម Telegram ផ្ទាល់ខ្លួន", "Add their group": "បន្ថែមក្រុមរបស់គាត់", "orders & payments": "ការបញ្ជាទិញ និងការបង់ប្រាក់", "daily report": "របាយការណ៍ប្រចាំថ្ងៃ", "nothing ticked": "មិនបានធីកអ្វីទេ", "Only this rep's own orders, payments and daily report go to their group. Your company groups keep getting everything.": "មានតែការបញ្ជាទិញ ការបង់ប្រាក់ និងរបាយការណ៍ប្រចាំថ្ងៃផ្ទាល់ខ្លួនរបស់អ្នកលក់នេះទេ ដែលទៅក្រុមរបស់គាត់។ ក្រុមក្រុមហ៊ុនរបស់អ្នកនៅតែទទួលបានទាំងអស់។", "Own Telegram group · ": "ក្រុម Telegram ផ្ទាល់ខ្លួន · ", "🧾 Orders & payments": "🧾 ការបញ្ជាទិញ និងការបង់ប្រាក់", "Only this rep's orders: new, approved, cancelled, deleted, and payments collected. The same message as your company group.": "មានតែការបញ្ជាទិញរបស់អ្នកលក់នេះ៖ ថ្មី បានអនុម័ត បានបោះបង់ បានលុប និងការប្រមូលប្រាក់។ សារដូចគ្នានឹងក្រុមក្រុមហ៊ុនរបស់អ្នក។", "📊 Daily report": "📊 របាយការណ៍ប្រចាំថ្ងៃ", "Their own report at the same time as your Daily Summary: sales, orders, target, shop visits, payments, their shops' debt, attendance, expenses. No other staff, no company totals.": "របាយការណ៍ផ្ទាល់ខ្លួនរបស់គាត់ ក្នុងពេលតែមួយនឹងសេចក្តីសង្ខេបប្រចាំថ្ងៃរបស់អ្នក៖ ការលក់ ការបញ្ជាទិញ គោលដៅ ការចុះហាង ការបង់ប្រាក់ បំណុលហាងរបស់គាត់ វត្តមាន ចំណាយ។ គ្មានបុគ្គលិកផ្សេង គ្មានសរុបក្រុមហ៊ុន។", "Untick to stop this group for a while.": "ដោះធីក ដើម្បីបញ្ឈប់ក្រុមនេះមួយរយៈ។", "Remove this group": "ដកក្រុមនេះចេញ", "Remove this group?": "ដកក្រុមនេះចេញ?", "Removed": "បានដកចេញ", "Only active sales reps can have their own group": "មានតែអ្នកលក់សកម្មទេ ដែលអាចមានក្រុមផ្ទាល់ខ្លួន", "This group is already used for something else. Make a new group for this rep.": "ក្រុមនេះបានប្រើសម្រាប់អ្វីផ្សេងរួចហើយ។ សូមបង្កើតក្រុមថ្មីសម្រាប់អ្នកលក់នេះ។", "Save the group first": "សូមរក្សាទុកក្រុមជាមុនសិន"});
+Object.assign(window.KT_KM, {"🌙 Staff not finished work": "🌙 បុគ្គលិកមិនទាន់ចុះម៉ោងចេញ", "Staff who started work but did not tap Finish work by the time in Settings → Alerts": "បុគ្គលិកដែលបានចូលធ្វើការ ប៉ុន្តែមិនបានចុច ចេញពីការងារ ត្រឹមម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង", "Staff not finished work (time in Settings → Alerts)": "បុគ្គលិកមិនទាន់ចុះម៉ោងចេញ (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "Staff not finished work": "បុគ្គលិកមិនទាន់ចុះម៉ោងចេញ", "\"Not finished work\" check time (staff who started but did not tap Finish work · Sundays and holidays skipped)": "ម៉ោងពិនិត្យ \"មិនទាន់ចុះម៉ោងចេញ\" (បុគ្គលិកដែលបានចូល ប៉ុន្តែមិនបានចុចចេញ · រំលងថ្ងៃអាទិត្យ និងថ្ងៃឈប់សម្រាក)"});
+Object.assign(window.KT_KM, {"🚫 Staff not at work / not finished work": "🚫 បុគ្គលិកមិនមកធ្វើការ / មិនទាន់ចុះម៉ោងចេញ", "Morning: staff who did not start work · Evening (18:00): staff who did not tap Finish work · times in Settings → Alerts": "ពេលព្រឹក៖ បុគ្គលិកដែលមិនបានចូលធ្វើការ · ពេលល្ងាច (18:00)៖ បុគ្គលិកដែលមិនបានចុចចេញពីការងារ · ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង", "Staff not at work / not finished work (times in Settings → Alerts)": "បុគ្គលិកមិនមកធ្វើការ / មិនទាន់ចុះម៉ោងចេញ (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "\"Not finished work\" check time (same alert: staff who started but did not tap Finish work · Sundays and holidays skipped)": "ម៉ោងពិនិត្យ \"មិនទាន់ចុះម៉ោងចេញ\" (ការជូនដំណឹងដដែល៖ បុគ្គលិកដែលបានចូល ប៉ុន្តែមិនបានចុចចេញ · រំលងថ្ងៃអាទិត្យ និងថ្ងៃឈប់សម្រាក)"});
+Object.assign(window.KT_KM, {"🚫 Staff not at work and not finished work": "🚫 បុគ្គលិកមិនមកធ្វើការ និងមិនទាន់ចុះម៉ោងចេញ", "8:30 am: staff who did not start work · 6 pm: staff who did not tap Finish work (times in Settings → Alerts)": "ម៉ោង 8:30 ព្រឹក៖ បុគ្គលិកដែលមិនបានចូលធ្វើការ · ម៉ោង 6 ល្ងាច៖ បុគ្គលិកដែលមិនបានចុចចេញពីការងារ (ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "Staff not at work and not finished work (8:30 am and 6 pm, times in Settings → Alerts)": "បុគ្គលិកមិនមកធ្វើការ និងមិនទាន់ចុះម៉ោងចេញ (8:30 ព្រឹក និង 6 ល្ងាច ម៉ោងក្នុង ការកំណត់ → ការជូនដំណឹង)", "Staff not at work and not finished work": "បុគ្គលិកមិនមកធ្វើការ និងមិនទាន់ចុះម៉ោងចេញ", "Not at work by": "មិនមកធ្វើការត្រឹម", "Not finished work by": "មិនទាន់ចុះម៉ោងចេញត្រឹម", "One alert, twice a day: staff who did not start work by the first time, and staff who started but did not tap Finish work by the second time. Sundays, holidays and staff on leave are skipped.": "ការជូនដំណឹងតែមួយ ពីរដងក្នុងមួយថ្ងៃ៖ បុគ្គលិកដែលមិនបានចូលធ្វើការត្រឹមម៉ោងទីមួយ និងបុគ្គលិកដែលបានចូល ប៉ុន្តែមិនបានចុចចេញត្រឹមម៉ោងទីពីរ។ រំលងថ្ងៃអាទិត្យ ថ្ងៃឈប់សម្រាក និងបុគ្គលិកឈប់សម្រាក។"});
+Object.assign(window.KT_KM, {"Shop visits (total, first-time visits, new shops created, by rep — parts already in \"New shops\" or \"🎯 vs target\" are not repeated)": "ការចុះហាង (សរុប ចុះលើកដំបូង ហាងថ្មីដែលបានបង្កើត តាមអ្នកលក់ — ផ្នែកដែលមានក្នុង \"ហាងថ្មី\" ឬ \"🎯 ធៀបគោលដៅ\" រួចហើយ មិនបង្ហាញម្តងទៀតទេ)", "Sales by each rep (one line each · not repeated when \"Each sales rep\" is ticked)": "ការលក់តាមអ្នកលក់ម្នាក់ៗ (មួយបន្ទាត់ម្នាក់ · មិនបង្ហាញម្តងទៀត ពេលធីក \"អ្នកលក់ម្នាក់ៗ\")"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -8941,6 +8965,11 @@ Object.assign(window.KT_ZH, { 'All categories': '所有类别' });
 Object.assign(window.KT_ZH, { 'Quantity prices': '数量价格', 'From pcs': '起订数量', 'Price each ($)': '单价 ($)', 'Pieces of this product in one order. Empty price = not used.': '同一订单中该产品的数量。价格为空 = 不使用。' });
 
 Object.assign(window.KT_ZH, {"🛟 Daily backup to Telegram": "🛟 每日备份到 Telegram", "Not set up": "未设置", "Every night the server sends 2 files to your private Telegram group: an Excel file with": "每天晚上服务器会把 2 个文件发送到您的私人 Telegram 群组：一个 Excel 文件，包含", "list of your app (one sheet each) and an exact copy (.json.gz) for bringing data back. You do nothing. If a night fails, you get a bell here and a message in the group.": "应用的列表（每个一张表），以及一份完整副本（.json.gz），用于恢复数据。您什么都不用做。如果某晚失败，您会在这里收到提醒，群组里也会有消息。", "Group:": "群组：", "every night at": "每晚", "last:": "上次：", "First save your Telegram bot in Settings → Telegram alerts.": "请先在 设置 → Telegram 提醒 中保存您的 Telegram 机器人。", "Change group or time": "更改群组或时间", "Set it up (5 steps)": "设置（5 步）", "Every night at (Phnom Penh time)": "每晚时间（金边时间）", "🛟 Back up now": "🛟 立即备份", "Last backups": "最近的备份", "Not inside: photos (only their links), passwords and the Telegram bot key.": "不包含：照片（只有链接）、密码和 Telegram 机器人密钥。", "Nightly": "每晚自动", "making it now…": "正在制作…", "Making the backup and sending it to Telegram… (up to 1 minute)": "正在制作备份并发送到 Telegram…（最多 1 分钟）", "Backup sent to Telegram": "备份已发送到 Telegram", "Backup failed": "备份失败", "Only the admin can change the daily backup": "只有老板可以更改每日备份", "Choose the backup group first": "请先选择备份群组", "Choose a GROUP, not a person": "请选择群组，不是个人", "Time must be like 23:00": "时间格式应如 23:00", "The backup function is not set up on the server yet": "服务器上尚未设置备份功能", "A backup is being made now. Please wait a few minutes.": "正在制作备份，请稍等几分钟。", "e.g. K-TRONiCS backup": "例如 K-TRONiCS 备份"});
+Object.assign(window.KT_ZH, {"📣 Own Telegram group": "📣 自己的 Telegram 群组", "Add their group": "添加他的群组", "orders & payments": "订单和付款", "daily report": "每日报告", "nothing ticked": "什么都没勾选", "Only this rep's own orders, payments and daily report go to their group. Your company groups keep getting everything.": "只有这位销售自己的订单、付款和每日报告会发到他的群组。您公司的群组仍然收到全部。", "Own Telegram group · ": "自己的 Telegram 群组 · ", "🧾 Orders & payments": "🧾 订单和付款", "Only this rep's orders: new, approved, cancelled, deleted, and payments collected. The same message as your company group.": "只有这位销售的订单：新订单、已批准、已取消、已删除，以及收到的付款。和公司群组的消息一样。", "📊 Daily report": "📊 每日报告", "Their own report at the same time as your Daily Summary: sales, orders, target, shop visits, payments, their shops' debt, attendance, expenses. No other staff, no company totals.": "他自己的报告，和您的每日汇总同一时间：销售、订单、目标、拜访店铺、付款、他的店铺欠款、考勤、费用。没有其他员工，没有公司总数。", "Untick to stop this group for a while.": "取消勾选可暂停这个群组。", "Remove this group": "移除这个群组", "Remove this group?": "移除这个群组？", "Removed": "已移除", "Only active sales reps can have their own group": "只有在职销售可以有自己的群组", "This group is already used for something else. Make a new group for this rep.": "这个群组已用于其他用途。请为这位销售新建一个群组。", "Save the group first": "请先保存群组"});
+Object.assign(window.KT_ZH, {"🌙 Staff not finished work": "🌙 员工未下班打卡", "Staff who started work but did not tap Finish work by the time in Settings → Alerts": "已上班但在 设置 → 提醒 的时间前没有点“下班”的员工", "Staff not finished work (time in Settings → Alerts)": "员工未下班打卡（时间在 设置 → 提醒）", "Staff not finished work": "员工未下班打卡", "\"Not finished work\" check time (staff who started but did not tap Finish work · Sundays and holidays skipped)": "“未下班”检查时间（已上班但没点下班的员工 · 跳过周日和节假日）"});
+Object.assign(window.KT_ZH, {"🚫 Staff not at work / not finished work": "🚫 员工未上班 / 未下班打卡", "Morning: staff who did not start work · Evening (18:00): staff who did not tap Finish work · times in Settings → Alerts": "早上：没有上班的员工 · 晚上 (18:00)：没有点下班的员工 · 时间在 设置 → 提醒", "Staff not at work / not finished work (times in Settings → Alerts)": "员工未上班 / 未下班打卡（时间在 设置 → 提醒）", "\"Not finished work\" check time (same alert: staff who started but did not tap Finish work · Sundays and holidays skipped)": "“未下班”检查时间（同一个提醒：已上班但没点下班的员工 · 跳过周日和节假日）"});
+Object.assign(window.KT_ZH, {"🚫 Staff not at work and not finished work": "🚫 员工未上班和未下班打卡", "8:30 am: staff who did not start work · 6 pm: staff who did not tap Finish work (times in Settings → Alerts)": "早上 8:30：没有上班的员工 · 晚上 6 点：没有点下班的员工（时间在 设置 → 提醒）", "Staff not at work and not finished work (8:30 am and 6 pm, times in Settings → Alerts)": "员工未上班和未下班打卡（早上 8:30 和晚上 6 点，时间在 设置 → 提醒）", "Staff not at work and not finished work": "员工未上班和未下班打卡", "Not at work by": "未上班截止", "Not finished work by": "未下班截止", "One alert, twice a day: staff who did not start work by the first time, and staff who started but did not tap Finish work by the second time. Sundays, holidays and staff on leave are skipped.": "一个提醒，每天两次：第一个时间前没上班的员工，以及第二个时间前已上班但没点下班的员工。跳过周日、节假日和请假的员工。"});
+Object.assign(window.KT_ZH, {"Shop visits (total, first-time visits, new shops created, by rep — parts already in \"New shops\" or \"🎯 vs target\" are not repeated)": "拜访店铺（总数、首次拜访、新建店铺、按销售 — 已在“新店铺”或“🎯 对比目标”里的部分不再重复）", "Sales by each rep (one line each · not repeated when \"Each sales rep\" is ticked)": "每位销售的销售额（每人一行 · 勾选“每位销售”时不重复）"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -13885,6 +13914,59 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const K = window.KT;
   const { api, esc, icon, busy, toast, avatar } = K;
     // one form for everything about a person: account (admin) + personal & job details (HR)
+  // ---------- A sales rep's own Telegram group (18 Nov 2026): only their orders & payments + their daily report ----------
+  K.staffTgGroupCard = async function (el, u) {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const answer = async id => { for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const r = await api.tgResult(id); if (!r || !r.pending) return r || { ok: false, error: 'No answer' }; } return { ok: false, error: 'Telegram did not answer. Please try again.' }; };
+    const all = await api.staffTgGroups().catch(() => null);
+    if (!all || !el.isConnected) return;
+    const g = all.find(x => x.staff_id === u.id);
+    el.innerHTML = `<div class="card" style="background:var(--bg);gap:6px"><div class="row" style="gap:8px"><b class="grow" style="font-size:14px">📣 Own Telegram group</b>${g ? (g.enabled ? '<span class="pill gr">On</span>' : '<span class="pill gy">Off</span>') : ''}</div>
+      <div class="small muted">${g ? `<b>${esc(g.title || g.chat_id)}</b> · ${[g.orders ? 'orders & payments' : '', g.report ? 'daily report' : ''].filter(Boolean).join(' + ') || 'nothing ticked'}`
+        : 'Only this rep\'s own orders, payments and daily report go to their group. Your company groups keep getting everything.'}</div>
+      <button class="btn sm out" id="stgo">${icon(g ? 'pen' : 'plus', 16)}${g ? 'Change' : 'Add their group'}</button></div>`;
+    K.$('#stgo', el).onclick = () => K.staffTgGroupSheet(u, g, () => K.staffTgGroupCard(el, u));
+  };
+  K.staffTgGroupSheet = function (u, g, onDone) {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const answer = async id => { for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const r = await api.tgResult(id); if (!r || !r.pending) return r || { ok: false, error: 'No answer' }; } return { ok: false, error: 'Telegram did not answer. Please try again.' }; };
+    const box = 'width:20px;height:20px;margin-top:2px;accent-color:var(--p)';
+    const s = K.sheet('Own Telegram group · ' + u.full_name, `
+      <div class="small muted" style="line-height:1.6">1. In Telegram make a group with <b>${esc(u.full_name)}</b>, you and your company bot.<br>2. Send <b>/start</b> in the group.<br>3. Press <b>Find my groups</b> and tap it, then Save and Send test.</div>
+      <button class="btn out block" id="sgf">${icon('search', 18)}Find my groups</button><div id="sgl" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div class="btns"><label class="f">Group name<input class="inp" id="sgn" value="${esc(g ? g.title || '' : '')}" placeholder="e.g. ${esc(u.full_name)} + K-TRONiCS"></label><label class="f">Group ID<input class="inp" id="sgi" value="${esc(g ? g.chat_id : '')}" placeholder="-100…"></label></div>
+      <div class="sec" style="margin:0">What goes to this group</div>
+      <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="sgo" ${!g || g.orders ? 'checked' : ''} style="${box}"><div><b>🧾 Orders & payments</b><div class="small muted">Only this rep's orders: new, approved, cancelled, deleted, and payments collected. The same message as your company group.</div></div></label>
+      <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="sgr" ${!g || g.report ? 'checked' : ''} style="${box}"><div><b>📊 Daily report</b><div class="small muted">Their own report at the same time as your Daily Summary: sales, orders, target, shop visits, payments, their shops' debt, attendance, expenses. No other staff, no company totals.</div></div></label>
+      <label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="sgon" ${!g || g.enabled ? 'checked' : ''} style="${box}"><div><b>On</b><div class="small muted">Untick to stop this group for a while.</div></div></label>
+      <button class="btn block" id="sgok">${icon('check', 18)}Save</button>
+      ${g ? `<button class="btn out block" id="sgt">${icon('send', 18)}Send test</button><button class="btn red out block" id="sgdel">${icon('x', 18)}Remove this group</button>` : ''}`);
+    K.$('#sgf', s.el).onclick = async e => {
+      const r = await busy(e.currentTarget, async () => answer(await api.tgFindChats())).catch(err => ({ ok: false, error: err.message }));
+      const groups = ((r && r.chats) || []).filter(c => c.type !== 'private');
+      K.$('#sgl', s.el).innerHTML = !r || !r.ok ? `<div class="small" style="color:var(--rd)">${esc((r && r.error) || 'Could not ask Telegram')}</div>`
+        : groups.length ? groups.map(c => `<button class="btn out block" style="justify-content:flex-start" data-cid="${esc(c.id)}" data-ct="${esc(c.title)}">👥 ${esc(c.title)}</button>`).join('')
+        : '<div class="small muted">No groups found yet. Add the bot to the group, send /start there, wait a few seconds and press Find again.</div>';
+      K.$$('[data-cid]', s.el).forEach(x => x.onclick = () => { K.$('#sgi', s.el).value = x.dataset.cid; K.$('#sgn', s.el).value = x.dataset.ct;
+        K.$$('[data-cid]', s.el).forEach(y => { y.style.borderColor = y === x ? 'var(--p)' : ''; }); });
+    };
+    const data = () => ({ staff_id: u.id, chat_id: K.$('#sgi', s.el).value.trim(), title: K.$('#sgn', s.el).value.trim(),
+      orders: K.$('#sgo', s.el).checked, report: K.$('#sgr', s.el).checked, enabled: K.$('#sgon', s.el).checked });
+    K.$('#sgok', s.el).onclick = async e => {
+      const x = data(); if (!x.chat_id) return toast('Choose a group (or paste its ID)');
+      await busy(e.currentTarget, () => api.staffTgGroupSave(x)); s.close(); toast('Saved. Press Send test to check it'); onDone();
+    };
+    if (K.$('#sgt', s.el)) K.$('#sgt', s.el).onclick = async e => {
+      const r = await busy(e.currentTarget, async () => answer(await api.staffTgGroupTest(u.id))).catch(err => ({ ok: false, error: err.message }));
+      if (r && r.migrated_to) { await api.staffTgGroupSave(Object.assign(data(), { chat_id: String(r.migrated_to) })).catch(() => {}); K.$('#sgi', s.el).value = r.migrated_to; return toast('Telegram gave this group a new ID. It is fixed now, press Send test again.'); }
+      toast(r && r.ok ? 'Sent. Check the group in Telegram' : (r && r.error) || 'Not sent');
+    };
+    if (K.$('#sgdel', s.el)) K.$('#sgdel', s.el).onclick = async () => {
+      if (!(await K.confirmSheet('Remove this group?', u.full_name + '\'s group will stop getting alerts. The Telegram group itself stays.', 'Remove', true))) return;
+      await api.staffTgGroupDelete(u.id); s.close(); toast('Removed'); onDone();
+    };
+  };
+
   K.staffSheet = function staffSheet(u, ctx) {
       ctx = ctx || {};
       const boss = K.S.me.role === 'admin', hr = K.allow('hr.manage');
@@ -13902,6 +13984,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small muted" id="rh">${hints[role]}</div>
         <label class="row" id="sonlw" style="gap:10px;align-items:flex-start;cursor:pointer;${['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'display:none'}"><input type="checkbox" id="sonl" ${K.sellsOnline(u) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from" and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="spw">Which partner<select class="inp" id="spart"><option value="">Loading…</option></select></label>` : ''}
+        ${boss && u.active && ['sales', 'supervisor', 'agent', 'online_sales'].includes(u.role) ? '<div id="stgx"></div>' : ''}
         ${K.allow('stock.access') && u.active ? `<div id="stx" class="card" style="background:var(--bg);gap:6px"><b style="font-size:14px">Can order from these stocks</b><div class="small muted">Loading…</div></div>` : ''}
         ${boss || hr ? `<div id="orgx"><div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
           <label class="f">Reports to<select class="inp" id="sup"><option value="">Nobody</option>${sups.map(x => `<option value="${esc(x.id)}" ${x.id === u.supervisor_id ? 'selected' : ''}>${esc(x.full_name)} (${esc(K.ROLE_LABEL[x.role])})</option>`).join('')}</select></label></div>
@@ -13938,6 +14021,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         K.$$('[data-st]', s.el).forEach(c => c.onchange = () => { c.checked ? stTicks.add(+c.dataset.st) : stTicks.delete(+c.dataset.st); });
       }).catch(() => { const b = K.$('#stx', s.el); if (b) b.style.display = 'none'; });
       stShow();
+      if (K.$('#stgx', s.el)) K.staffTgGroupCard(K.$('#stgx', s.el), u);
       K.$$('[data-r]', s.el).forEach(b => b.onclick = () => { role = b.dataset.r; K.$$('[data-r]', s.el).forEach(x => x.classList.toggle('on', x === b)); K.$('#rh', s.el).textContent = hints[role]; stShow();
         const w = K.$('#sonlw', s.el); if (w) w.style.display = ['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'none'; });
       // "Sells online" is saved at once (26 Oct 2026: one Sales role, online tools by this tick)
@@ -14858,7 +14942,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <label class="row small" style="gap:10px"><input type="checkbox" id="al_rep" ${(st.alert_to_rep || 'on') === 'on' ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)"><span>Also send each sales rep their own shops (bell in the app)</span></label>
           <div class="small muted">A shop is sent again only after it was visited (or ordered) and then passes the line again. Mondays: each rep also gets "shops to visit this week".</div>
           <div class="sec" style="margin:6px 0 0">Staff</div>
-          <label class="f">"Not at work" check time (Sundays, holidays and staff on leave are skipped)<input class="inp" data-al="alert_absent_time" type="time" value="${esc(st.alert_absent_time || '08:30')}"></label>
+          <div class="f" style="gap:6px">Staff not at work and not finished work<div class="btns" style="margin:0"><label class="f">Not at work by<input class="inp" data-al="alert_absent_time" type="time" value="${esc(st.alert_absent_time || '08:30')}"></label><label class="f">Not finished work by<input class="inp" data-al="alert_unfinished_time" type="time" value="${esc(st.alert_unfinished_time || '18:00')}"></label></div>
+            <div class="small muted">One alert, twice a day: staff who did not start work by the first time, and staff who started but did not tap Finish work by the second time. Sundays, holidays and staff on leave are skipped.</div></div>
           <label class="f">"No shop visit" alert after (hours:minutes, e.g. 2:00 · empty = off)<input class="inp" data-al="alert_idle_after" placeholder="off" inputmode="numeric" value="${esc(st.alert_idle_after || '')}"></label>
           <div class="btns" style="margin:0"><label class="f">Check from<input class="inp" data-al="alert_idle_from" type="time" value="${esc(st.alert_idle_from || '08:00')}"></label><label class="f">until<input class="inp" data-al="alert_idle_to" type="time" value="${esc(st.alert_idle_to || '17:00')}"></label></div>
           <div class="small muted">Sales reps, supervisors and agents who started work but made no shop check-in and no order for that long. Checked every 10 minutes; one alert per gap. Not on Sundays, holidays, leave or after finish work. Tick "⏳ Rep with no shop visit" in Settings → Telegram alerts for the groups that should get it.</div>
@@ -15152,7 +15237,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier'], ['stock_moved', '🔀', 'Stock moved between stocks'], ['stock_adjusted', '✏️', 'Stock count changed by hand'], ['goods_returned', '↩️', 'Returned to supplier']]],
     ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
     ['Leave & attendance', [['leave_new', '🏖', 'Leave request'], ['leave_approved', '✅', 'Leave approved'], ['leave_rejected', '❌', 'Leave rejected'],
-      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work (time in Settings → Alerts)'], ['staff_idle', '⏳', 'Rep with no shop visit (time in Settings → Alerts)'], ['field_behind', '📉', 'Rep behind daily target (time in HR → Field targets)']]],
+      ['staff_checkin', '🕗', 'Started work'], ['staff_late', '⏰', 'Late for work'], ['staff_checkout', '🏠', 'Finished work'], ['staff_absent', '🚫', 'Staff not at work and not finished work (8:30 am and 6 pm, times in Settings → Alerts)'], ['staff_idle', '⏳', 'Rep with no shop visit (time in Settings → Alerts)'], ['field_behind', '📉', 'Rep behind daily target (time in HR → Field targets)']]],
     ['Security', [['data_cleared', '🧹', 'Clear data was used'], ['staff_account', '👤', 'Staff account or permissions changed'], ['price_changed', '💲', 'Product price changed'], ['order_changed', '✏️', 'Order changed after approval']]]
   ];
   const EV = {}; GROUPS.forEach(([, l]) => l.forEach(([k, ic, t]) => { EV[k] = [ic, t]; }));
@@ -15166,10 +15251,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   ];
   const DEF_FIELDS = ['order_no', 'shop', 'rep', 'staff', 'amount', 'detail', 'link', 'photo'];
   const ITEMS = [
-    ['sales', 'Total orders (existing shops / new shops, waiting approval, cancelled)'], ['visits_by_rep', 'Shop visits (total, first-time visits, new shops created, by rep)'],
-    ['by_rep', '👥 Each sales rep: one line each here, then <b>each rep\'s full report as its own message</b> (orders, shop visits, payments, debt, attendance, expenses, shops never visited)'],
+    ['sales', 'Total orders (existing shops / new shops, waiting approval, cancelled)'], ['visits_by_rep', 'Shop visits (total, first-time visits, new shops created, by rep — parts already in "New shops" or "🎯 vs target" are not repeated)'],
     ['sales_by_rep', 'Sales by each rep (one line each)'], ['top_products', 'Top 5 products'],
-    ['new_shops', 'New shops (list)'], ['collected', 'Money collected (by method)'], ['owed', 'Money shops owe & overdue credit'], ['coverage', 'Shop coverage (never visited, not visited for 30+ days, by rep)'], ['low_stock', 'Low stock list'],
+    ['new_shops', 'New shops (list)'], ['collected', 'Money collected (by method)'], ['owed', 'Money shops owe & overdue credit'], ['low_stock', 'Low stock list'],
     ['attendance', 'Attendance (late, not in, on leave)'], ['expenses', 'Staff expenses'],
     // new parts (23 Oct 2026)
     ['online_sales', '🌐 Online customers (orders, Phzar sales, new online customers, follow-ups, each person who sells online)'],
@@ -15264,7 +15348,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     // add or change one alert
     function edit(r) {
-      const cur = r || { name: '', rule_type: 'event', events: [], fields: DEF_FIELDS.slice(), items: ['sales', 'visits_by_rep', 'collected', 'owed', 'coverage', 'attendance', 'by_rep'], send_reps: true, send_time: '18:00', days: [1, 2, 3, 4, 5, 6], period: 'today', chat_id: '', chat_title: '', enabled: true };
+      const cur = r || { name: '', rule_type: 'event', events: [], fields: DEF_FIELDS.slice(), items: ['sales', 'visits_by_rep', 'sales_by_rep', 'collected', 'owed', 'shops_not_visited', 'attendance'], send_reps: true, send_time: '18:00', days: [1, 2, 3, 4, 5, 6], period: 'today', chat_id: '', chat_title: '', enabled: true };
       let type = cur.rule_type || 'event', chat = cur.chat_id || '', title = cur.chat_title || '';
       // which staff a summary shows (23 Oct 2026): null = everyone (as before)
       const staffAll = st.staff || [];
