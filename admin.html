@@ -1320,6 +1320,13 @@ window.makeSupabaseApi = function (cfg) {
     partnerUnlinkSupplier: pid => q(sb.rpc('partner_unlink_supplier', { p_partner: pid })),
     // 19 Nov 2026: partner purchases (the partner's own suppliers)
     partnerSupplierSave: p => q(sb.rpc('partner_supplier_save', { p })),
+    // 19 Nov 2026: selling price from cost + markup
+    priceMarkupGet: () => q(sb.rpc('price_markup_get')),
+    priceMarkupSave: p => q(sb.rpc('price_markup_save', { p })),
+    priceSuggestions: () => q(sb.rpc('price_suggestions')),
+    priceSuggestApply: items => q(sb.rpc('price_suggest_apply', { p_items: items })),
+    productMarkupSave: (pid, p) => q(sb.rpc('product_markup_save', { p_product: pid, p })),
+    breakEven: (from, to) => q(sb.rpc('break_even', { p_from: from, p_to: to })),
     partnerPurchasesMine: () => q(sb.rpc('partner_purchases_mine')),
     partnerPurchasesAdmin: pid => q(sb.rpc('partner_purchases_admin', { p_partner: pid })),
     partnerPurchaseCreate: (sup, cur, rate, note, items, on) => q(sb.rpc('partner_purchase_create', { p_supplier: sup, p_currency: cur, p_rate: rate, p_note: note || null, p_items: items, p_ordered_on: on || null })),
@@ -1471,6 +1478,7 @@ window.makeSupabaseApi = function (cfg) {
       if (p.id) return q(sb.from('products').update(row).eq('id', p.id).select().single());
       return q(sb.from('products').insert(row).select().single());
     },
+    skuPreview: cat => q(sb.rpc('sku_preview', { p_category: cat })),
     listProductCategories: async () => (await q(sb.from('product_categories').select('name').order('sort').order('name'))).map(r => r.name),
     addProductCategory: name => q(sb.from('product_categories').insert({ name: String(name).trim() })),
     renameProductCategory: (from, to) => q(sb.rpc('rename_product_category', { p_old: from, p_new: to })),
@@ -3057,8 +3065,21 @@ window.makeDemoApi = function () {
     async copyQtyPrices(pid) { if (!allow('stock.manage')) fail('Only people who manage stock can set prices'); const pr = D.products.find(x => x.id === +pid && !x.partner_id); if (!pr) fail('Product not found');
       const others = D.products.filter(x => x.category === pr.category && !x.partner_id && x.id !== pr.id).map(x => x.id), mine = (D.qtyPrices || []).filter(t => t.product_id === pr.id);
       D.qtyPrices = (D.qtyPrices || []).filter(t => !others.includes(t.product_id)).concat(...others.map(id => mine.map(t => ({ product_id: id, min_qty: t.min_qty, price: t.price })))); save(); return wait(others.length); },
+    // automatic SKU (19 Nov 2026): same rules as sku_prefix_for / sku_next in the database
+    _skuPx(cat) { D.skuPx = D.skuPx || {}; if (D.skuPx[cat]) return D.skuPx[cat];
+      const used = new Set(Object.values(D.skuPx)), w = String(cat || '').toUpperCase().replace(/[^A-Z ]/g, ' ').split(/\s+/).filter(Boolean), flat = w.join('') || 'P', tries = [];
+      if (w.length >= 2) tries.push(w[0][0] + w[1][0]); if ((w[0] || '').length >= 2) tries.push(w[0].slice(0, 2));
+      for (let i = 1; i < flat.length; i++) tries.push(flat[0] + flat[i]); if (w.length >= 3) tries.push(w[0][0] + w[1][0] + w[2][0]); tries.push((flat + 'XXX').slice(0, 3));
+      for (let i = 2; i < 100; i++) tries.push(flat[0] + i);
+      return tries.find(t => !used.has(t)); },
+    _skuNext(cat, keep) { const px = api._skuPx(cat), re = new RegExp('^' + px + '-(\\d+)$');
+      const n = D.products.reduce((m, x) => { const r = re.exec(x.sku || ''); return r ? Math.max(m, +r[1]) : m; }, 0) + 1;
+      if (keep) { D.skuPx[cat] = px; save(); } return px + '-' + String(n).padStart(3, '0'); },
+    async skuPreview(cat) { if (!cat) return wait(null); return wait(api._skuNext(cat, false)); },
     async saveProduct(p) {
       if (!allow('stock.manage')) fail('You are not allowed to edit products');
+      p = Object.assign({}, p, { sku: String(p.sku || '').trim() });
+      if (!p.sku) p.sku = p.id ? (D.products.find(x => x.id === p.id) || {}).sku : api._skuNext(p.category || 'General', true);
       if (D.products.some(x => x.sku === p.sku && x.id !== p.id)) fail('That SKU is already used');
       const row = { sku: p.sku, name: p.name, category: p.category || 'General', price: +p.price || 0, cost: +p.cost || 0, min_stock: +p.min_stock || 0 };
       if (p.photo_url !== undefined) row.photo_url = p.photo_url || null;
@@ -5147,6 +5168,36 @@ window.makeDemoApi = function () {
     const s = D.suppliers.find(x => x.id === +sid); if (!s) fail('Supplier not found'); if (s.partner_id === pid) fail('Already linked'); if (s.partner_id) fail(s.name + ' is already linked to another partner');
     const old = D.suppliers.find(x => x.partner_id === pid); if (old) { if (D.purchases.some(pu => pu.supplier_id === old.id) || D.spays.some(y => y.supplier_id === old.id)) fail('This partner already has its own supplier "' + old.name + '" with purchases'); D.suppliers = D.suppliers.filter(x => x !== old); }
     const ps = D.purchases.filter(pu => pu.supplier_id === s.id); ps.forEach(pu => { pu.partner_history = true; }); Object.assign(s, { partner_id: pid, linked_at: now() }); save(); return wait({ supplier: s.name, old_purchases: ps.length }); };
+  // 19 Nov 2026: selling price from cost + markup, lines 1–49 / 50+ / 100+ (same rules as price_suggestions in the database)
+  const pmGet = () => { if (!allow('stock.manage')) fail('You are not allowed to change product prices'); let v = null; try { v = JSON.parse((D.settings || {}).price_markup || 'null'); } catch (e) {}
+    const d = v && typeof v.default === 'object' ? v.default : v && typeof v.default === 'number' ? { 1: v.default } : { 1: 1, 50: 1, 100: 1 }; const c = {};
+    Object.entries((v && v.categories) || {}).forEach(([k, x]) => { c[k] = typeof x === 'object' ? x : { 1: x }; }); return { default: d, categories: c, products: clone(D.pMarkups || {}) }; };
+  const pmPct = (m, cat, line, pid) => [((m.products || {})[pid] || {})[line], ((m.categories[cat] || {})[line]), m.default[line], m.default[1], 0].find(x => x != null && x !== '');
+  const pmSug = (cost, pct) => Math.ceil(Math.round(cost * (1 + pct / 100) * 10000) / 10000 * 10) / 10;
+  api.priceMarkupGet = async () => wait(pmGet());
+  api.productMarkupSave = async (pid, p) => { pmGet(); if (!D.products.some(x => x.id === +pid && !x.partner_id)) fail('Product not found'); const one = {};
+    ['1', '50', '100'].forEach(l => { const v = (p || {})[l]; if (v === '' || v == null) return; if (!(+v >= 0 && +v <= 1000)) fail('Markup must be between 0% and 1000%'); one[l] = +v; });
+    D.pMarkups = D.pMarkups || {}; if (Object.keys(one).length) D.pMarkups[pid] = one; else delete D.pMarkups[pid]; save(); return wait(null); };
+  api.breakEven = async (from, to) => { const o = await api.reportOpex(from, to); let s = 0, c = 0;
+    D.orders.filter(od => !['pending', 'cancelled', 'returned'].includes(od.status) && !od.is_opening && localDay0(od.created_at) >= from && localDay0(od.created_at) <= to)
+      .forEach(od => (D.items || D.order_items || []).filter(i => i.order_id === od.id).forEach(i => { s += i.qty * i.price; c += i.qty * (+i.cost || 0); }));
+    const run = (+o.staff || 0) + (+o.office || 0) + (+o.salaries || 0), r2 = v => Math.round(v * 100) / 100;
+    return wait({ from, to, sales: r2(s), cogs: r2(c), gross: r2(s - c), staff: o.staff, office: o.office, salaries: o.salaries, salary_months: o.salary_months, salary_missing: o.salary_missing,
+      running: r2(run), net: r2(s - c - run), markup_now: c > 0 ? Math.round((s - c) / c * 1000) / 10 : null, break_even: c > 0 ? Math.round(run / c * 1000) / 10 : null }); };
+  api.priceMarkupSave = async p => { pmGet(); const d = {}, cats = {}; const ok = v => +v >= 0 && +v <= 1000;
+    ['1', '50', '100'].forEach(l => { const v = (p.default || {})[l]; if (v === '' || v == null) { if (l === '1') fail('Write the % for all products'); return; } if (!ok(v)) fail('Markup must be between 0% and 1000%'); d[l] = +v; });
+    Object.entries(p.categories || {}).forEach(([k, x]) => { const one = {}; ['1', '50', '100'].forEach(l => { const v = (x || {})[l]; if (v === '' || v == null) return; if (!ok(v)) fail('Markup for ' + k + ' must be between 0% and 1000%'); one[l] = +v; }); if (Object.keys(one).length) cats[k] = one; });
+    D.settings = D.settings || {}; D.settings.price_markup = JSON.stringify({ default: d, categories: cats }); save(); return wait(null); };
+  api.priceSuggestions = async () => { const m = pmGet(); D.qtyPrices = D.qtyPrices || [];
+    return wait(D.products.filter(p => !p.partner_id && p.active !== false && +p.cost > 0).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, cost: +p.cost,
+      own: (m.products || {})[p.id] || null, lines: [{ min_qty: 1, price: +p.price, markup: pmPct(m, p.category, '1', p.id), suggested: pmSug(+p.cost, pmPct(m, p.category, '1', p.id)) }]
+        .concat(D.qtyPrices.filter(q => q.product_id === p.id && [50, 100].includes(+q.min_qty)).sort((a, b) => a.min_qty - b.min_qty).map(q => ({ min_qty: +q.min_qty, price: +q.price, markup: pmPct(m, p.category, String(q.min_qty), p.id), suggested: pmSug(+p.cost, pmPct(m, p.category, String(q.min_qty), p.id)) }))) }))
+      .filter(r => r.lines.some(l => Math.abs(l.suggested - l.price) > 0.0001)).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))); };
+  api.priceSuggestApply = async items => { pmGet(); if (!Array.isArray(items) || !items.length) fail('Choose at least one product'); let n = 0;
+    items.forEach(i => { const p = D.products.find(x => x.id === +i.product_id && !x.partner_id); if (!p) fail('Product not found');
+      (i.lines || []).forEach(l => { const pr = Math.round(+l.price * 100) / 100;
+        if (+l.min_qty === 1) { if (+p.price !== pr) { p.price = pr; n++; } } else { const q = (D.qtyPrices || []).find(x => x.product_id === p.id && +x.min_qty === +l.min_qty); if (q && +q.price !== pr) { q.price = pr; n++; } } }); });
+    save(); return wait(n); };
   // 19 Nov 2026: partner purchases (same rules as partner_purchase_* in the database)
   const ppS = () => (D.ppSup = D.ppSup || []), ppP = () => (D.ppPur = D.ppPur || []);
   const ppJson = pu => { const s = ppS().find(x => x.id === pu.supplier_id) || {}, pn = id => (D.products.find(x => x.id === id) || {});
@@ -7192,6 +7243,17 @@ Object.assign(window.KT_KM, {"📄 Save as catalog": "📄 រក្សាទុ
 window.KT_KM_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "ផលិតផល $1 · ដាក់ជាក្រុមតាមប្រភេទដោយស្វ័យប្រវត្តិ។ បង្ហាញតែតម្លៃលក់ មិនបង្ហាញថ្លៃដើមទេ។"], [/^PDF saved · (\d+) page\(s\)$/, "បានរក្សាទុក PDF · $1 ទំព័រ"]);
 // 19 Nov 2026: partner purchases
 Object.assign(window.KT_KM, {"My purchases": "ការទិញរបស់ខ្ញុំ", "🛒 My purchases": "🛒 ការទិញរបស់ខ្ញុំ", "Buy from your own suppliers · goods arrived · shipping · pay": "ទិញពីអ្នកផ្គត់ផ្គង់ផ្ទាល់ · ទំនិញមកដល់ · ដឹកជញ្ជូន · បង់ប្រាក់", "Buying from your own suppliers": "ទិញពីអ្នកផ្គត់ផ្គង់ផ្ទាល់", "New purchase": "ការទិញថ្មី", "My suppliers": "អ្នកផ្គត់ផ្គង់របស់ខ្ញុំ", "New supplier": "អ្នកផ្គត់ផ្គង់ថ្មី", "Edit supplier": "កែអ្នកផ្គត់ផ្គង់", "Waiting to arrive": "រង់ចាំមកដល់", "You still owe suppliers": "អ្នកនៅជំពាក់អ្នកផ្គត់ផ្គង់", "To pay": "ត្រូវបង់", "Received": "បានទទួល", "Part arrived": "មកដល់ខ្លះ", "Goods arrived": "ទំនិញមកដល់", "Pay supplier": "បង់អ្នកផ្គត់ផ្គង់", "Shipping & other costs": "ដឹកជញ្ជូន និងចំណាយផ្សេងៗ", "Shipping or other costs for this arrival ($)": "ថ្លៃដឹក ឬចំណាយផ្សេងសម្រាប់លើកនេះ ($)", "Add to my stock": "បញ្ចូលស្តុករបស់ខ្ញុំ", "All arrived": "មកដល់ទាំងអស់", "Clear": "សម្អាត", "Save purchase": "រក្សាទុកការទិញ", "Products in this purchase": "ផលិតផលក្នុងការទិញនេះ", "Search your products to add": "ស្វែងរកផលិតផលដើម្បីបន្ថែម", "Date bought": "ថ្ងៃទិញ", "Close the rest (missing goods will not come)": "បិទនៅសល់ (ទំនិញខ្វះនឹងមិនមកទេ)", "Cancel purchase": "បោះបង់ការទិញ", "Save payment": "រក្សាទុកការបង់ប្រាក់", "Arrivals": "ការមកដល់", "You still owe": "អ្នកនៅជំពាក់", "Paid in full": "បង់គ្រប់", "Their purchases": "ការទិញរបស់ពួកគេ", "They still owe suppliers": "ពួកគេនៅជំពាក់អ្នកផ្គត់ផ្គង់", "Their suppliers": "អ្នកផ្គត់ផ្គង់របស់ពួកគេ", "Bought (all)": "បានទិញ (ទាំងអស់)"});
+// 19 Nov 2026: selling price from cost + markup
+Object.assign(window.KT_KM, {"💲 Selling prices from cost": "💲 តម្លៃលក់ពីថ្លៃដើម", " Prices": " តម្លៃ", "⚙️ Markup %": "⚙️ ភាគរយបន្ថែម %", "All products (%)": "ផលិតផលទាំងអស់ (%)", "Different % for a category (empty = the % above):": "ភាគរយផ្សេងតាមប្រភេទ (ទទេ = ភាគរយខាងលើ):", "Save markup": "រក្សាទុកភាគរយ", "Tick all": "ធីកទាំងអស់", "Untick all": "ដកធីកទាំងអស់", "All prices already match cost + markup.": "តម្លៃទាំងអស់ត្រូវនឹងថ្លៃដើម + ភាគរយហើយ។", "Markup saved": "បានរក្សាទុកភាគរយ"});
+window.KT_KM_PATTERNS.push([/^(\d+) product\(s\) with a new suggested price$/, "ផលិតផល $1 មានតម្លៃណែនាំថ្មី"], [/^Use selected prices \((\d+)\)$/, "ប្រើតម្លៃដែលបានជ្រើស ($1)"], [/^(\d+) price\(s\) changed$/, "បានប្តូរតម្លៃ $1"]);
+Object.assign(window.KT_KM, {"Tick these": "ធីកទាំងនេះ", "Untick these": "ដកធីកទាំងនេះ", "Nothing here.": "គ្មានអ្វីទេ។"});
+window.KT_KM_PATTERNS.push([/^⬆ Going up \((\d+)\)$/, "⬆ ឡើងថ្លៃ ($1)"], [/^⬇ Going down \((\d+)\)$/, "⬇ ចុះថ្លៃ ($1)"], [/^All \((\d+)\)$/, "ទាំងអស់ ($1)"], [/^(\d+) product\(s\) · (\d+) ticked in total$/, "ផលិតផល $1 · បានធីកសរុប $2"]);
+Object.assign(window.KT_KM, {"You added on average": "អ្នកបានបន្ថែមជាមធ្យម", "Add at least (break-even)": "ត្រូវបន្ថែមយ៉ាងហោចណាស់ (រួចខ្លួន)", "− Cost of goods sold": "− ថ្លៃដើមទំនិញដែលបានលក់", "= Net profit": "= ចំណេញសុទ្ធ"});
+window.KT_KM_PATTERNS.push([/^Break-even % (.*)$/, "ភាគរយរួចខ្លួន $1"], [/^Add at least this % to cover costs · (.+) ›$/, "ត្រូវបន្ថែមយ៉ាងហោចណាស់ភាគរយនេះ · $1 ›"], [/^You added (.+) on average · profit$/, "អ្នកបានបន្ថែម $1 ជាមធ្យម · ចំណេញ"], [/^You added (.+) on average · not enough$/, "អ្នកបានបន្ថែម $1 ជាមធ្យម · មិនគ្រប់"]);
+// 19 Nov 2026: own markup % + catalog of my products
+Object.assign(window.KT_KM, {"💲 Markup % for this product": "💲 ភាគរយបន្ថែមសម្រាប់ផលិតផលនេះ", "% for this product": "% សម្រាប់ផលិតផលនេះ", "own %": "% ផ្ទាល់", "Use the category %": "ប្រើ % តាមប្រភេទ", "Follows the category again": "ប្រើតាមប្រភេទវិញ", "📄 Catalog of my products": "📄 កាតាឡុកផលិតផលរបស់ខ្ញុំ", " Catalog": " កាតាឡុក", "Which products": "ផលិតផលណាខ្លះ", "Languages": "ភាសា", "No products": "គ្មានផលិតផល"});
+// automatic SKU (19 Nov 2026)
+Object.assign(window.KT_KM, {"Automatic": "ស្វ័យប្រវត្តិ", "Leave empty = automatic SKU": "ទុកទទេ = SKU ស្វ័យប្រវត្តិ", "Write the product name": "សូមសរសេរឈ្មោះផលិតផល"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9253,6 +9315,17 @@ Object.assign(window.KT_ZH, {"📄 Save as catalog": "📄 保存为目录", "Sa
 window.KT_ZH_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "$1 个产品，自动按类别分组。只显示售价，不显示成本。"], [/^PDF saved · (\d+) page\(s\)$/, "PDF 已保存 · $1 页"]);
 // 19 Nov 2026: partner purchases
 Object.assign(window.KT_ZH, {"My purchases": "我的采购", "🛒 My purchases": "🛒 我的采购", "Buy from your own suppliers · goods arrived · shipping · pay": "向自己的供应商采购 · 到货 · 运费 · 付款", "Buying from your own suppliers": "向自己的供应商采购", "New purchase": "新采购", "My suppliers": "我的供应商", "New supplier": "新供应商", "Edit supplier": "编辑供应商", "Waiting to arrive": "等待到货", "You still owe suppliers": "您仍欠供应商", "To pay": "待付款", "Received": "已收货", "Part arrived": "部分到货", "Goods arrived": "到货", "Pay supplier": "付款给供应商", "Shipping & other costs": "运费和其他费用", "Shipping or other costs for this arrival ($)": "本次到货的运费或其他费用 ($)", "Add to my stock": "加入我的库存", "All arrived": "全部到货", "Clear": "清除", "Save purchase": "保存采购", "Products in this purchase": "本次采购的产品", "Search your products to add": "搜索您的产品添加", "Date bought": "采购日期", "Close the rest (missing goods will not come)": "结束剩余（缺货不会再来）", "Cancel purchase": "取消采购", "Save payment": "保存付款", "Arrivals": "到货记录", "You still owe": "您仍欠", "Paid in full": "已全部付清", "Their purchases": "他们的采购", "They still owe suppliers": "他们仍欠供应商", "Their suppliers": "他们的供应商", "Bought (all)": "采购（全部）"});
+// 19 Nov 2026: selling price from cost + markup
+Object.assign(window.KT_ZH, {"💲 Selling prices from cost": "💲 按成本计算售价", " Prices": " 价格", "⚙️ Markup %": "⚙️ 加价 %", "All products (%)": "所有产品 (%)", "Different % for a category (empty = the % above):": "按类别设置不同 %（空 = 上面的 %）：", "Save markup": "保存加价", "Tick all": "全选", "Untick all": "全不选", "All prices already match cost + markup.": "所有价格已等于成本 + 加价。", "Markup saved": "加价已保存"});
+window.KT_ZH_PATTERNS.push([/^(\d+) product\(s\) with a new suggested price$/, "$1 个产品有新的建议价格"], [/^Use selected prices \((\d+)\)$/, "使用所选价格（$1）"], [/^(\d+) price\(s\) changed$/, "已更改 $1 个价格"]);
+Object.assign(window.KT_ZH, {"Tick these": "选中这些", "Untick these": "取消这些", "Nothing here.": "这里没有。"});
+window.KT_ZH_PATTERNS.push([/^⬆ Going up \((\d+)\)$/, "⬆ 涨价 ($1)"], [/^⬇ Going down \((\d+)\)$/, "⬇ 降价 ($1)"], [/^All \((\d+)\)$/, "全部 ($1)"], [/^(\d+) product\(s\) · (\d+) ticked in total$/, "$1 个产品 · 共选中 $2 个"]);
+Object.assign(window.KT_ZH, {"You added on average": "您平均加价", "Add at least (break-even)": "至少加价（保本）", "− Cost of goods sold": "− 销售成本", "= Net profit": "= 净利润"});
+window.KT_ZH_PATTERNS.push([/^Break-even % (.*)$/, "保本加价 % $1"], [/^Add at least this % to cover costs · (.+) ›$/, "至少加这个 % 才能覆盖成本 · $1 ›"], [/^You added (.+) on average · profit$/, "您平均加价 $1 · 有利润"], [/^You added (.+) on average · not enough$/, "您平均加价 $1 · 不够"]);
+// 19 Nov 2026: own markup % + catalog of my products
+Object.assign(window.KT_ZH, {"💲 Markup % for this product": "💲 此产品的加价 %", "% for this product": "此产品的 %", "own %": "自定 %", "Use the category %": "使用类别 %", "Follows the category again": "重新按类别", "📄 Catalog of my products": "📄 我的产品目录", " Catalog": " 目录", "Which products": "哪些产品", "Languages": "语言", "No products": "没有产品"});
+// automatic SKU (19 Nov 2026)
+Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU": "留空 = 自动 SKU", "Write the product name": "请填写产品名称"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -10037,7 +10110,13 @@ Object.assign(window.KT_ZH, {"My purchases": "我的采购", "🛒 My purchases"
     sel.onchange = () => { if (sel.value !== '__new') { prev = sel.value; return; } sel.value = prev;
       K.catNameSheet('New category', '', async name => { await K.api.addProductCategory(name); K.forget('pcats');
         if (![...sel.options].some(o => o.value === name)) sel.insertAdjacentHTML('beforeend', `<option>${esc(name)}</option>`);
-        sel.value = name; prev = name; const nw = sel.querySelector('option[value="__new"]'); if (nw) sel.appendChild(nw); }); }; };
+        sel.value = name; prev = name; const nw = sel.querySelector('option[value="__new"]'); if (nw) sel.appendChild(nw); sel.dispatchEvent(new Event('kt-cat')); }); }; };
+  // automatic SKU (19 Nov 2026): a NEW product may leave the SKU empty; the box shows the SKU it will get (e.g. CB-012)
+  K.bindAutoSku = (el, isNew) => { const box = K.$('#sku', el), sel = K.$('#cat', el); if (!box || !sel || !isNew) return;
+    box.placeholder = 'Automatic'; box.insertAdjacentHTML('afterend', `<div class="small muted" style="margin-top:2px">${'Leave empty = automatic SKU'}</div>`);
+    const upd = async () => { const c = sel.value; if (!c || c === '__new') { box.placeholder = 'Automatic'; return; }
+      try { const n = await K.api.skuPreview(c); box.placeholder = n ? 'Automatic' + ': ' + n : 'Automatic'; } catch (e) { box.placeholder = 'Automatic'; } };
+    sel.addEventListener('change', upd); sel.addEventListener('kt-cat', upd); upd(); };
   K.catNameSheet = (title, val, onOk) => {
     const s = K.sheet(title, `<label class="f">Category name<input class="inp" id="cn" value="${esc(val)}" maxlength="40" placeholder="e.g. Chargers, Cables, Phone cases"></label><button class="btn block" id="cok">Save</button>`);
     setTimeout(() => K.$('#cn', s.el).focus(), 50);
@@ -12652,7 +12731,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div id="dper" style="display:flex;flex-direction:column;gap:8px">${P.html(dst.p, dst.from, dst.to, P.DASH)}<div class="small muted">${esc(P.label(dst))}</div></div>
       <div class="sec">For ${esc(pName)}</div>
       <div class="kpis big">${per ? kpi(money(per.sales), 'Sales ' + pName, null, '#/reports') + kpi(per.orders, 'Orders ' + pName, null, '#/orders') + kpi(money(per.collected), 'Collected ' + pName, +per.collected ? 'var(--gr)' : null, '#/payments?t=all')
-          + kpi(per.visits, 'Shop visits ' + pName, null, '#/visits') + K.dashExpBox(per, pName) + (moh ? K.mohBox(moh, pName) : '') + kpi(per.new_shops, 'New shops ' + pName, null, '#/customers')
+          + kpi(per.visits, 'Shop visits ' + pName, null, '#/visits') + K.dashExpBox(per, pName) + (K.allow('reports.view') && K.allow('purchases.manage') ? '<button class="stat" id="bebox" style="text-align:left;cursor:pointer;font:inherit;color:inherit"><b>…</b><span>Break-even % ' + esc(pName) + '</span></button>' : '') + (moh ? K.mohBox(moh, pName) : '') + kpi(per.new_shops, 'New shops ' + pName, null, '#/customers')
         : kpi(money(d.sales_today), 'Sales today', null, '#/reports') + kpi(d.orders_today, 'Orders today', null, '#/orders') + kpi(money(d.collected_today || 0), 'Collected today', d.collected_today ? 'var(--gr)' : null, '#/payments?t=all') + kpi(d.visits_today, 'Shop visits today', null, '#/visits')}</div>
       <div class="sec">Right now</div>
       <div class="kpis small">${cash ? K.cashBoxes(cash, kpi) : ''}
@@ -12679,6 +12758,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if ($('#dper')) P.bind($('#dper'), dst, () => K.render());
     if ($('#expbox') && per) $('#expbox').onclick = () => (K.opexSheet && K.allow('reports.view') && K.allow('purchases.manage')) ? K.opexSheet(per.from, per.to, 'Operating expenses · ' + pName) : go('#/expenses');
     if ($('#mohbox') && moh) $('#mohbox').onclick = () => K.mohSheet(moh, 'Money in − out · ' + pName);
+    if ($('#bebox') && per) K.breakEvenBox($('#bebox'), per.from, per.to, pName);   // 19 Nov 2026: break-even %
     if ($('#tg')) $('#tg').onclick = () => K.targetsSheet(() => K.render());
     if ($('#rkme') && K.rankingMeSheet) $('#rkme').onclick = () => K.rankingMeSheet();
     if (K.fieldTeamBox) K.fieldTeamBox($('#ftd'));
@@ -12894,12 +12974,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---------------- Products & stock ----------------
   route(/^\/products$/, async (_, q, current) => {
     await refreshCounts();
-    const main = shell('products', 'Inventory', `<a class="btn sm out" href="#/stockctl" style="text-decoration:none">📦<span class="hide-sm">Stock control</span></a>` + (K.allow('stock.manage') ? `<button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : ''));
+    const main = shell('products', 'Inventory', `<a class="btn sm out" href="#/stockctl" style="text-decoration:none">📦<span class="hide-sm">Stock control</span></a>` + (K.allow('stock.manage') ? `<button class="btn sm out" id="pcatl">📄<span class="hide-sm"> Catalog</span></button><button class="btn sm out" id="pprice">💲<span class="hide-sm"> Prices</span></button><button class="btn sm out" id="pcats">${icon('list', 18)}<span class="hide-sm">Categories</span></button><button class="btn sm" id="add">${icon('plus', 18)}<span class="hide-sm">Add product</span></button>` : ''));
     if ($('#add')) $('#add').onclick = () => productSheet({});
     if ($('#rep')) $('#rep').onclick = () => K.loadRepSheet(() => K.render());
     const [products, warehouses, cats] = await Promise.all([data.products(true), data.warehouses(true), K.productCats(true)]);
     if (!current()) return;
     if ($('#pcats')) $('#pcats').onclick = () => K.productCatsSheet(products, () => K.render());
+    if ($('#pcatl')) $('#pcatl').onclick = () => K.ktrCatalogSheet(products);   // 19 Nov 2026: catalog of my products
+    if ($('#pprice')) { $('#pprice').onclick = () => K.priceSuggestSheet(() => K.render());   // 19 Nov 2026: selling price = cost + markup (suggest, you approve)
+      api.priceSuggestions().then(l => { if (l.length && $('#pprice')) $('#pprice').innerHTML = `💲<span class="hide-sm"> Prices</span> <i class="badge" style="position:static;margin-left:4px">${l.length}</i>`; }).catch(() => {}); }
     if ($('#scount')) $('#scount').onclick = () => K.stockCountSheet(products, warehouses, () => K.render());
     let search = '', onlyLow = q.low === '1', catF = q.c || '', comF = '';
     const value = products.reduce((s, p) => s + p.total_qty * p.cost, 0);
@@ -12940,7 +13023,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${(() => { const t = (p.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty); const rows = t.length ? t.concat(t.length < 3 ? [{}] : []) : [{ min_qty: 50 }, { min_qty: 100 }, {}];   // 18 Nov 2026: he uses 50 and 100 pcs up
           return rows.map(r => `<div class="btns" style="margin:0"><label class="f">From pcs<input class="inp" data-qq type="number" min="2" step="1" inputmode="numeric" value="${r.min_qty ?? ''}" placeholder="e.g. 10"></label><label class="f">Price each ($)<input class="inp" data-qv type="number" min="0" step="0.01" inputmode="decimal" value="${r.price ?? ''}" placeholder="e.g. 0.55"></label></div>`).join(''); })()}
         <div class="small muted">Example: 50 → $0.60 means 50 pcs and up cost $0.60 each; under 50 pcs = the selling price.</div>
-        <button class="btn sm out" id="qcp" type="button">Copy these to all “${esc(p.category || '')}” products</button></div>` : '<div class="small muted">Quantity prices (10 / 50 / 100 pcs and up): save the product first, then open it again.</div>'}
+        <button class="btn sm out" id="qcp" type="button">Copy these to all “${esc(p.category || '')}” products</button>
+        <button class="btn sm out" id="pmk" type="button">💲 Markup % for this product</button></div>` : '<div class="small muted">Quantity prices (10 / 50 / 100 pcs and up): save the product first, then open it again.</div>'}
       <label class="f">Low stock warning at<input class="inp" id="mn" type="number" inputmode="numeric" value="${p.min_stock ?? 10}"></label>
       ${K.productPhotoField(p)}
       ${K.trFields(p.tr)}
@@ -12948,10 +13032,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small muted" style="margin-top:-6px">"No" = reps cannot order it from the Main warehouse or other shared stocks (they can still sell it from their own stock). Managers are not limited.</div>` : ''}
       <div class="btns">${p.id ? '<button class="btn red" id="pdel">Delete</button>' : ''}<button class="btn" id="sv">Save product</button></div>
       ${p.id ? `<div class="small muted" style="line-height:1.5">To change stock: <a href="#/stockctl">Stock control</a> → Transfers (move between stocks), Adjustments (in / out with a reason) or Counts. New goods from a supplier: Purchasing.</div>` : ''}`);
-    K.bindCatField(s.el); const photoOf = K.bindProductPhoto(s.el, p);
+    K.bindCatField(s.el); K.bindAutoSku(s.el, !p.id); const photoOf = K.bindProductPhoto(s.el, p);
     $('#sv', s.el).onclick = async e => {
       const row = { id: p.id, name: $('#nm', s.el).value.trim(), sku: $('#sku', s.el).value.trim(), category: $('#cat', s.el).value.trim(), price: $('#pr', s.el).value, cost: $('#co', s.el).value, min_stock: $('#mn', s.el).value, photo_url: photoOf(), tr: K.trRead(s.el) };
-      if (!row.name || !row.sku) return toast('Name and SKU are needed');
+      if (!row.name) return toast('Write the product name');
+      if (p.id && !row.sku) return toast('Name and SKU are needed');
       if (!row.category || row.category === '__new') return toast('Choose a category');
       if (p.id && qSteps() === null) return;
       await busy(e.currentTarget, async () => { await api.saveProduct(row); if (p.id) await api.saveQtyPrices(p.id, qSteps()); }); s.close(); toast('Product saved'); forget('products', 'pcats'); K.render();
@@ -12959,6 +13044,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     // quantity prices (17 Nov 2026): rows with a price are used
     const qSteps = () => { const out = []; for (const w of $$('[data-qq]', s.el)) { const q = w.value.trim(), v = w.closest('.btns').querySelector('[data-qv]').value.trim();
         if (v === '') continue; if (!(+q >= 2)) { toast('Pieces must be 2 or more'); return null; } out.push({ min_qty: Math.floor(+q), price: +v }); } return out; };
+    if ($('#pmk', s.el)) $('#pmk', s.el).onclick = () => K.productMarkupSheet(p);   // 19 Nov 2026: own markup %
     if ($('#qcp', s.el)) $('#qcp', s.el).onclick = async e => { const st = qSteps(); if (st === null) return;
       if (!(await K.confirmSheet('Copy to all “' + p.category + '” products?', st.length ? st.map(x => x.min_qty + '+ pcs: ' + K.money(x.price)).join(' · ') + ' — replaces their quantity prices.' : 'No quantity prices: this removes them from all products in this category.', 'Copy'))) return;
       const n = await busy(e.currentTarget, async () => { await api.saveQtyPrices(p.id, st); return api.copyQtyPrices(p.id); }); forget('products'); toast('Copied to ' + n + ' other products'); };
@@ -17926,6 +18012,141 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     draw();
   });
+})();
+
+// Selling price suggestions (19 Nov 2026, Mr. Lee: "Product cost + shipping + other expensive. Sell out all products need to plus 100% of total cost.
+// Total product cost 2.4$ + 100% = 4.8$" → each price line its own %: 1–49 · 50+ · 100+, "% I will put myself. Put 1 for all").
+// Admin web → Inventory → "💲 Prices": markup % (all products + per category, per line), the products whose prices differ from
+// cost × (1 + line %) rounded UP to $0.10, tick → "Use selected prices". Nothing changes by itself.
+(function () {
+  const K = window.KT;
+  const { api, esc, toast, busy } = K;
+  const $ = (s, el) => (el || document).querySelector(s), $$ = (s, el) => [...(el || document).querySelectorAll(s)];
+  const money = v => K.money(v);
+  const LINES = [['1', '1–49 pcs'], ['50', '50+ pcs'], ['100', '100+ pcs']];
+  const lineName = q => +q === 1 ? '1–49' : q + '+';
+  const diff = r => r.lines.filter(l => +l.suggested !== +l.price);
+  const dir = r => { const d = diff(r)[0]; return d && +d.suggested > +d.price ? 'up' : 'down'; };   // the first line that changes decides
+
+  K.priceSuggestSheet = async (onDone) => {
+    const [m, list0, prods] = await Promise.all([api.priceMarkupGet(), api.priceSuggestions(), K.data.products(true)]);
+    const cats = [...new Set(prods.filter(p => !p.partner_id).map(p => p.category).filter(Boolean))].sort();
+    let all = list0, flt = 'up', list = [], pick = new Set(all.filter(r => dir(r) === 'up').map(r => r.product_id));   // only price rises ticked at first
+    const filt = () => { list = all.filter(r => flt === 'all' || dir(r) === flt); };
+    const inp = (attr, val, ph) => `<input class="inp" style="width:84px" type="number" min="0" max="1000" step="any" inputmode="decimal" ${attr} value="${val != null ? +val : ''}" placeholder="${ph != null ? +ph : ''}">`;
+    const s = K.sheet('💲 Selling prices from cost', `<div class="small muted" style="line-height:1.5">Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, rounded up to $0.10. Example: $2.40 + 100% = $4.80. The 50+ and 100+ lines are suggested only for products that have those quantity prices. Prices change only when you tap <b>Use selected prices</b>.</div>
+      <details class="card"><summary style="cursor:pointer;font-weight:800">⚙️ Markup %</summary>
+        <div class="row" style="gap:8px"><span class="grow"></span>${LINES.map(([, l]) => `<b class="small" style="width:84px;text-align:center">${l}</b>`).join('')}</div>
+        <div class="row" style="gap:8px;align-items:center"><b class="grow">All products</b>${LINES.map(([k]) => inp(`data-mkd="${k}"`, m.default[k], null)).join('')}</div>
+        <div class="small muted">A category's own % (empty = the % of all products):</div>
+        ${cats.map(c => `<div class="row" style="gap:8px;align-items:center"><span class="grow">${esc(c)}</span>${LINES.map(([k]) => inp(`data-mkc="${esc(c)}" data-ml="${k}"`, (m.categories[c] || {})[k], m.default[k] != null ? m.default[k] : m.default['1'])).join('')}</div>`).join('')}
+        <button class="btn out block" id="mksave">Save markup</button></details>
+      <div id="pslist"></div>`);
+    const draw = () => { filt(); const nUp = all.filter(r => dir(r) === 'up').length, nDn = all.length - nUp, here = list.filter(r => pick.has(r.product_id)).length;
+      $('#pslist', s.el).innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['up', '⬆ Going up (' + nUp + ')'], ['down', '⬇ Going down (' + nDn + ')'], ['all', 'All (' + all.length + ')']].map(([k, l]) => `<button class="chip ${flt === k ? 'on' : ''}" data-pf="${k}">${l}</button>`).join('')}</div>`
+        + (list.length ? `<div class="row" style="gap:8px;align-items:center"><b class="grow">${list.length} product(s) · ${pick.size} ticked in total</b><button class="btn sm out" id="psall">${here === list.length ? 'Untick these' : 'Tick these'}</button></div>
+        <div class="card flush" style="max-height:440px;overflow:auto">${list.map(r => `<label class="list-item" style="gap:10px;cursor:pointer;align-items:flex-start"><input type="checkbox" data-pk="${r.product_id}" ${pick.has(r.product_id) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px">
+          <div class="grow"><div class="tt">${esc(r.name)}${r.own ? ' <span class="pill bl">own %</span>' : ''}</div><div class="st">${esc(r.sku || '')} · ${esc(r.category || '')} · cost ${money(r.cost)} · <button type="button" class="linkbtn" data-pmk="${r.product_id}" style="border:0;background:none;padding:0;font:inherit;color:var(--p);font-weight:700;cursor:pointer">% for this product</button></div>
+            ${r.lines.map(l => `<div class="small row" style="gap:8px"><span class="grow">${lineName(l.min_qty)} pcs · +${+l.markup}%</span>${+l.suggested === +l.price ? `<span class="muted">${money(l.price)} (same)</span>`
+              : `<span class="muted" style="text-decoration:line-through">${money(l.price)}</span><b style="color:${+l.suggested > +l.price ? 'var(--gr)' : 'var(--rd)'}">${money(l.suggested)}</b>`}</div>`).join('')}</div></label>`).join('')}</div>
+        <button class="btn block" id="psuse">Use selected prices (${pick.size})</button>
+        <div class="small muted">Products without a cost are not listed. Old orders never change.</div>`
+        : '<div class="card"><b>Nothing here.</b><div class="small muted">New suggestions show after goods arrive with a new cost, or when you change the markup.</div></div>');
+      $$('[data-pf]', s.el).forEach(b => b.onclick = () => { flt = b.dataset.pf; draw(); });
+      $$('[data-pmk]', s.el).forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const r = all.find(x => x.product_id === +b.dataset.pmk);
+        K.productMarkupSheet({ id: r.product_id, name: r.name, category: r.category }, async () => { all = await api.priceSuggestions(); draw(); }); });
+      $$('[data-pk]', s.el).forEach(c => c.onchange = () => { c.checked ? pick.add(+c.dataset.pk) : pick.delete(+c.dataset.pk); draw(); });
+      if ($('#psall', s.el)) $('#psall', s.el).onclick = () => { const on = list.every(r => pick.has(r.product_id)); list.forEach(r => on ? pick.delete(r.product_id) : pick.add(r.product_id)); draw(); };
+      if ($('#psuse', s.el)) $('#psuse', s.el).onclick = async e => {
+        const items = all.filter(r => pick.has(r.product_id)).map(r => ({ product_id: r.product_id, lines: diff(r).map(l => ({ min_qty: l.min_qty, price: l.suggested })) }));
+        if (!items.length) return toast('Tick at least one product');
+        if (!(await K.confirmSheet('Change the prices of ' + items.length + ' product(s)?', 'The new prices are used for new orders from now on. Old orders do not change.', 'Use prices'))) return;
+        const n = await busy(e.currentTarget, () => api.priceSuggestApply(items)); toast(n + ' price(s) changed'); K.forget && K.forget('products');
+        all = await api.priceSuggestions(); pick = new Set(all.filter(r => dir(r) === 'up').map(r => r.product_id)); draw(); onDone && onDone();
+      };
+    };
+    $('#mksave', s.el).onclick = async e => {
+      const d = {}, categories = {};
+      $$('[data-mkd]', s.el).forEach(i => { if (i.value !== '') d[i.dataset.mkd] = +i.value; });
+      $$('[data-mkc]', s.el).forEach(i => { if (i.value === '') return; (categories[i.dataset.mkc] = categories[i.dataset.mkc] || {})[i.dataset.ml] = +i.value; });
+      await busy(e.currentTarget, () => api.priceMarkupSave({ default: d, categories })); toast('Markup saved');
+      all = await api.priceSuggestions(); pick = new Set(all.filter(r => dir(r) === 'up').map(r => r.product_id)); draw();
+    };
+    draw();
+  };
+
+  // Break-even % (19 Nov 2026, Mr. Lee: "What price should I sell or add % for at least profit" → "Ok" to a Dashboard box):
+  // markup now = gross profit ÷ cost of goods sold; break-even = running costs (staff + office expenses + salaries) ÷ cost of goods sold
+  const pct = v => v == null ? '—' : '+' + (+v).toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%';
+  K.breakEvenBox = async (el, from, to, pName) => {
+    let d; try { d = await api.breakEven(from, to); } catch (e) { el.innerHTML = '<b>—</b><span>Break-even %</span>'; return; }
+    if (!el.isConnected) return;
+    const ok = d.break_even != null && d.markup_now != null && +d.markup_now >= +d.break_even;
+    el.innerHTML = d.break_even == null ? `<b>—</b><span>Break-even % ${esc(pName)}</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">No sales with a cost in these dates</em>`
+      : `<b style="color:${ok ? 'var(--gr)' : 'var(--rd)'}">${pct(d.break_even)}</b><span>Add at least this % to cover costs · ${esc(pName)} ›</span><em class="small muted" style="display:block;font-style:normal;margin-top:4px">You added ${pct(d.markup_now)} on average · ${ok ? 'profit' : 'not enough'}</em>`;
+    el.onclick = () => K.sheet('Break-even % · ' + pName, `<div class="card" style="gap:4px">
+        <div class="row"><span class="grow">Sales</span><b>${money(d.sales)}</b></div>
+        <div class="row"><span class="grow">− Cost of goods sold</span><b>${money(d.cogs)}</b></div>
+        <div class="row"><span class="grow">= Gross profit</span><b>${money(d.gross)}</b></div>
+        <div class="row"><span class="grow">− Running costs (salaries ${money(d.salaries)} · staff expenses ${money(d.staff)} · office ${money(d.office)})</span><b>${money(d.running)}</b></div>
+        <div class="row" style="border-top:1px solid var(--line);padding-top:6px"><b class="grow">= Net profit</b><b style="color:${+d.net < 0 ? 'var(--rd)' : 'var(--gr)'}">${money(d.net)}</b></div></div>
+      <div class="card" style="gap:4px"><div class="row"><span class="grow">You added on average</span><b>${pct(d.markup_now)}</b></div>
+        <div class="row"><span class="grow">Add at least (break-even)</span><b style="color:var(--rd)">${pct(d.break_even)}</b></div>
+        <div class="small muted" style="line-height:1.5">Break-even % = running costs ÷ cost of goods sold (${money(d.running)} ÷ ${money(d.cogs)}). Below it you work at a loss; above it is profit. Use it for your markup in Inventory → 💲 Prices.</div>
+        ${(d.salary_missing || []).length ? `<div class="small" style="color:var(--or);font-weight:700">Payroll not saved yet for some months: salaries are missing, so the real break-even is higher.</div>` : !(d.salary_months || []).length ? '<div class="small" style="color:var(--or);font-weight:700">Salaries count only for whole months: choose Last month to include them.</div>' : ''}</div>`);
+  };
+
+  // a product's own markup % (19 Nov 2026, Mr. Lee: "Can % plus also can fill by each product?"): wins over its category and all products
+  K.productMarkupSheet = async (p, onDone) => {
+    const m = await api.priceMarkupGet(), own = (m.products || {})[p.id] || {}, cat = m.categories[p.category] || {};
+    const ph = k => cat[k] != null ? cat[k] : m.default[k] != null ? m.default[k] : m.default['1'];
+    const s = K.sheet('💲 Markup % · ' + p.name, `<div class="small muted">This product's own %. Empty = the % of its category “${esc(p.category || '')}” or of all products (shown in grey).</div>
+      <div class="btns">${LINES.map(([k, l]) => `<label class="f">${l}<input class="inp" type="number" min="0" max="1000" step="any" inputmode="decimal" data-pm="${k}" value="${own[k] != null ? +own[k] : ''}" placeholder="${+ph(k)}"></label>`).join('')}</div>
+      <div class="btns"><button class="btn out" id="pmclr">Use the category %</button><button class="btn" id="pmsave">Save</button></div>`);
+    const save = async (btn, clear) => { const v = {}; $$('[data-pm]', s.el).forEach(i => { v[i.dataset.pm] = clear ? '' : i.value; });
+      await busy(btn, () => api.productMarkupSave(p.id, v)); s.close(); toast(clear ? 'Follows the category again' : 'Saved'); onDone && onDone(); };
+    $('#pmsave', s.el).onclick = e => save(e.currentTarget, false); $('#pmclr', s.el).onclick = e => save(e.currentTarget, true);
+  };
+
+  // catalog of MY products (19 Nov 2026, Mr. Lee: "My product can I save catalogs as PDF or photos?" → "Okay"): Inventory → "📄 Catalog".
+  // Same drawing as the partner catalogs (K.catalogDraw): by category automatically, photos, names in km / zh / en, selling price only (never cost).
+  K.ktrCatalogSheet = async (products) => {
+    const rows = (products || []).filter(p => !p.partner_id && p.active !== false);
+    const cats = [...new Set(rows.map(p => p.category).filter(Boolean))].sort();
+    const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
+    let per = [4, 6, 9].includes(+ls.get('kt_kcat_per')) ? +ls.get('kt_kcat_per') : 6, which = 'all', cat = '', langs = ['en'].concat(['km', 'zh'].filter(l => rows.some(r => r.tr && r.tr[l] && r.tr[l].name)));
+    const chosen = () => rows.filter(r => (which !== 'stock' || +r.total_qty > 0) && (!cat || r.category === cat));
+    const s = K.sheet('📄 Catalog of my products', `<div class="small muted">Grouped by category automatically. Only the selling price shows, never the cost. Name, logo and contact from Settings → Company.</div>
+      <div class="f"><span>Products per page</span><div class="seg" id="kcper">${[[4, '4 large'], [6, '6'], [9, '9 small']].map(([k, l]) => `<button type="button" data-kp="${k}" class="${per === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div class="f"><span>Which products</span><div class="seg">${[['all', 'All'], ['stock', 'In stock']].map(([k, l]) => `<button type="button" data-kw="${k}" class="${which === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <label class="f">Category<select class="inp" id="kccat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
+      <div class="f"><span>Languages</span><div class="seg" id="kclg">${K.catalogLangs.map(k => `<button type="button" data-kl="${k}" class="${langs.includes(k) ? 'on' : ''}">${K.catalogLangName[k]}</button>`).join('')}</div></div>
+      <div class="small" id="kcn"></div>
+      <div class="btns"><button class="btn out" id="kcimg">🖼 Save as pictures</button><button class="btn" id="kcpdf">📄 Save PDF</button></div>`);
+    const sum = () => { $('#kcn', s.el).textContent = chosen().length + ' product(s)'; };
+    $$('[data-kp]', s.el).forEach(b => b.onclick = () => { per = +b.dataset.kp; ls.set('kt_kcat_per', per); $$('[data-kp]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+    $$('[data-kw]', s.el).forEach(b => b.onclick = () => { which = b.dataset.kw; $$('[data-kw]', s.el).forEach(x => x.classList.toggle('on', x === b)); sum(); });
+    $$('[data-kl]', s.el).forEach(b => b.onclick = () => { const k = b.dataset.kl; langs = langs.includes(k) ? langs.filter(x => x !== k) : langs.concat(k); if (!langs.length) langs = [k]; b.classList.toggle('on', langs.includes(k)); });
+    $('#kccat', s.el).onchange = e => { cat = e.target.value; sum(); }; sum();
+    const C = K.COMPANY || {};
+    const make = async btn => { const items = chosen(); if (!items.length) { toast('No products'); return null; }
+      const old = btn.textContent; btn.disabled = true;
+      try { btn.textContent = 'Loading photos…'; const urls = [...new Set(items.map(r => r.photo_url).filter(Boolean))], imgs = {};
+        for (let k = 0; k < urls.length; k += 6) (await Promise.all(urls.slice(k, k + 6).map(K.catalogLoadImg))).forEach((im, j) => { if (im) imgs[urls[k + j]] = im; });
+        try { await Promise.all([document.fonts.load('800 20px "Plus Jakarta Sans"'), langs.includes('km') ? document.fonts.load('700 20px "Noto Sans Khmer"') : null]); } catch (e) {}
+        const logo = C.logo ? await K.catalogLoadImg(C.logo) : null; btn.textContent = 'Making…';
+        return K.catalogDraw(items.map(r => ({ name: r.name, tr: r.tr, category: r.category, price: r.price, img: imgs[r.photo_url] || null })),
+          { title: C.name || 'K-TRONiCS', subtitle: C.tagline || '', contact: [C.phone, C.address].filter(Boolean).join('\n'), color: '#D7141A', currency: 'USD', rate: 4100, perPage: per, langs, showPrice: true, logo });
+      } finally { btn.disabled = false; btn.textContent = old; } };
+    const fname = () => 'catalog-' + String(C.name || 'K-TRONiCS').replace(/[^\w-]+/g, '-') + (cat ? '-' + cat.replace(/[^\w-]+/g, '-') : '');
+    $('#kcpdf', s.el).onclick = async e => { const pages = await make(e.currentTarget); if (!pages) return;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(K.pdfPages(pages)); a.download = fname() + '.pdf'; document.body.appendChild(a); a.click(); a.remove(); toast('PDF saved · ' + pages.length + ' page(s)'); };
+    $('#kcimg', s.el).onclick = async e => { const pages = await make(e.currentTarget); if (!pages) return;
+      const files = await Promise.all(pages.map((cv, k) => new Promise(r => cv.toBlob(b => r(new File([b], fname() + '-' + (k + 1) + '.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9))));
+      if (navigator.canShare && navigator.canShare({ files })) { try { await navigator.share({ files }); return; } catch (er) { if (er && er.name === 'AbortError') return; } }
+      for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 400)); }
+      toast(files.length + ' picture(s) saved'); };
+  };
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
