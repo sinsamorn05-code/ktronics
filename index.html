@@ -6442,7 +6442,7 @@ Object.assign(window.KT_KM, { 'Partner': 'ដៃគូ', 'Partners': 'ដៃគ�
 Object.assign(window.KT_KM, { 'My stock': 'ស្តុករបស់ខ្ញុំ', 'My prices': 'តម្លៃរបស់ខ្ញុំ', 'Stock history': 'ប្រវត្តិស្តុក', 'Your partner warehouse': 'ឃ្លាំងដៃគូរបស់អ្នក',
   'What is in your partner warehouse': 'អ្វីដែលមាននៅក្នុងឃ្លាំងដៃគូរបស់អ្នក', 'Your own selling prices': 'តម្លៃលក់ផ្ទាល់ខ្លួនរបស់អ្នក', 'Stock in, counts and sales': 'ស្តុកចូល ការរាប់ និងការលក់',
   'Customers, orders and payments will appear here soon.': 'អតិថិជន ការបញ្ជាទិញ និងការទូទាត់នឹងបង្ហាញនៅទីនេះឆាប់ៗ។', 'Products in stock': 'ទំនិញមានស្តុក', 'Pieces': 'គ្រឿង',
-  'In stock': 'មានស្តុក', 'no price yet': 'មិនទាន់មានតម្លៃ', 'No stock yet. K-TRONiCS adds stock to your warehouse.': 'មិនទាន់មានស្តុក។ K-TRONiCS បន្ថែមស្តុកទៅឃ្លាំងរបស់អ្នក។',
+  'In stock': 'មានស្តុក', 'no price yet': 'មិនទាន់មានតម្លៃ', 'no selling price yet': 'មិនទាន់មានតម្លៃលក់', 'Stock value (real cost)': 'តម្លៃស្តុក (ថ្លៃដើមពិត)', 'Real cost of the goods that arrived (with all shipping)': 'ថ្លៃដើមពិតនៃទំនិញដែលបានមកដល់ (រួមទាំងថ្លៃដឹកជញ្ជូន)', 'No stock yet. K-TRONiCS adds stock to your warehouse.': 'មិនទាន់មានស្តុក។ K-TRONiCS បន្ថែមស្តុកទៅឃ្លាំងរបស់អ្នក។',
   'Only K-TRONiCS can add stock to your warehouse. Your sales take it out.': 'មានតែ K-TRONiCS ទេដែលអាចបន្ថែមស្តុកទៅឃ្លាំងរបស់អ្នក។ ការលក់របស់អ្នកដកវាចេញ។',
   'Save prices': 'រក្សាទុកតម្លៃ', 'Prices saved': 'បានរក្សាទុកតម្លៃ', 'Prices must be 0 or more': 'តម្លៃត្រូវតែ 0 ឬច្រើនជាង', 'No history yet': 'មិនទាន់មានប្រវត្តិ',
   'Count fixed': 'បានកែចំនួន', 'Sold': 'បានលក់', 'Order cancelled': 'បានលុបចោលការបញ្ជាទិញ', 'Sent to K-TRONiCS': 'បានផ្ញើទៅ K-TRONiCS', 'Add stock': 'បន្ថែមស្តុក' });
@@ -8515,7 +8515,7 @@ Object.assign(window.KT_ZH, { "Partner": "合作伙伴", "Partners": "合作伙�
 Object.assign(window.KT_ZH, { "My stock": "我的库存", "My prices": "我的价格", "Stock history": "库存记录", "Your partner warehouse": "你的合作伙伴仓库",
   "What is in your partner warehouse": "你的合作伙伴仓库里有什么", "Your own selling prices": "你自己的售价", "Stock in, counts and sales": "入库、盘点和销售",
   "Customers, orders and payments will appear here soon.": "客户、订单和付款很快会显示在这里。", "Products in stock": "有库存的产品", "Pieces": "件数",
-  "In stock": "有库存", "no price yet": "还没有价格", "No stock yet. K-TRONiCS adds stock to your warehouse.": "还没有库存。K-TRONiCS 会为你的仓库添加库存。",
+  "In stock": "有库存", "no price yet": "还没有价格", "no selling price yet": "还没有售价", "Stock value (real cost)": "库存价值（实际成本）", "Real cost of the goods that arrived (with all shipping)": "已到货商品的实际成本（含全部运费）", "No stock yet. K-TRONiCS adds stock to your warehouse.": "还没有库存。K-TRONiCS 会为你的仓库添加库存。",
   "Only K-TRONiCS can add stock to your warehouse. Your sales take it out.": "只有 K-TRONiCS 可以为你的仓库添加库存。你的销售会扣减库存。",
   "Save prices": "保存价格", "Prices saved": "价格已保存", "Prices must be 0 or more": "价格必须是 0 或以上", "No history yet": "还没有记录",
   "Count fixed": "已更正数量", "Sold": "已售出", "Order cancelled": "订单已取消", "Sent to K-TRONiCS": "已发给 K-TRONiCS", "Add stock": "添加库存" });
@@ -16696,20 +16696,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = page({ title: 'My stock', sub: 'Your partner warehouse', tab: 'box' });
     let [rows, me] = await Promise.all([api.partnerProducts(), api.partnerMe()]), term = '', only = true;
     let adj = K.pOwner() && api.partnerAdjustsList ? await api.partnerAdjustsList().catch(() => []) : [];
+    // 19 Nov 2026: the owner sees the real cost (with shipping) of each product and of all the stock
+    let costs = K.pOwner() && api.partnerMyCosts ? await api.partnerMyCosts().catch(() => ({})) : {};
     if (!current()) return;
+    const costOf = r => costs[r.product_id] != null ? +costs[r.product_id] : null;
     const draw = () => {
       const list = rows.filter(r => (!only || r.qty > 0) && (!term || (r.name + ' ' + r.sku + ' ' + (r.category || '')).toLowerCase().includes(term)));
       const pcs = rows.reduce((a, r) => a + r.qty, 0);
+      const value = rows.reduce((a, r) => a + (r.qty > 0 && costOf(r) != null ? r.qty * costOf(r) : 0), 0);
       main.innerHTML = `<div class="pad">
         ${K.pOwner() ? `<button class="btn block" id="sadd">${icon('plus', 18)}Add stock</button>
           <div class="btns" style="margin:0"><button class="btn out" id="sdmg">${icon('x', 18)}Damaged / lost</button><button class="btn out" id="scnt">${icon('list', 18)}Count stock</button></div>` : ''}
         ${adj.filter(x => x.status === 'waiting' || Date.now() - new Date(x.decided_at || 0) < 7 * 864e5).slice(0, 10).map(x => `<div class="card" style="gap:4px;padding:12px"><div class="row"><b class="grow">${esc(x.adj_no)} · ${x.kind === 'count' ? 'Stock count' : 'Damaged / lost'}</b>${x.status === 'waiting' ? '<span class="pill or">Waiting for K-TRONiCS</span>' : x.status === 'approved' ? '<span class="pill gr">Approved</span>' : x.status === 'rejected' ? '<span class="pill rd">Not approved</span>' : '<span class="pill gy">Cancelled</span>'}</div>
           <div class="small">${x.items.map(i => esc(i.name) + ' ' + (i.change > 0 ? '+' : '') + i.change).join(' · ')}</div>${x.reason ? `<div class="small muted">${esc(x.reason)}</div>` : ''}${x.can_cancel ? `<button class="btn sm out" data-jcx="${x.id}" style="align-self:flex-start">Cancel</button>` : ''}</div>`).join('')}
         <a class="btn out block" href="#/partner/history" style="margin-bottom:10px">${icon('list', 18)}Stock history</a>
-        <div class="kpis">${'<div class="stat"><b>' + rows.filter(r => r.qty > 0).length + '</b><span>Products in stock</span></div><div class="stat"><b>' + pcs + '</b><span>Pieces</span></div>'}</div>
+        <div class="kpis">${'<div class="stat"><b>' + rows.filter(r => r.qty > 0).length + '</b><span>Products in stock</span></div><div class="stat"><b>' + pcs + '</b><span>Pieces</span></div>'}${K.pOwner() ? '<div class="stat"><b>' + K.money(value) + '</b><span>Stock value (real cost)</span></div>' : ''}</div>
         <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product or SKU" value="${esc(term)}"></div>
         <div class="seg">${[['1', 'In stock'], ['0', 'All products']].map(([k, l]) => `<button data-o="${k}" class="${(only ? '1' : '0') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <div class="card flush">${list.map(r => `<div class="list-item" ${K.pOwner() ? `data-wa="${r.product_id}" style="cursor:pointer"` : ''}><div class="grow"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)} · ${r.price != null ? K.money(r.price) : 'no price yet'}${r.warn_at != null ? ' · warn at ' + r.warn_at : ''}</div></div><b style="font-size:16px;${r.qty ? '' : 'color:var(--mu)'}">${r.qty}</b></div>`).join('') || `<div class="empty">${only ? 'No stock yet. K-TRONiCS adds stock to your warehouse.' : 'No products found'}</div>`}</div>
+        <div class="card flush">${list.map(r => `<div class="list-item" ${K.pOwner() ? `data-wa="${r.product_id}" style="cursor:pointer"` : ''}><div class="grow"><div class="tt">${esc(r.name)}</div><div class="st">${esc(r.sku)} · ${r.price != null ? 'price ' + K.money(r.price) : 'no selling price yet'}${r.warn_at != null ? ' · warn at ' + r.warn_at : ''}</div>${K.pOwner() && costOf(r) != null ? `<div class="st" style="white-space:normal">Cost ${K.money(costOf(r))} each${r.qty > 0 ? ' · ' + K.money(r.qty * costOf(r)) + ' in stock' : ''}</div>` : ''}</div><b style="font-size:16px;${r.qty ? '' : 'color:var(--mu)'}">${r.qty}</b></div>`).join('') || `<div class="empty">${only ? 'No stock yet. K-TRONiCS adds stock to your warehouse.' : 'No products found'}</div>`}</div>
         <div class="small muted">Stock in, damaged and counts change at once. If K-TRONiCS adds stock for you, you approve it. Your sales take it out. Tap a product to set when to warn you (low stock).</div></div>`;
       if (K.$('#sadd', main)) K.$('#sadd', main).onclick = () => addStockSheet(rows.filter(r => r.qty >= 0), async () => { rows = await api.partnerProducts(); draw(); });
       const reAdj = async () => { adj = await api.partnerAdjustsList().catch(() => adj); draw(); };
@@ -17483,13 +17487,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // one purchase (partner: can act · admin: read only)
   K.pPurchaseSheet = (p, onDone, canAct) => {
     const owe = r2(p.total - p.paid), wait = p.status === 'ordered';
+    // 19 Nov 2026 (Mr. Lee: "After received, it still not calculates total cost of each item"): real cost of each product = what arrived, with shipping
+    const landed = new Map();   // product name -> {q, v}
+    (p.arrival_list || []).forEach(a => (a.items || []).forEach(x => { const o = landed.get(x.name) || { q: 0, v: 0 }; o.q += +x.qty; o.v += +x.qty * +x.unit_cost; landed.set(x.name, o); }));
+    const landedTotal = [...landed.values()].reduce((t, o) => t + o.v, 0);
+    const landedTxt = i => { const o = landed.get(i.name); return o && o.q > 0 ? `<div class="st" style="color:var(--gr);font-weight:700;white-space:normal">Real cost ${money(o.v / o.q)} each · ${money(o.v)} for ${o.q} pcs (with shipping)</div>` : ''; };
     const s = K.sheet(p.purchase_no + ' · ' + p.supplier, `<div class="row" style="gap:8px;flex-wrap:wrap">${stPill(p)}<span class="small muted grow">${esc(p.ordered_on)}${p.currency !== 'USD' ? ' · ' + esc(p.currency) + ' · 1 USD = ' + (+p.rate) : ''}</span></div>
       ${p.note ? `<div class="small muted">${esc(p.note)}</div>` : ''}
-      <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${i.qty} pcs × ${curMoney(i.unit_cost, p.currency)}${p.status !== 'cancelled' ? ' · arrived ' + i.arrived + ' of ' + i.qty : ''}</div></div><b>${curMoney(i.qty * i.unit_cost, p.currency)}</b></div>`).join('')}</div>
+      <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${i.qty} pcs × ${curMoney(i.unit_cost, p.currency)}${p.status !== 'cancelled' ? ' · arrived ' + i.arrived + ' of ' + i.qty : ''}</div>${landedTxt(i)}</div><b>${curMoney(i.qty * i.unit_cost, p.currency)}</b></div>`).join('')}</div>
       <div class="card" style="gap:4px"><div class="row"><span class="grow">Goods</span><b>${money(p.goods)}</b></div><div class="row"><span class="grow">Shipping & other costs (owed to the supplier)</span><b>${money(p.shipping)}</b></div>
         <div class="row"><span class="grow">Total</span><b>${money(p.total)}</b></div><div class="row"><span class="grow">Paid</span><b>${money(p.paid)}</b></div>
         ${p.status !== 'cancelled' ? `<div class="row"><b class="grow">${owe > 0.004 ? 'You still owe' : 'Paid in full'}</b><b>${owe > 0.004 ? money(owe) : ''}</b></div>` : ''}
-        ${(() => { const o = (p.arrival_list || []).reduce((t, a) => t + (+a.ship_other || 0), 0); return o > 0.004 ? `<div class="row small muted" style="border-top:1px solid var(--line);padding-top:4px"><span class="grow">Shipping paid to others (cost only, not in the total)</span><b>${money(o)}</b></div>` : ''; })()}</div>
+        ${(() => { const o = (p.arrival_list || []).reduce((t, a) => t + (+a.ship_other || 0), 0); return o > 0.004 ? `<div class="row small muted" style="border-top:1px solid var(--line);padding-top:4px"><span class="grow">Shipping paid to others (cost only, not in the total)</span><b>${money(o)}</b></div>` : ''; })()}
+        ${landedTotal > 0.004 ? `<div class="row" style="border-top:1px solid var(--line);padding-top:4px"><b class="grow">Real cost of the goods that arrived (with all shipping)</b><b>${money(landedTotal)}</b></div>` : ''}</div>
       ${p.arrival_list.length ? `<div class="sec" style="margin:0">Arrivals</div>${p.arrival_list.map(a => `<div class="card" style="gap:2px;padding:10px"><b>${esc(a.arrival_no)} · ${esc(K.when ? K.when(a.at) : a.at)}</b>
         <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + money(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other (owed to the supplier): ${money(a.shipping)}</div>` : ''}${+a.ship_other ? `<div class="small muted">Shipping / other (paid to someone else, cost only): ${money(a.ship_other)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}
         ${canAct && p.status !== 'cancelled' && a.id ? `<button class="btn sm out" data-psl="${a.id}" style="margin-top:4px;align-self:flex-start">🚚 Add shipping / other costs</button>` : ''}</div>`).join('')}` : ''}
