@@ -7350,6 +7350,7 @@ Object.assign(window.KT_KM, {"Cost = product cost with shipping and other costs 
 Object.assign(window.KT_KM, {"Changing the currency, rate or a price also corrects the USD cost of the pieces that arrived (shipping stays).": "ការប្តូររូបិយប័ណ្ណ អត្រា ឬតម្លៃ ក៏កែថ្លៃដើមជាដុល្លារនៃទំនិញដែលបានមកដល់ដែរ (ថ្លៃដឹកនៅដដែល)។"});
 // shipping later (19 Nov 2026)
 Object.assign(window.KT_KM, {"🚚 Shipping or other costs of these goods": "🚚 ថ្លៃដឹក ឬចំណាយផ្សេងនៃទំនិញនេះ", "Amount ($)": "ចំនួនទឹកប្រាក់ ($)", "0 = none": "0 = គ្មាន", "Paid to": "បង់ទៅ", "The supplier (I owe it)": "អ្នកផ្គត់ផ្គង់ (ខ្ញុំជំពាក់)", "Someone else (cost only)": "អ្នកផ្សេង (ថ្លៃដើមប៉ុណ្ណោះ)", "A shipping company": "ក្រុមហ៊ុនដឹកជញ្ជូន", "Shared between these products by value and added to their cost. You can also add it later on the arrival.": "ចែកតាមតម្លៃរវាងផលិតផលទាំងនេះ ហើយបូកចូលថ្លៃដើម។ អ្នកក៏អាចបន្ថែមពេលក្រោយលើការមកដល់បានដែរ។", "Pieces that arrived now": "ចំនួនដែលមកដល់ឥឡូវ", "Add to my stock": "បញ្ចូលស្តុករបស់ខ្ញុំ", "🚚 Add shipping / other costs": "🚚 បន្ថែមថ្លៃដឹក / ចំណាយផ្សេង", "🚚 Add shipping": "🚚 បន្ថែមថ្លៃដឹក", "Add shipping": "បន្ថែមថ្លៃដឹក", "Shipping added · costs updated": "បានបន្ថែមថ្លៃដឹក · ថ្លៃដើមបានកែ", "Shared between these products by value and added to their cost (also the average cost of what is still in stock).": "ចែកតាមតម្លៃរវាងផលិតផលទាំងនេះ ហើយបូកចូលថ្លៃដើម (រួមទាំងថ្លៃដើមមធ្យមនៃស្តុកដែលនៅសល់)។", "🚚 Shipping / express for these goods (optional)": "🚚 ថ្លៃដឹក / អិចប្រេស សម្រាប់ទំនិញនេះ (មិនចាំបាច់)"});
+Object.assign(window.KT_KM, {"Shipping & other costs (owed to the supplier)": "ថ្លៃដឹក និងចំណាយផ្សេង (ជំពាក់អ្នកផ្គត់ផ្គង់)", "Shipping paid to others (cost only, not in the total)": "ថ្លៃដឹកបង់ឱ្យអ្នកផ្សេង (ថ្លៃដើមប៉ុណ្ណោះ មិនក្នុងសរុប)", "Add more": "បន្ថែមទៀត"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9432,6 +9433,7 @@ Object.assign(window.KT_ZH, {"Cost = product cost with shipping and other costs 
 Object.assign(window.KT_ZH, {"Changing the currency, rate or a price also corrects the USD cost of the pieces that arrived (shipping stays).": "修改币种、汇率或价格，也会修正已到货的美元成本（运费不变）。"});
 // shipping later (19 Nov 2026)
 Object.assign(window.KT_ZH, {"🚚 Shipping or other costs of these goods": "🚚 这批货的运费或其他费用", "Amount ($)": "金额 ($)", "0 = none": "0 = 没有", "Paid to": "付给", "The supplier (I owe it)": "供应商（我欠的）", "Someone else (cost only)": "其他人（只算成本）", "A shipping company": "物流公司", "Shared between these products by value and added to their cost. You can also add it later on the arrival.": "按价值分摊到这些产品并加到成本。也可以以后在到货记录上添加。", "Pieces that arrived now": "这次到货件数", "Add to my stock": "加到我的库存", "🚚 Add shipping / other costs": "🚚 添加运费 / 其他费用", "🚚 Add shipping": "🚚 添加运费", "Add shipping": "添加运费", "Shipping added · costs updated": "已添加运费 · 成本已更新", "Shared between these products by value and added to their cost (also the average cost of what is still in stock).": "按价值分摊到这些产品并加到成本（剩余库存的平均成本也会更新）。", "🚚 Shipping / express for these goods (optional)": "🚚 这批货的运费 / 快递（可选）"});
+Object.assign(window.KT_ZH, {"Shipping & other costs (owed to the supplier)": "运费和其他费用（欠供应商）", "Shipping paid to others (cost only, not in the total)": "付给他人的运费（只算成本，不在合计里）", "Add more": "再添加"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -12333,7 +12335,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (K.$('#rv', s.el)) K.$('#rv', s.el).onclick = () => K.poArriveSheet(p, mgr, msg => { s.close(); K.forget('purchases', 'products', 'spays'); K.toast(msg); K.reopenPurchase(p.id, onDone); });
     // 19 Nov 2026: add shipping to an arrival later
     K.$$('[data-arship]', s.el).forEach(b => b.onclick = () => { const ar = arrs.find(x => x.id === +b.dataset.arship); let to = ar && +ar.shipping > 0 ? ar.ship_to : 'supplier', meth = 'cash';
-      const t = K.sheet('Add shipping · ' + (ar.arrival_no || ''), `<div class="small muted">${(ar.items || []).map(x => esc(x.products ? x.products.name : '') + ' ×' + x.qty).join(' · ')}</div>
+      const t = K.sheet('Add shipping · ' + (ar.arrival_no || ''), `${+ar.shipping > 0 ? `<div class="card" style="background:var(--ors);color:var(--or);font-weight:700">This arrival already has ${money(ar.shipping)} shipping. Only add a NEW bill.</div>` : ''}<div class="small muted">${(ar.items || []).map(x => esc(x.products ? x.products.name : '') + ' ×' + x.qty).join(' · ')}</div>
         <label class="f">Amount ($)<input class="inp" id="aslam" type="number" min="0" step="0.01" inputmode="decimal"></label>
         <div class="f"><span>Paid to</span><div class="seg">${[['supplier', 'The supplier (I owe it)'], ['company', 'A shipping company']].map(([k, l]) => `<button type="button" data-aslt="${k}" class="${to === k ? 'on' : ''}" ${+ar.shipping > 0 && ar.ship_to !== k ? 'disabled' : ''}>${l}</button>`).join('')}</div></div>
         <div class="f" id="aslmw" ${to === 'company' ? '' : 'hidden'}><span>Paid by</span><div class="seg">${Object.entries(K.SPAY_METHODS).map(([k, l]) => `<button type="button" data-aslm="${k}" class="${k === 'cash' ? 'on' : ''}">${l}</button>`).join('')}</div></div>
@@ -12343,6 +12345,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       K.$$('[data-aslt]', t.el).forEach(x => x.onclick = () => { to = x.dataset.aslt; K.$$('[data-aslt]', t.el).forEach(y => y.classList.toggle('on', y === x)); K.$('#aslmw', t.el).hidden = to !== 'company'; });
       K.$$('[data-aslm]', t.el).forEach(x => x.onclick = () => { meth = x.dataset.aslm; K.$$('[data-aslm]', t.el).forEach(y => y.classList.toggle('on', y === x)); });
       K.$('#aslgo', t.el).onclick = async e => { const v = +K.$('#aslam', t.el).value || 0; if (!(v > 0)) return K.toast('Write the amount');
+        if (+ar.shipping > 0 && !(await K.confirmSheet('Add ' + money(v) + ' more?', 'This arrival already has ' + money(ar.shipping) + ' shipping. Add only if this is a different bill.', 'Add more'))) return;
         await K.busy(e.currentTarget, () => K.api.purchaseArrivalShip(ar.id, v, to, to === 'company' ? meth : null, K.$('#aslno', t.el).value.trim()));
         t.close(); s.close(); K.forget('purchases', 'products', 'spays'); K.toast('Shipping added · costs updated'); K.reopenPurchase(p.id, onDone); }; });
     if (K.$('#crest', s.el)) K.$('#crest', s.el).onclick = async e => { const _b = e.currentTarget, ord = K.poOrderedOf(p), miss = Object.keys(ord).reduce((a, k) => a + ord[k] - (arrOf[k] || 0), 0);
@@ -17449,9 +17452,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const s = K.sheet(p.purchase_no + ' · ' + p.supplier, `<div class="row" style="gap:8px;flex-wrap:wrap">${stPill(p)}<span class="small muted grow">${esc(p.ordered_on)}${p.currency !== 'USD' ? ' · ' + esc(p.currency) + ' · 1 USD = ' + (+p.rate) : ''}</span></div>
       ${p.note ? `<div class="small muted">${esc(p.note)}</div>` : ''}
       <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${i.qty} pcs × ${curMoney(i.unit_cost, p.currency)}${p.status !== 'cancelled' ? ' · arrived ' + i.arrived + ' of ' + i.qty : ''}</div></div><b>${curMoney(i.qty * i.unit_cost, p.currency)}</b></div>`).join('')}</div>
-      <div class="card" style="gap:4px"><div class="row"><span class="grow">Goods</span><b>${money(p.goods)}</b></div><div class="row"><span class="grow">Shipping & other costs</span><b>${money(p.shipping)}</b></div>
+      <div class="card" style="gap:4px"><div class="row"><span class="grow">Goods</span><b>${money(p.goods)}</b></div><div class="row"><span class="grow">Shipping & other costs (owed to the supplier)</span><b>${money(p.shipping)}</b></div>
         <div class="row"><span class="grow">Total</span><b>${money(p.total)}</b></div><div class="row"><span class="grow">Paid</span><b>${money(p.paid)}</b></div>
-        ${p.status !== 'cancelled' ? `<div class="row"><b class="grow">${owe > 0.004 ? 'You still owe' : 'Paid in full'}</b><b>${owe > 0.004 ? money(owe) : ''}</b></div>` : ''}</div>
+        ${p.status !== 'cancelled' ? `<div class="row"><b class="grow">${owe > 0.004 ? 'You still owe' : 'Paid in full'}</b><b>${owe > 0.004 ? money(owe) : ''}</b></div>` : ''}
+        ${(() => { const o = (p.arrival_list || []).reduce((t, a) => t + (+a.ship_other || 0), 0); return o > 0.004 ? `<div class="row small muted" style="border-top:1px solid var(--line);padding-top:4px"><span class="grow">Shipping paid to others (cost only, not in the total)</span><b>${money(o)}</b></div>` : ''; })()}</div>
       ${p.arrival_list.length ? `<div class="sec" style="margin:0">Arrivals</div>${p.arrival_list.map(a => `<div class="card" style="gap:2px;padding:10px"><b>${esc(a.arrival_no)} · ${esc(K.when ? K.when(a.at) : a.at)}</b>
         <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + money(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other (owed to the supplier): ${money(a.shipping)}</div>` : ''}${+a.ship_other ? `<div class="small muted">Shipping / other (paid to someone else, cost only): ${money(a.ship_other)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}
         ${canAct && p.status !== 'cancelled' && a.id ? `<button class="btn sm out" data-psl="${a.id}" style="margin-top:4px;align-self:flex-start">🚚 Add shipping / other costs</button>` : ''}</div>`).join('')}` : ''}
@@ -17520,7 +17524,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // add shipping / other costs to an arrival later (19 Nov 2026)
   function shipLaterSheet(p, a, onDone) {
     let to = 'supplier';
-    const s = K.sheet('Add shipping · ' + a.arrival_no, `<div class="small muted">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty).join(' · ')}</div>
+    const had = (+a.shipping || 0) + (+a.ship_other || 0);   // 19 Nov 2026: the same bill was added twice on PP5-0001
+    const s = K.sheet('Add shipping · ' + a.arrival_no, `${had > 0 ? `<div class="card" style="background:var(--ors);color:var(--or);font-weight:700">This arrival already has ${money(had)} shipping / other costs. Only add a NEW bill.</div>` : ''}<div class="small muted">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty).join(' · ')}</div>
       <label class="f">Amount ($)<input class="inp" id="slam" type="number" min="0" step="any" inputmode="decimal"></label>
       <div class="f"><span>Paid to</span><div class="seg"><button type="button" data-slt="supplier" class="on">The supplier (I owe it)</button><button type="button" data-slt="other">Someone else (cost only)</button></div></div>
       <label class="f">Note (optional)<input class="inp" id="slno" maxlength="200" placeholder="e.g. express bill, customs"></label>
@@ -17528,6 +17533,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <button class="btn block" id="slgo">Add shipping</button>`);
     $$('[data-slt]', s.el).forEach(b => b.onclick = () => { to = b.dataset.slt; $$('[data-slt]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
     $('#slgo', s.el).onclick = async e => { const v = +$('#slam', s.el).value || 0; if (!(v > 0)) return toast('Write the amount');
+      if (had > 0 && !(await K.confirmSheet('Add ' + money(v) + ' more?', 'This arrival already has ' + money(had) + ' shipping / other costs. Add only if this is a different bill.', 'Add more'))) return;
       await busy(e.currentTarget, () => api.partnerPurchaseArrivalShip(a.id, v, to, $('#slno', s.el).value)); s.close(); toast('Shipping added · costs updated'); onDone && onDone(); };
   }
 
