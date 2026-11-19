@@ -1318,6 +1318,16 @@ window.makeSupabaseApi = function (cfg) {
     partnerKtrProducts: () => q(sb.rpc('partner_ktr_products')),
     partnerLinkSupplier: (pid, sid) => q(sb.rpc('partner_link_supplier', { p_partner: pid, p_supplier: sid })),
     partnerUnlinkSupplier: pid => q(sb.rpc('partner_unlink_supplier', { p_partner: pid })),
+    // 19 Nov 2026: partner purchases (the partner's own suppliers)
+    partnerSupplierSave: p => q(sb.rpc('partner_supplier_save', { p })),
+    partnerPurchasesMine: () => q(sb.rpc('partner_purchases_mine')),
+    partnerPurchasesAdmin: pid => q(sb.rpc('partner_purchases_admin', { p_partner: pid })),
+    partnerPurchaseCreate: (sup, cur, rate, note, items, on) => q(sb.rpc('partner_purchase_create', { p_supplier: sup, p_currency: cur, p_rate: rate, p_note: note || null, p_items: items, p_ordered_on: on || null })),
+    partnerPurchaseArrive: (id, items, ship, note) => q(sb.rpc('partner_purchase_arrive', { p_id: id, p_items: items, p_shipping: ship || 0, p_note: note || null })),
+    partnerPurchaseCloseRest: id => q(sb.rpc('partner_purchase_close_rest', { p_id: id })),
+    partnerPurchaseCancel: id => q(sb.rpc('partner_purchase_cancel', { p_id: id })),
+    partnerPurchasePay: (id, amount, method, on, note) => q(sb.rpc('partner_purchase_pay', { p_id: id, p_amount: amount, p_method: method, p_paid_on: on || null, p_note: note || null })),
+    partnerPurchasePayDelete: id => q(sb.rpc('partner_purchase_pay_delete', { p_payment: id })),
     partnerPoCreate: (pid, items, note) => q(sb.rpc('partner_po_create', { p_partner: pid, p_items: items, p_note: note || null })),
     partnerPoAnswer: (id, ok, reason, lines) => q(sb.rpc('partner_po_answer', { p_id: id, p_ok: ok, p_reason: reason || null, p_lines: lines || [] })),
     partnerPoCancel: (id, reason) => q(sb.rpc('partner_po_cancel', { p_id: id, p_reason: reason || null })),
@@ -2621,7 +2631,13 @@ window.makeDemoApi = function () {
       let p = x.id ? partnersOf().find(y => y.id === x.id) : null;
       if (x.id && !p) fail('Partner not found');
       if (p) Object.assign(p, v); else { p = Object.assign({ id: Math.max(0, ...partnersOf().map(y => y.id)) + 1, created_at: now() }, v); D.partners.push(p); }
-      save(); return wait(p.id); },
+      if (!x.id) api._pSupEnsure(p); save(); return wait(p.id); },
+    // 19 Nov 2026: every partner has its supplier (same name → linked, else a new supplier, linked) — same as partner_supplier_ensure
+    _pSupEnsure(p) { const mine = D.suppliers.find(s => s.partner_id === p.id); if (mine) { if (!mine.linked_at) mine.linked_at = now(); return mine.id; }
+      const same = D.suppliers.find(s => !s.partner_id && s.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+      if (same) { D.purchases.filter(pu => pu.supplier_id === same.id).forEach(pu => { pu.partner_history = true; }); Object.assign(same, { partner_id: p.id, linked_at: now() }); return same.id; }
+      const s = { id: Math.max(0, ...D.suppliers.map(s => s.id)) + 1, name: p.name, phone: p.phone || null, country: 'Cambodia', currency: 'USD', notes: 'Partner (made automatically)', active: true, partner_id: p.id, linked_at: now(), created_at: now() };
+      D.suppliers.push(s); return s.id; },
     async setPartnerOfUser(id, pid) { if (!hasRole('admin')) fail('Only the admin can change partner users'); if (id === me.id) fail('You cannot make your own account a partner account');
       const u = user(id); if (u.role === 'admin') fail('Change the admin to another role first'); if (!partnersOf().some(p => p.id === +pid)) fail('Choose a partner');
       if (D.warehouses.some(w => w.rep_id === id)) fail('This person has their own rep stock. Move or clear it first, or make a new account for the partner');
@@ -5131,6 +5147,57 @@ window.makeDemoApi = function () {
     const s = D.suppliers.find(x => x.id === +sid); if (!s) fail('Supplier not found'); if (s.partner_id === pid) fail('Already linked'); if (s.partner_id) fail(s.name + ' is already linked to another partner');
     const old = D.suppliers.find(x => x.partner_id === pid); if (old) { if (D.purchases.some(pu => pu.supplier_id === old.id) || D.spays.some(y => y.supplier_id === old.id)) fail('This partner already has its own supplier "' + old.name + '" with purchases'); D.suppliers = D.suppliers.filter(x => x !== old); }
     const ps = D.purchases.filter(pu => pu.supplier_id === s.id); ps.forEach(pu => { pu.partner_history = true; }); Object.assign(s, { partner_id: pid, linked_at: now() }); save(); return wait({ supplier: s.name, old_purchases: ps.length }); };
+  // 19 Nov 2026: partner purchases (same rules as partner_purchase_* in the database)
+  const ppS = () => (D.ppSup = D.ppSup || []), ppP = () => (D.ppPur = D.ppPur || []);
+  const ppJson = pu => { const s = ppS().find(x => x.id === pu.supplier_id) || {}, pn = id => (D.products.find(x => x.id === id) || {});
+    const arr = id => pu.arr.reduce((a, x) => a + x.items.filter(i => i.product_id === id).reduce((b, i) => b + i.qty, 0), 0);
+    return Object.assign(clone(pu), { supplier: s.name, paid: +pu.pays.reduce((a, y) => a + y.amount, 0).toFixed(2),
+      items: pu.items.map(i => ({ product_id: i.product_id, name: pn(i.product_id).name, sku: pn(i.product_id).sku, qty: i.qty, unit_cost: i.unit_cost, arrived: arr(i.product_id) })),
+      arrival_list: pu.arr.map(a => ({ arrival_no: a.arrival_no, shipping: a.shipping, note: a.note, at: a.at, items: a.items.map(i => ({ name: pn(i.product_id).name, qty: i.qty, unit_cost: i.unit_cost })) })),
+      payments: pu.pays.map(y => clone(y)) }); };
+  const ppOf = pid => ({ suppliers: ppS().filter(s => s.partner_id === pid).sort((a, b) => a.name.localeCompare(b.name)).map(s => Object.assign(clone(s), { owed: +ppP().filter(p => p.supplier_id === s.id && p.status !== 'cancelled').reduce((a, p) => a + p.total - p.pays.reduce((b, y) => b + y.amount, 0), 0).toFixed(2) })),
+    purchases: ppP().filter(p => p.partner_id === pid).sort((a, b) => b.id - a.id).map(ppJson) });
+  const ppMine = id => { const pid = pOwnerD(), pu = ppP().find(x => x.id === +id && x.partner_id === pid); if (!pu) fail('Purchase not found'); return [pid, pu]; };
+  api.partnerSupplierSave = async p => { const pid = pOwnerD(), nm = String(p.name || '').trim().slice(0, 120); if (!nm) fail('Write the supplier name');
+    if (ppS().some(s => s.partner_id === pid && s.name.toLowerCase() === nm.toLowerCase() && s.id !== +p.id)) fail('You already have a supplier named "' + nm + '"');
+    let s = p.id ? ppS().find(x => x.id === +p.id && x.partner_id === pid) : null; if (p.id && !s) fail('Supplier not found');
+    if (!s) { s = { id: Math.max(0, ...ppS().map(x => x.id)) + 1, partner_id: pid, active: true, created_at: now() }; ppS().push(s); }
+    Object.assign(s, { name: nm, phone: (p.phone || '').trim() || null, note: (p.note || '').trim() || null, active: p.active !== false }); save(); return wait(s.id); };
+  api.partnerPurchasesMine = async () => wait(ppOf(pOwnerD()));
+  api.partnerPurchasesAdmin = async pid => { if (!hasRole('admin')) fail('Only the admin can see partners'); return wait(ppOf(+pid)); };
+  api.partnerPurchaseCreate = async (sup, cur, rate, note, items, on) => { const pid = pOwnerD(); cur = String(cur || 'USD').toUpperCase(); const rt = cur === 'USD' ? 1 : +rate || 0;
+    if (!ppS().some(s => s.id === +sup && s.partner_id === pid)) fail('Choose one of your suppliers'); if (rt <= 0) fail('Write how much 1 USD is in ' + cur);
+    if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
+    const lines = items.map(i => { if (!pHas(pid, i.product_id)) fail('Product not found'); if (seen.has(+i.product_id)) fail('Each product only once, please'); seen.add(+i.product_id);
+      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(4) }; });
+    const goods = +lines.reduce((a, l) => a + l.qty * l.unit_cost / rt, 0).toFixed(2), n = ppP().filter(p => p.partner_id === pid).length + 1;
+    const pu = { id: Math.max(0, ...ppP().map(x => x.id)) + 1, partner_id: pid, purchase_no: 'PP' + pid + '-' + String(n).padStart(4, '0'), supplier_id: +sup, ordered_on: on || localDay0(new Date()), currency: cur, rate: rt,
+      note: (note || '').trim() || null, status: 'ordered', arrivals: 0, goods, shipping: 0, total: goods, created_at: now(), received_at: null, items: lines, arr: [], pays: [] };
+    ppP().push(pu); save(); return wait(pu.id); };
+  api.partnerPurchaseArrive = async (id, items, ship, note) => { const [pid, pu] = ppMine(id); if (pu.status !== 'ordered') fail('This purchase is already ' + pu.status); ship = Math.max(0, Math.round((+ship || 0) * 100) / 100);
+    const got = prod => pu.arr.reduce((a, x) => a + x.items.filter(i => i.product_id === prod).reduce((b, i) => b + i.qty, 0), 0);
+    const L = (items || []).filter(i => +i.qty > 0).map(i => { const it = pu.items.find(x => x.product_id === +i.product_id); if (!it) fail('That product is not in this purchase');
+      if (+i.qty > it.qty - got(it.product_id)) fail('Only ' + (it.qty - got(it.product_id)) + ' pcs of ' + (D.products.find(p => p.id === it.product_id) || {}).name + ' are still waiting'); return { product_id: it.product_id, qty: +i.qty, u: it.unit_cost / pu.rate }; });
+    if (!L.length) fail('Type how many pieces arrived');
+    const val = L.reduce((a, l) => a + l.qty * l.u, 0), pcs = L.reduce((a, l) => a + l.qty, 0), ano = pu.purchase_no + '-A' + (pu.arrivals + 1);
+    const a = { arrival_no: ano, shipping: ship, note: (note || '').trim() || null, at: now(), items: [] };
+    L.forEach(l => { const c = l.u + (ship === 0 ? 0 : val > 0 ? ship * l.u / val : ship / pcs); a.items.push({ product_id: l.product_id, qty: l.qty, unit_cost: +c.toFixed(4) });
+      const have = Math.max(0, pStock(pid, l.product_id)), old = pCost(pid, l.product_id); D.pCosts = (D.pCosts || []).filter(x => !(x.partner_id === pid && x.product_id === l.product_id));
+      D.pCosts.push({ partner_id: pid, product_id: l.product_id, cost: Math.round((old == null || !have ? c : (have * old + l.qty * c) / (have + l.qty)) * 100) / 100 });
+      pStockChange(pid, l.product_id, l.qty, 'in', 'Purchase ' + pu.purchase_no, pu.purchase_no); });
+    pu.arr.push(a); pu.arrivals++; pu.shipping = +(pu.shipping + ship).toFixed(2); pu.total = +(pu.goods + pu.shipping).toFixed(2);
+    const left = pu.items.reduce((s, i) => s + i.qty - got(i.product_id), 0); if (left <= 0) { pu.status = 'received'; pu.received_at = now(); }
+    save(); return wait({ arrival_no: ano, pcs, left: Math.max(0, left), received: left <= 0 }); };
+  api.partnerPurchaseCloseRest = async id => { const [, pu] = ppMine(id); if (pu.status !== 'ordered') fail('This purchase is already ' + pu.status); if (!pu.arrivals) fail('Nothing arrived yet. To stop the whole purchase, cancel it.');
+    let gone = 0; pu.items = pu.items.map(i => { const arr = pu.arr.reduce((a, x) => a + x.items.filter(y => y.product_id === i.product_id).reduce((b, y) => b + y.qty, 0), 0); gone += i.qty - arr; return Object.assign(i, { qty: arr }); }).filter(i => i.qty > 0);
+    pu.goods = +pu.items.reduce((a, i) => a + i.qty * i.unit_cost / pu.rate, 0).toFixed(2); pu.total = +(pu.goods + pu.shipping).toFixed(2); pu.status = 'received'; pu.received_at = now();
+    pu.note = [pu.note, 'Closed the rest: ' + gone + ' pcs will not come'].filter(Boolean).join(' · '); save(); return wait({ gone, total: pu.total }); };
+  api.partnerPurchaseCancel = async id => { const [, pu] = ppMine(id); if (pu.status !== 'ordered') fail('This purchase is already ' + pu.status); if (pu.arrivals) fail('Some goods already arrived. Use Close the rest instead.');
+    if (pu.pays.length) fail('This purchase has payments. Delete the payments first.'); pu.status = 'cancelled'; save(); return wait(null); };
+  api.partnerPurchasePay = async (id, amount, method, on, note) => { const [, pu] = ppMine(id); if (pu.status === 'cancelled') fail('This purchase was cancelled'); amount = Math.round((+amount || 0) * 100) / 100; if (amount <= 0) fail('Write the amount');
+    const owed = pu.total - pu.pays.reduce((a, y) => a + y.amount, 0); if (amount > Math.round(owed * 100) / 100) fail('You only owe $' + owed.toFixed(2) + ' on this purchase');
+    const y = { id: Math.max(0, ...ppP().flatMap(p => p.pays.map(z => z.id))) + 1, amount, method: method || 'cash', paid_on: on || localDay0(new Date()), note: (note || '').trim() || null }; pu.pays.push(y); save(); return wait(y.id); };
+  api.partnerPurchasePayDelete = async yid => { const pid = pOwnerD(), pu = ppP().find(p => p.partner_id === pid && p.pays.some(y => y.id === +yid)); if (!pu) fail('Payment not found'); pu.pays = pu.pays.filter(y => y.id !== +yid); save(); return wait(null); };
   api.partnerUnlinkSupplier = async pid => { if (!hasRole('admin')) fail('Only the admin can unlink partners'); pid = +pid;   // 19 Nov 2026: same rules as the database
     const s = D.suppliers.find(x => x.partner_id === pid && x.linked_at); if (!s) fail('This partner is not linked to a supplier');
     const made = D.purchases.find(pu => pu.supplier_id === s.id && pReqs().some(r => r.purchase_id === pu.id)); if (made) fail('Cannot unlink: ' + made.purchase_no + ' was bought through the partner (purchase order)');
@@ -5153,7 +5220,7 @@ window.makeDemoApi = function () {
     r.items.filter(i => i.qty_given > 0 && !i.to_product_id).forEach(i => { const pp = D.products.find(p => p.id === i.product_id) || {}, tp = Math.max(0, ...D.products.map(p => p.id)) + 1;
       D.products.push({ id: tp, sku: 'NP-' + String(tp).padStart(5, '0'), name: i.to_name || pp.name, category: pp.category || 'General', price: 0, cost: i.price, min_stock: 0, active: true, partner_id: null, staff_orderable: true, created_at: now() }); i.to_product_id = tp; });
     let sup = D.suppliers.find(s => s.partner_id === pid);
-    if (!sup) { sup = { id: Math.max(0, ...D.suppliers.map(s => s.id)) + 1, name: pa.name, phone: pa.phone || null, country: 'Cambodia', currency: 'USD', notes: 'Partner (made automatically for goods partners sell you)', active: true, partner_id: pid, created_at: now() }; D.suppliers.push(sup); }
+    if (!sup) { sup = { id: Math.max(0, ...D.suppliers.map(s => s.id)) + 1, name: pa.name, phone: pa.phone || null, country: 'Cambodia', currency: 'USD', notes: 'Partner (made automatically for goods partners sell you)', active: true, partner_id: pid, linked_at: now(), created_at: now() }; D.suppliers.push(sup); }
     const wh = Math.min(...D.warehouses.filter(w => !w.rep_id && !w.deleted_at).map(w => w.id)); const keep = me;
     D._lnk = 1; let poId; try { poId = await api.createPurchase({ supplier_id: sup.id, warehouse_id: wh, currency: 'USD', rate: 1, extra_cost: 0, note: 'Purchase order ' + r.request_no + ' to ' + pa.name + (r.note ? ' · ' + r.note : ''),
       items: r.items.filter(i => i.qty_given > 0).map(i => ({ product_id: i.to_product_id, qty: i.qty_given, unit_cost: i.price })) }).catch(e => { throw e; }); } finally { D._lnk = 0; }
@@ -7123,6 +7190,8 @@ window.KT_KM_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS ជំពា
 // 19 Nov 2026: Save as catalog in My products
 Object.assign(window.KT_KM, {"📄 Save as catalog": "📄 រក្សាទុកជាកាតាឡុក", "Save as catalog": "រក្សាទុកជាកាតាឡុក", "📄 Save PDF": "📄 រក្សាទុក PDF", "🖼 Save as pictures": "🖼 រក្សាទុកជារូបភាព", "Add products first": "បន្ថែមផលិតផលជាមុនសិន"});
 window.KT_KM_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "ផលិតផល $1 · ដាក់ជាក្រុមតាមប្រភេទដោយស្វ័យប្រវត្តិ។ បង្ហាញតែតម្លៃលក់ មិនបង្ហាញថ្លៃដើមទេ។"], [/^PDF saved · (\d+) page\(s\)$/, "បានរក្សាទុក PDF · $1 ទំព័រ"]);
+// 19 Nov 2026: partner purchases
+Object.assign(window.KT_KM, {"My purchases": "ការទិញរបស់ខ្ញុំ", "🛒 My purchases": "🛒 ការទិញរបស់ខ្ញុំ", "Buy from your own suppliers · goods arrived · shipping · pay": "ទិញពីអ្នកផ្គត់ផ្គង់ផ្ទាល់ · ទំនិញមកដល់ · ដឹកជញ្ជូន · បង់ប្រាក់", "Buying from your own suppliers": "ទិញពីអ្នកផ្គត់ផ្គង់ផ្ទាល់", "New purchase": "ការទិញថ្មី", "My suppliers": "អ្នកផ្គត់ផ្គង់របស់ខ្ញុំ", "New supplier": "អ្នកផ្គត់ផ្គង់ថ្មី", "Edit supplier": "កែអ្នកផ្គត់ផ្គង់", "Waiting to arrive": "រង់ចាំមកដល់", "You still owe suppliers": "អ្នកនៅជំពាក់អ្នកផ្គត់ផ្គង់", "To pay": "ត្រូវបង់", "Received": "បានទទួល", "Part arrived": "មកដល់ខ្លះ", "Goods arrived": "ទំនិញមកដល់", "Pay supplier": "បង់អ្នកផ្គត់ផ្គង់", "Shipping & other costs": "ដឹកជញ្ជូន និងចំណាយផ្សេងៗ", "Shipping or other costs for this arrival ($)": "ថ្លៃដឹក ឬចំណាយផ្សេងសម្រាប់លើកនេះ ($)", "Add to my stock": "បញ្ចូលស្តុករបស់ខ្ញុំ", "All arrived": "មកដល់ទាំងអស់", "Clear": "សម្អាត", "Save purchase": "រក្សាទុកការទិញ", "Products in this purchase": "ផលិតផលក្នុងការទិញនេះ", "Search your products to add": "ស្វែងរកផលិតផលដើម្បីបន្ថែម", "Date bought": "ថ្ងៃទិញ", "Close the rest (missing goods will not come)": "បិទនៅសល់ (ទំនិញខ្វះនឹងមិនមកទេ)", "Cancel purchase": "បោះបង់ការទិញ", "Save payment": "រក្សាទុកការបង់ប្រាក់", "Arrivals": "ការមកដល់", "You still owe": "អ្នកនៅជំពាក់", "Paid in full": "បង់គ្រប់", "Their purchases": "ការទិញរបស់ពួកគេ", "They still owe suppliers": "ពួកគេនៅជំពាក់អ្នកផ្គត់ផ្គង់", "Their suppliers": "អ្នកផ្គត់ផ្គង់របស់ពួកគេ", "Bought (all)": "បានទិញ (ទាំងអស់)"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9182,6 +9251,8 @@ window.KT_ZH_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS 欠您 $1"],
 // 19 Nov 2026: Save as catalog in My products
 Object.assign(window.KT_ZH, {"📄 Save as catalog": "📄 保存为目录", "Save as catalog": "保存为目录", "📄 Save PDF": "📄 保存 PDF", "🖼 Save as pictures": "🖼 保存为图片", "Add products first": "请先添加产品"});
 window.KT_ZH_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "$1 个产品，自动按类别分组。只显示售价，不显示成本。"], [/^PDF saved · (\d+) page\(s\)$/, "PDF 已保存 · $1 页"]);
+// 19 Nov 2026: partner purchases
+Object.assign(window.KT_ZH, {"My purchases": "我的采购", "🛒 My purchases": "🛒 我的采购", "Buy from your own suppliers · goods arrived · shipping · pay": "向自己的供应商采购 · 到货 · 运费 · 付款", "Buying from your own suppliers": "向自己的供应商采购", "New purchase": "新采购", "My suppliers": "我的供应商", "New supplier": "新供应商", "Edit supplier": "编辑供应商", "Waiting to arrive": "等待到货", "You still owe suppliers": "您仍欠供应商", "To pay": "待付款", "Received": "已收货", "Part arrived": "部分到货", "Goods arrived": "到货", "Pay supplier": "付款给供应商", "Shipping & other costs": "运费和其他费用", "Shipping or other costs for this arrival ($)": "本次到货的运费或其他费用 ($)", "Add to my stock": "加入我的库存", "All arrived": "全部到货", "Clear": "清除", "Save purchase": "保存采购", "Products in this purchase": "本次采购的产品", "Search your products to add": "搜索您的产品添加", "Date bought": "采购日期", "Close the rest (missing goods will not come)": "结束剩余（缺货不会再来）", "Cancel purchase": "取消采购", "Save payment": "保存付款", "Arrivals": "到货记录", "You still owe": "您仍欠", "Paid in full": "已全部付清", "Their purchases": "他们的采购", "They still owe suppliers": "他们仍欠供应商", "Their suppliers": "他们的供应商", "Bought (all)": "采购（全部）"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -17037,6 +17108,175 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.catalogLoadImg = loadImg; K.catalogLangs = LANG_ORDER; K.catalogLangName = LANG_NAME; K.catalogCAT = CAT;
 })();
 
+// Partner purchases (19 Nov 2026, Mr. Lee: "i want partner also can make purchase to their purchase same as my purchase. They can select products
+// arrived and add shipping or other expenses."). The partner's own suppliers and purchases: goods arrive in parts, shipping / other costs per arrival
+// (shared by value), stock in + average cost, payments, close the rest. Owner login only. Never touches K-TRONiCS stock or money.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, page, toast, busy } = K;
+  const $ = (s, el) => (el || document).querySelector(s), $$ = (s, el) => [...(el || document).querySelectorAll(s)];
+  const money = v => K.money(v), r2 = v => Math.round((+v || 0) * 100) / 100;
+  const today = () => (K.today ? K.today() : new Date().toISOString().slice(0, 10));
+  const curMoney = (v, cur) => cur === 'USD' ? money(v) : (Math.round((+v || 0) * 100) / 100).toLocaleString('en-US') + ' ' + cur;
+  const left = p => p.items.reduce((a, i) => a + Math.max(0, i.qty - i.arrived), 0);
+  const stPill = p => p.status === 'cancelled' ? '<span class="pill gy">Cancelled</span>' : p.status === 'received' ? '<span class="pill gr">Received</span>'
+    : p.arrivals > 0 ? '<span class="pill bl">Part arrived</span>' : '<span class="pill or">Waiting to arrive</span>';
+
+  if (K.pOwnerRoute) K.pOwnerRoute(/^\/partner\/purchases$/, async (_, query, current) => {
+    const main = page({ title: 'My purchases', sub: 'Buying from your own suppliers', back: '#/partner/more', right: `<button class="ib" id="ppnew" aria-label="New purchase">${icon('plus')}</button>` });
+    let f = query.s || 'all';
+    const draw = async () => {
+      const d = await api.partnerPurchasesMine();
+      if (!current()) return;
+      const ps = d.purchases, open = ps.filter(p => p.status === 'ordered'), owed = ps.filter(p => p.status !== 'cancelled').reduce((a, p) => a + Math.max(0, p.total - p.paid), 0);
+      const shown = ps.filter(p => f === 'all' || (f === 'wait' ? p.status === 'ordered' : f === 'owe' ? p.status !== 'cancelled' && p.total - p.paid > 0.004 : p.status === 'received'));
+      main.innerHTML = `<div class="pad">
+        <button class="btn block" id="ppadd">${icon('plus', 18)}New purchase</button>
+        <button class="btn out block" id="ppsup">${icon('store', 18)}My suppliers (${d.suppliers.length})</button>
+        <div class="kpis"><div class="stat"><b>${open.length}</b><span>Waiting to arrive</span></div><div class="stat"><b>${money(owed)}</b><span>You still owe suppliers</span></div></div>
+        <div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['all', 'All'], ['wait', 'Waiting'], ['owe', 'To pay'], ['done', 'Received']].map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-pf="${k}">${l}</button>`).join('')}</div>
+        <div class="card flush">${shown.map(p => `<button class="list-item" data-pp="${p.id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(p.purchase_no)} · ${esc(p.supplier)}</div>
+          <div class="st">${esc(p.ordered_on)} · ${money(p.total)}${p.status !== 'cancelled' && p.total - p.paid > 0.004 ? ' · owe ' + money(p.total - p.paid) : p.status !== 'cancelled' ? ' · paid' : ''}${p.status === 'ordered' ? ' · ' + left(p) + ' pcs to come' : ''}</div></div>${stPill(p)}</button>`).join('') || '<div class="empty">No purchases yet</div>'}</div>
+        <div class="small muted" style="line-height:1.5">1. New purchase: supplier, products, pieces, price. 2. When goods come: Goods arrived → choose what arrived (all or part) + shipping or other costs → your stock goes up and the cost includes the shipping. 3. Pay the supplier. This is only your business: K-TRONiCS stock and money never change.</div></div>`;
+      $$('[data-pf]', main).forEach(b => b.onclick = () => { f = b.dataset.pf; draw(); });
+      $('#ppadd', main).onclick = () => newSheet(d.suppliers, draw);
+      $('#ppsup', main).onclick = () => suppliersSheet(d.suppliers, draw);
+      $$('[data-pp]', main).forEach(b => b.onclick = () => K.pPurchaseSheet(ps.find(p => p.id === +b.dataset.pp), draw, true));
+    };
+    $('#ppnew').onclick = async () => { const d = await api.partnerPurchasesMine(); newSheet(d.suppliers, draw); };
+    await draw();
+  });
+
+  // suppliers: add / rename / switch off
+  function suppliersSheet(sups, onDone) {
+    const s = K.sheet('My suppliers', `<button class="btn block" id="spadd">${icon('plus', 18)}New supplier</button>
+      <div class="card flush" style="margin-top:8px">${sups.map(x => `<button class="list-item" data-se="${x.id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(x.name)}${x.active ? '' : ' · off'}</div><div class="st">${esc(x.phone || '')}${+x.owed > 0.004 ? ' · you owe ' + money(x.owed) : ''}</div></div>${icon('pen', 16)}</button>`).join('') || '<div class="empty">No suppliers yet</div>'}</div>`);
+    $('#spadd', s.el).onclick = () => { s.close(); supForm(null, onDone); };
+    $$('[data-se]', s.el).forEach(b => b.onclick = () => { s.close(); supForm(sups.find(x => x.id === +b.dataset.se), onDone); });
+  }
+  function supForm(x, onDone, after) {
+    const s = K.sheet(x ? 'Edit supplier' : 'New supplier', `<label class="f">Name<input class="inp" id="sn" maxlength="120" value="${esc(x ? x.name : '')}"></label>
+      <label class="f">Phone<input class="inp" id="sph" maxlength="40" value="${esc(x ? x.phone || '' : '')}"></label>
+      <label class="f">Note<input class="inp" id="sno" maxlength="300" value="${esc(x ? x.note || '' : '')}"></label>
+      ${x ? `<label class="row" style="gap:10px"><input type="checkbox" id="sac" ${x.active ? 'checked' : ''} style="width:20px;height:20px"><span>Active</span></label>` : ''}
+      <button class="btn block" id="ssave">Save</button>`);
+    $('#ssave', s.el).onclick = async e => {
+      const id = await busy(e.currentTarget, () => api.partnerSupplierSave({ id: x ? x.id : null, name: $('#sn', s.el).value, phone: $('#sph', s.el).value, note: $('#sno', s.el).value, active: x ? $('#sac', s.el).checked : true }));
+      s.close(); toast('Saved'); if (after) after(id); else if (onDone) onDone();
+    };
+  }
+
+  // new purchase
+  async function newSheet(sups, onDone) {
+    const prods = (await api.partnerProducts()).filter(p => p.active !== false);
+    const act = sups.filter(x => x.active);
+    const st = { sup: (act[0] || {}).id || '', cur: 'USD', rate: '', lines: new Map() };   // product_id -> {qty, cost}
+    const s = K.sheet('New purchase', `<div class="f"><span>Supplier</span><div class="row" style="gap:8px"><select class="inp grow" id="nps"></select><button class="btn sm out" id="npsn">${icon('plus', 16)}New</button></div></div>
+      <div class="btns"><label class="f">Currency<select class="inp" id="npc">${['USD', 'CNY', 'KHR', 'THB', 'VND'].map(c => `<option>${c}</option>`).join('')}</select></label>
+        <label class="f" id="nprw" style="display:none">1 USD = <input class="inp" id="npr" type="number" min="0" step="any" inputmode="decimal"></label></div>
+      <label class="f">Date bought<input class="inp" id="npd" type="date" value="${today()}" max="${today()}"></label>
+      <div class="search">${icon('search', 18)}<input id="npq" placeholder="Search your products to add"></div>
+      <div class="card flush" id="npres" style="max-height:220px;overflow:auto"></div>
+      <div class="sec" style="margin:6px 0 0">Products in this purchase</div><div id="nplines"></div>
+      <label class="f">Note<input class="inp" id="npn" maxlength="500"></label>
+      <div class="row"><b class="grow" id="nptot"></b></div>
+      <button class="btn block" id="npgo">Save purchase</button>`);
+    const fillSup = (sel) => { const all = sups.filter(x => x.active); $('#nps', s.el).innerHTML = all.length ? all.map(x => `<option value="${x.id}" ${x.id === +sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : '<option value="">— add a supplier first —</option>'; };
+    fillSup(st.sup);
+    $('#npsn', s.el).onclick = () => supForm(null, null, async id => { const d = await api.partnerPurchasesMine(); sups = d.suppliers; fillSup(id); });
+    const rate = () => st.cur === 'USD' ? 1 : +st.rate || 0;
+    const sum = () => { let t = 0; st.lines.forEach(l => { t += (+l.qty || 0) * (+l.cost || 0); }); $('#nptot', s.el).textContent = 'Total ' + curMoney(t, st.cur) + (st.cur !== 'USD' && rate() > 0 ? ' ≈ ' + money(t / rate()) : ''); };
+    const drawLines = () => {
+      $('#nplines', s.el).innerHTML = [...st.lines].map(([id, l]) => { const p = prods.find(x => x.product_id === id) || {};
+        return `<div class="card" style="gap:6px;padding:10px;margin:6px 0"><div class="row"><b class="grow">${esc(p.name || '')}</b><button class="ib" data-nx="${id}" aria-label="Remove">${icon('x', 16)}</button></div>
+          <div class="btns" style="margin:0"><label class="f">Pieces<input class="inp" type="number" min="1" inputmode="numeric" data-nq="${id}" value="${l.qty}"></label><label class="f">Price each (${st.cur})<input class="inp" type="number" min="0" step="any" inputmode="decimal" data-nc="${id}" value="${l.cost}"></label></div></div>`; }).join('') || '<div class="small muted">Search above and tap a product to add it.</div>';
+      $$('[data-nq]', s.el).forEach(i => i.oninput = () => { st.lines.get(+i.dataset.nq).qty = i.value; sum(); });
+      $$('[data-nc]', s.el).forEach(i => i.oninput = () => { st.lines.get(+i.dataset.nc).cost = i.value; sum(); });
+      $$('[data-nx]', s.el).forEach(b => b.onclick = () => { st.lines.delete(+b.dataset.nx); drawLines(); });
+      sum();
+    };
+    const search = () => { const q = $('#npq', s.el).value.trim().toLowerCase();
+      const res = prods.filter(p => !st.lines.has(p.product_id) && (!q || (p.name + ' ' + (p.sku || '') + ' ' + (p.category || '')).toLowerCase().includes(q))).slice(0, 30);
+      $('#npres', s.el).innerHTML = res.map(p => `<button class="list-item" data-na="${p.product_id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku || '')} · ${esc(p.category || '')} · stock ${p.qty}</div></div>${icon('plus', 16)}</button>`).join('') || '<div class="empty">No product found</div>';
+      $$('[data-na]', s.el).forEach(b => b.onclick = () => { st.lines.set(+b.dataset.na, { qty: 1, cost: '' }); drawLines(); search(); }); };
+    $('#npq', s.el).oninput = search; search(); drawLines();
+    $('#npc', s.el).onchange = e => { st.cur = e.target.value; $('#nprw', s.el).style.display = st.cur === 'USD' ? 'none' : ''; drawLines(); };
+    $('#npr', s.el).oninput = e => { st.rate = e.target.value; sum(); };
+    $('#npgo', s.el).onclick = async e => {
+      const sup = +$('#nps', s.el).value; if (!sup) return toast('Add a supplier first');
+      if (!st.lines.size) return toast('Add at least one product');
+      const items = [...st.lines].map(([product_id, l]) => ({ product_id, qty: +l.qty, unit_cost: l.cost === '' ? 0 : +l.cost }));
+      if (items.some(i => !(i.qty > 0))) return toast('Pieces must be more than 0');
+      if (st.cur !== 'USD' && !(rate() > 0)) return toast('Write how much 1 USD is in ' + st.cur);
+      await busy(e.currentTarget, () => api.partnerPurchaseCreate(sup, st.cur, rate(), $('#npn', s.el).value, items, $('#npd', s.el).value || null));
+      s.close(); toast('Purchase saved'); onDone && onDone();
+    };
+  }
+
+  // one purchase (partner: can act · admin: read only)
+  K.pPurchaseSheet = (p, onDone, canAct) => {
+    const owe = r2(p.total - p.paid), wait = p.status === 'ordered';
+    const s = K.sheet(p.purchase_no + ' · ' + p.supplier, `<div class="row" style="gap:8px;flex-wrap:wrap">${stPill(p)}<span class="small muted grow">${esc(p.ordered_on)}${p.currency !== 'USD' ? ' · ' + esc(p.currency) + ' · 1 USD = ' + (+p.rate) : ''}</span></div>
+      ${p.note ? `<div class="small muted">${esc(p.note)}</div>` : ''}
+      <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${i.qty} pcs × ${curMoney(i.unit_cost, p.currency)}${p.status !== 'cancelled' ? ' · arrived ' + i.arrived + ' of ' + i.qty : ''}</div></div><b>${curMoney(i.qty * i.unit_cost, p.currency)}</b></div>`).join('')}</div>
+      <div class="card" style="gap:4px"><div class="row"><span class="grow">Goods</span><b>${money(p.goods)}</b></div><div class="row"><span class="grow">Shipping & other costs</span><b>${money(p.shipping)}</b></div>
+        <div class="row"><span class="grow">Total</span><b>${money(p.total)}</b></div><div class="row"><span class="grow">Paid</span><b>${money(p.paid)}</b></div>
+        ${p.status !== 'cancelled' ? `<div class="row"><b class="grow">${owe > 0.004 ? 'You still owe' : 'Paid in full'}</b><b>${owe > 0.004 ? money(owe) : ''}</b></div>` : ''}</div>
+      ${p.arrival_list.length ? `<div class="sec" style="margin:0">Arrivals</div>${p.arrival_list.map(a => `<div class="card" style="gap:2px;padding:10px"><b>${esc(a.arrival_no)} · ${esc(K.when ? K.when(a.at) : a.at)}</b>
+        <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + money(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other: ${money(a.shipping)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}</div>`).join('')}` : ''}
+      ${p.payments.length ? `<div class="sec" style="margin:0">Payments</div><div class="card flush">${p.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt">${money(y.amount)} · ${esc(y.method)}</div><div class="st">${esc(y.paid_on)}${y.note ? ' · ' + esc(y.note) : ''}</div></div>${canAct ? `<button class="linkbtn small" data-pyx="${y.id}" style="border:0;background:none;color:var(--rd);cursor:pointer">Delete</button>` : ''}</div>`).join('')}</div>` : ''}
+      ${canAct ? `<div class="btns">${wait ? `<button class="btn green" id="pparr">${icon('box', 18)}Goods arrived</button>` : ''}${p.status !== 'cancelled' && owe > 0.004 ? `<button class="btn out" id="pppay">${icon('cash', 18)}Pay supplier</button>` : ''}</div>
+        ${wait && p.arrivals > 0 ? '<button class="btn out block" id="ppclose">Close the rest (missing goods will not come)</button>' : ''}
+        ${wait && !p.arrivals && !p.payments.length ? '<button class="btn out block" id="ppcx" style="color:var(--rd)">Cancel purchase</button>' : ''}` : ''}`);
+    if (!canAct) return;
+    const again = () => { s.close(); onDone && onDone(); };
+    if ($('#pparr', s.el)) $('#pparr', s.el).onclick = () => { s.close(); arriveSheet(p, onDone); };
+    if ($('#pppay', s.el)) $('#pppay', s.el).onclick = () => { s.close(); paySheet(p, owe, onDone); };
+    if ($('#ppclose', s.el)) $('#ppclose', s.el).onclick = async e => { if (!(await K.confirmSheet('Close the rest?', 'The pieces that did not arrive are taken off this purchase. The total goes down to what arrived + shipping.', 'Close the rest'))) return;
+      const r = await busy(e.currentTarget, () => api.partnerPurchaseCloseRest(p.id)); toast(r.gone + ' pcs will not come · received'); again(); };
+    if ($('#ppcx', s.el)) $('#ppcx', s.el).onclick = async e => { if (!(await K.confirmSheet('Cancel this purchase?', 'Nothing arrived and nothing was paid.', 'Cancel purchase', true))) return;
+      await busy(e.currentTarget, () => api.partnerPurchaseCancel(p.id)); toast('Cancelled'); again(); };
+    $$('[data-pyx]', s.el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Delete this payment?', 'Only if it was typed by mistake.', 'Delete', true))) return;
+      await busy(b, () => api.partnerPurchasePayDelete(+b.dataset.pyx)); toast('Deleted'); again(); });
+  };
+
+  // goods arrived: choose pieces of each product + shipping / other costs (USD) for this arrival
+  function arriveSheet(p, onDone) {
+    const w = p.items.filter(i => i.qty - i.arrived > 0);
+    const s = K.sheet('Goods arrived · ' + p.purchase_no, `<div class="small muted">Type how many pieces arrived now (0 = not yet). Shipping or other costs of this arrival are shared by value between these products and added to their cost.</div>
+      <div class="row" style="gap:8px"><button class="btn sm out" id="aall">All arrived</button><button class="btn sm out" id="aclr">Clear</button></div>
+      ${w.map(i => `<div class="card" style="gap:4px;padding:10px;margin:6px 0"><div class="row"><b class="grow">${esc(i.name)}</b><span class="small muted">waiting ${i.qty - i.arrived}</span></div>
+        <input class="inp" type="number" min="0" max="${i.qty - i.arrived}" inputmode="numeric" data-aq="${i.product_id}" data-max="${i.qty - i.arrived}" value="${i.qty - i.arrived}"></div>`).join('')}
+      <label class="f">Shipping or other costs for this arrival ($)<input class="inp" id="aship" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></label>
+      <div class="small muted" id="aper"></div>
+      <label class="f">Note (optional)<input class="inp" id="anote" maxlength="300" placeholder="e.g. express, tax, transport"></label>
+      <button class="btn green block" id="ago">${icon('check', 18)}Add to my stock</button>`);
+    const per = () => { const ship = +$('#aship', s.el).value || 0; let val = 0, pcs = 0;
+      $$('[data-aq]', s.el).forEach(i => { const q = +i.value || 0, it = w.find(x => x.product_id === +i.dataset.aq); val += q * it.unit_cost / p.rate; pcs += q; });
+      $('#aper', s.el).textContent = ship > 0 && pcs > 0 ? pcs + ' pcs · shipping adds about ' + money(ship / pcs) + ' per piece on average (more on expensive products)' : ''; };
+    $$('[data-aq]', s.el).forEach(i => i.oninput = per); $('#aship', s.el).oninput = per;
+    $('#aall', s.el).onclick = () => { $$('[data-aq]', s.el).forEach(i => { i.value = i.dataset.max; }); per(); };
+    $('#aclr', s.el).onclick = () => { $$('[data-aq]', s.el).forEach(i => { i.value = 0; }); per(); };
+    $('#ago', s.el).onclick = async e => {
+      const items = $$('[data-aq]', s.el).map(i => ({ product_id: +i.dataset.aq, qty: +i.value || 0 })).filter(i => i.qty > 0);
+      if (!items.length) return toast('Type how many pieces arrived');
+      const r = await busy(e.currentTarget, () => api.partnerPurchaseArrive(p.id, items, +$('#aship', s.el).value || 0, $('#anote', s.el).value));
+      s.close(); toast(r.received ? 'All goods arrived · in your stock' : r.pcs + ' pcs in your stock · ' + r.left + ' pcs still to come'); onDone && onDone();
+    };
+  }
+
+  function paySheet(p, owe, onDone) {
+    const s = K.sheet('Pay ' + p.supplier, `<div class="small muted">${esc(p.purchase_no)} · you owe ${money(owe)}</div>
+      <label class="f">Amount ($)<input class="inp" id="yam" type="number" min="0" step="any" inputmode="decimal" value="${owe}"></label>
+      <div class="f"><span>Paid by</span><div class="seg" id="ymt">${[['cash', 'Cash'], ['aba', 'ABA'], ['bank', 'Bank'], ['wing', 'Wing'], ['other', 'Other']].map(([k, l], n) => `<button type="button" data-ym="${k}" class="${n ? '' : 'on'}">${l}</button>`).join('')}</div></div>
+      <label class="f">Date<input class="inp" id="ydt" type="date" value="${today()}" max="${today()}"></label>
+      <label class="f">Note (optional)<input class="inp" id="yno" maxlength="300"></label>
+      <button class="btn block" id="ygo">Save payment</button>`);
+    let m = 'cash'; $$('[data-ym]', s.el).forEach(b => b.onclick = () => { m = b.dataset.ym; $$('[data-ym]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+    $('#ygo', s.el).onclick = async e => { await busy(e.currentTarget, () => api.partnerPurchasePay(p.id, +$('#yam', s.el).value, m, $('#ydt', s.el).value || null, $('#yno', s.el).value)); s.close(); toast('Payment saved'); onDone && onDone(); };
+  }
+})();
+
 // Partners (admin only): partner businesses that sell from their own Partner warehouse with the phone app.
 // Step 1 (19 Oct 2026): add / edit partners and their user accounts. Step 2: partner stock.
 // Step 4 (20 Oct): the admin's read-only view of each partner (sales report, orders, customers);
@@ -17537,7 +17777,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const t0 = K.period.today(), addD = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return K.period.dstr(x); };
     const mon = (() => { const x = new Date(t0 + 'T12:00:00'); return addD(t0, -((x.getDay() + 6) % 7)); })();
     const PER = { today: [t0, t0], week: [mon, t0], month: [t0.slice(0, 8) + '01', t0] };
-    let tab = ['statement', 'bought', 'catalog', 'products', 'tg'].includes(q.t) ? q.t : 'products', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
+    let tab = ['statement', 'bought', 'catalog', 'products', 'ppur', 'tg'].includes(q.t) ? q.t : 'products', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     const body = $('#body', main);
     const dates = () => `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${per === k ? 'on' : ''}" data-per="${k}">${l}</button>`).join('')}</div>
@@ -17548,7 +17788,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     };
     const draw = async () => {
       // 19 Nov 2026 (Mr. Lee: the partner app is only for trade with K-TRONiCS): 4 tabs + Telegram group
-      $('#tabs', main).innerHTML = [['products', 'Products & stock'], ['catalog', 'Order'], ['bought', 'Purchases'], ['statement', 'Statement'], ['tg', 'Telegram group']].filter(x => x[0] !== 'bought' || canBuyView()).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('');
+      $('#tabs', main).innerHTML = [['products', 'Products & stock'], ['catalog', 'Order'], ['bought', 'Purchases'], ['statement', 'Statement'], ['ppur', 'Their purchases'], ['tg', 'Telegram group']].filter(x => x[0] !== 'bought' || canBuyView()).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('');
       $$('[data-t]', main).forEach(b => b.onclick = () => { tab = b.dataset.t; if (tab !== 'orders') cust = null; draw(); });
       body.innerHTML = K.loading;
       if (tab === 'bought') { body.innerHTML = '<div id="papv" style="margin-bottom:12px"></div><div id="pbuy"></div>'; approvalsBox($('#papv', body), p.id, () => A.refreshCounts()); await buyingBox($('#pbuy', body), p.id, () => A.refreshCounts()); return; }
@@ -17558,6 +17798,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         return;
       }
       if (tab === 'tg') { await tgGroupsBox(body, p); return; }
+      if (tab === 'ppur') {   // 19 Nov 2026: the partner's own purchases (read only)
+        const d = await api.partnerPurchasesAdmin(p.id).catch(e => { toast(e.message); return { suppliers: [], purchases: [] }; });
+        if (!current() || tab !== 'ppur') return;
+        const ps = d.purchases, owed = ps.filter(x => x.status !== 'cancelled').reduce((a, x) => a + Math.max(0, x.total - x.paid), 0);
+        body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)} buying from its own suppliers. Read only · never in your stock or money.</div>
+          <div class="kpis">${A.kpi(ps.filter(x => x.status === 'ordered').length, 'Waiting to arrive')}${A.kpi(K.money(ps.filter(x => x.status !== 'cancelled').reduce((a, x) => a + +x.total, 0)), 'Bought (all)')}${A.kpi(K.money(owed), 'They still owe suppliers')}${A.kpi(d.suppliers.length, 'Their suppliers')}</div>
+          <div class="card flush">${ps.map(x => `<button class="list-item" data-ppv="${x.id}" style="width:100%;text-align:left"><div class="grow"><div class="tt">${esc(x.purchase_no)} · ${esc(x.supplier)}</div><div class="st">${esc(x.ordered_on)} · ${K.money(x.total)} · paid ${K.money(x.paid)} · ${x.items.length} product(s)</div></div><span class="pill ${x.status === 'received' ? 'gr' : x.status === 'cancelled' ? 'gy' : x.arrivals ? 'bl' : 'or'}">${x.status === 'received' ? 'Received' : x.status === 'cancelled' ? 'Cancelled' : x.arrivals ? 'Part arrived' : 'Waiting to arrive'}</span></button>`).join('') || '<div class="empty">No purchases yet</div>'}</div>`;
+        $$('[data-ppv]', body).forEach(b => b.onclick = () => K.pPurchaseSheet(ps.find(x => x.id === +b.dataset.ppv), null, false));
+        return;
+      }
       if (tab === 'statement') {
         body.innerHTML = `<div class="small muted" style="margin-bottom:8px">Goods ${esc(p.name)} gave you, goods given back and your payments. ${esc(p.name)}'s owner sees the same page.</div><div id="pstm"></div>`;
         await K.partnerStatementBox($('#pstm', body), (f, t) => api.partnerStatementAdmin(p.id, f, t), K.S.pStA = K.S.pStA || { p: 'month' });
