@@ -2205,7 +2205,7 @@ window.makeDemoApi = function () {
     const buy = (sup, cur, rate, extra, lines, minAgo, status, paid) => {
       const id = ++D.seq.purchase; let goods = 0;
       lines.forEach(([pid, q, uc]) => { goods += q * uc / rate; });
-      lines.forEach(([pid, q, uc]) => D.pitems.push({ id: ++D.seq.pitem, purchase_id: id, product_id: pid, qty: q, unit_cost: uc, landed_cost: +(uc / rate + (goods ? extra * (uc / rate) / goods : 0)).toFixed(4) }));
+      lines.forEach(([pid, q, uc]) => D.pitems.push({ id: ++D.seq.pitem, purchase_id: id, product_id: pid, qty: q, unit_cost: uc, landed_cost: +(uc / rate + (goods ? extra * (uc / rate) / goods : 0)).toFixed(6) }));
       const total = +(goods + extra).toFixed(2);
       D.purchases.push({ id, purchase_no: 'PO-' + String(id).padStart(5, '0'), supplier_id: sup, warehouse_id: 1, status, currency: cur, rate, extra_cost: extra, total, paid_amount: 0, note: '',
         ordered_on: ago(minAgo).slice(0, 10), received_at: status === 'received' ? ago(Math.max(60, minAgo - 7200)) : null, created_by: 'u-lee', received_by: status === 'received' ? 'u-vanna' : null, created_at: ago(minAgo) });
@@ -2742,7 +2742,7 @@ window.makeDemoApi = function () {
       if (!D.products.some(p => p.id === +id && !p.partner_id && p.active)) fail('Product not found'); if (cost == null || cost === '') fail('Write your cost'); if (price == null || price === '') fail('Write your selling price');
       if (!(+cost >= 0 && +cost <= 1000000 && +price >= 0 && +price <= 1000000)) fail('Cost and price must be between 0 and 1,000,000');
       D.pCat = D.pCat || []; if (!D.pCat.some(c => c.partner_id === pid && c.product_id === +id)) D.pCat.push({ partner_id: pid, product_id: +id, added_at: now() });
-      D.pCosts = (D.pCosts || []).filter(x => !(x.partner_id === pid && x.product_id === +id)); D.pCosts.push({ partner_id: pid, product_id: +id, cost: Math.round(+cost * 100) / 100 });
+      D.pCosts = (D.pCosts || []).filter(x => !(x.partner_id === pid && x.product_id === +id)); D.pCosts.push({ partner_id: pid, product_id: +id, cost: Math.round(+cost * 1e6) / 1e6 });
       D.pPrices = (D.pPrices || []).filter(x => !(x.partner_id === pid && x.product_id === +id)); D.pPrices.push({ partner_id: pid, product_id: +id, price: Math.round(+price * 100) / 100 }); save(); return wait(null); },
     async partnerCatalogRemove(id) { const pid = myPartner(); if (!pid) fail('Not a partner account'); if ((me.partner_role || 'owner') !== 'owner') fail('Only the partner owner can do this');
       if (!(D.pCat || []).some(c => c.partner_id === pid && c.product_id === +id)) fail('Product not found'); if (pStock(pid, +id) !== 0) fail('You still have stock of it. Sell it or count it to 0 first.');
@@ -2857,7 +2857,7 @@ window.makeDemoApi = function () {
     async partnerSetCosts(items) { const pid = myPartner(); if (!pid) fail('Not a partner account'); D.pCosts = D.pCosts || [];
       (items || []).forEach(it => { const c = it.cost === '' || it.cost == null ? null : +it.cost; if (c != null && !(c >= 0 && c <= 1000000)) fail('Costs must be between 0 and 1,000,000');
         if (!D.products.some(x => x.id === +it.product_id && (!x.partner_id || x.partner_id === pid))) fail('Product not found');
-        D.pCosts = D.pCosts.filter(x => !(x.partner_id === pid && x.product_id === +it.product_id)); if (c != null) D.pCosts.push({ partner_id: pid, product_id: +it.product_id, cost: Math.round(c * 100) / 100 }); });
+        D.pCosts = D.pCosts.filter(x => !(x.partner_id === pid && x.product_id === +it.product_id)); if (c != null) D.pCosts.push({ partner_id: pid, product_id: +it.product_id, cost: Math.round(c * 1e6) / 1e6 }); });
       save(); return wait((items || []).length); },
     async partnerMyCosts() { const pid = myPartner(); if (!pid) fail('Not a partner account'); const o = {}; (D.pCosts || []).filter(x => x.partner_id === pid).forEach(x => { o[x.product_id] = x.cost; }); return wait(o); },
     async partnerExpenseSave(x) { const pid = myPartner(); if (!pid) fail('Not a partner account'); D.pExp = D.pExp || [];
@@ -2926,7 +2926,7 @@ window.makeDemoApi = function () {
     _pgChange(pid, prod, change, kind, ref, note, cost) { D.pGoods = D.pGoods || []; D.pgMoves = D.pgMoves || [];
       let g = D.pGoods.find(x => x.partner_id === pid && x.product_id === prod); if (!g) { g = { partner_id: pid, product_id: prod, qty: 0, unit_cost: cost || 0 }; D.pGoods.push(g); }
       const after = g.qty + change; if (after < 0) fail('Goods from partners: only ' + g.qty + ' of ' + ((D.products.find(p => p.id === prod) || {}).name || '') + ' left');
-      if (change > 0 && after > 0) g.unit_cost = +((g.qty * g.unit_cost + change * (cost ?? g.unit_cost)) / after).toFixed(4);
+      if (change > 0 && after > 0) g.unit_cost = +((g.qty * g.unit_cost + change * (cost ?? g.unit_cost)) / after).toFixed(6);
       g.qty = after; D.pgMoves.push({ id: D.pgMoves.length + 1, partner_id: pid, product_id: prod, change, qty_after: after, kind, ref, note: (note || '').trim() || null, unit_cost: cost ?? g.unit_cost, created_by: me.id, created_at: now() }); },
     _pgReq(id) { const r = pReqs().find(x => x.id === +id); if (!r || r.flow !== 'goods') fail('Request not found'); return r; },
     async partnerGoodsReceive(id) { if (!api._pgCan()) fail('You are not allowed to receive partner goods'); const r = api._pgReq(id);
@@ -2983,7 +2983,7 @@ window.makeDemoApi = function () {
       const reqs = pReqs().filter(r => r.flow === 'goods' && (!pid || r.partner_id === +pid));
       return wait({ waiting: reqs.filter(r => ['approved', 'part'].includes(r.status) && !r.received_at).map(r => pReqJson(r, false)),
         goods: (D.pGoods || []).filter(g => g.qty > 0 && (!pid || g.partner_id === +pid)).map(g => { const p = D.products.find(x => x.id === g.product_id) || {};
-          return { partner_id: g.partner_id, partner: pn(g.partner_id), product_id: g.product_id, name: p.name, sku: p.sku, qty: g.qty, unit_cost: +(+g.unit_cost).toFixed(2), value: +(g.qty * g.unit_cost).toFixed(2) }; }),
+          return { partner_id: g.partner_id, partner: pn(g.partner_id), product_id: g.product_id, name: p.name, sku: p.sku, qty: g.qty, unit_cost: +(+g.unit_cost).toFixed(6), value: +(g.qty * g.unit_cost).toFixed(2) }; }),
         orders: reqs.map(r => ({ r, o: pOrds().find(x => x.request_id === r.id) })).filter(x => x.o && x.o.status !== 'cancelled').sort((a, b) => b.o.id - a.o.id).map(({ r, o }) => ({ order_id: o.id, order_no: o.order_no, request_id: r.id, request_no: r.request_no,
           partner_id: o.partner_id, partner: pn(o.partner_id), status: o.status, received_at: r.received_at || null, total: o.total, returned: o.returned_amount || 0, paid: o.paid_amount, owed: +(o.total - (o.returned_amount || 0) - o.paid_amount).toFixed(2), created_at: o.created_at,
           payments: pPays().filter(y => y.order_id === o.id).map(y => ({ id: y.id, amount: y.amount_usd, method: y.method, note: y.note, at: y.received_at, by: staffNameD(y.created_by), voided_at: y.voided_at, void_reason: y.void_reason })),
@@ -4944,7 +4944,7 @@ window.makeDemoApi = function () {
       const old = {}; D.pitems.filter(i => i.purchase_id === id).forEach(i => { const o = old[i.product_id] = old[i.product_id] || { q: 0, v: 0 }; o.q += i.qty; o.v += i.qty * i.landed_cost; });
       let goods = 0; x.items.forEach(it => { if (!(it.qty > 0)) fail('Quantity must be more than 0'); goods += it.qty * (+it.unit_cost || 0) / rate; });
       const pcs = x.items.reduce((s, it) => s + it.qty, 0);
-      const nw = x.items.map(it => ({ product_id: it.product_id, qty: it.qty, unit_cost: +it.unit_cost || 0, landed_cost: +((+it.unit_cost || 0) / rate + (goods > 0 ? extra * ((+it.unit_cost || 0) / rate) / goods : extra / pcs)).toFixed(4) }));
+      const nw = x.items.map(it => ({ product_id: it.product_id, qty: it.qty, unit_cost: +it.unit_cost || 0, landed_cost: +((+it.unit_cost || 0) / rate + (goods > 0 ? extra * ((+it.unit_cost || 0) / rate) / goods : extra / pcs)).toFixed(6) }));
       const nq = {}; nw.forEach(i => { const o = nq[i.product_id] = nq[i.product_id] || { q: 0, v: 0 }; o.q += i.qty; o.v += i.qty * i.landed_cost; });
       let chg = '';
       if (p.status === 'received') {
@@ -4953,7 +4953,7 @@ window.makeDemoApi = function () {
           if (n.q < api._poBack(id, pid)) fail(api._poBack(id, pid) + ' pcs of ' + pr.name + ' were already returned to the supplier, so the quantity cannot be less than that');
           if (n.q < o.q && qty(pid, p.warehouse_id) < o.q - n.q) fail('Only ' + qty(pid, p.warehouse_id) + ' pcs of ' + pr.name + ' are left in that warehouse, so you cannot take off ' + (o.q - n.q) + ' pcs'); });
         all.forEach(pid => { const o = old[pid] || { q: 0, v: 0 }, n = nq[pid] || { q: 0, v: 0 }, pr = D.products.find(y => y.id === pid), have = D.warehouses.reduce((s, w) => s + qty(pid, w.id), 0);
-          if (have - o.q + n.q > 0 && have - o.q >= 0) pr.cost = +((have * pr.cost - o.v + n.v) / (have - o.q + n.q)).toFixed(2);
+          if (have - o.q + n.q > 0 && have - o.q >= 0) pr.cost = +((have * pr.cost - o.v + n.v) / (have - o.q + n.q)).toFixed(6);
           if (n.q !== o.q) { setQty(pid, p.warehouse_id, qty(pid, p.warehouse_id) + n.q - o.q); D.moves.push({ id: ++D.seq.move, product_id: pid, warehouse_id: p.warehouse_id, qty_change: n.q - o.q, reason: 'adjust', ref: p.purchase_no, note: 'Purchase edited', created_by: me.id, created_at: now() }); chg += pr.name + ' ' + o.q + '→' + n.q + ' pcs; '; } });
       }
       D.pitems = D.pitems.filter(i => i.purchase_id !== id); nw.forEach(i => D.pitems.push(Object.assign({ id: ++D.seq.pitem, purchase_id: id }, i)));
@@ -5010,7 +5010,7 @@ window.makeDemoApi = function () {
       x.items.forEach(it => { if (!(it.qty > 0)) fail('Quantity must be more than 0'); goods += it.qty * (+it.unit_cost || 0) / rate; });
       const pcs = x.items.reduce((s, it) => s + it.qty, 0);
       x.items.forEach(it => D.pitems.push({ id: ++D.seq.pitem, purchase_id: id, product_id: it.product_id, qty: it.qty, unit_cost: +it.unit_cost || 0,
-        landed_cost: +((+it.unit_cost || 0) / rate + (goods > 0 ? extra * ((+it.unit_cost || 0) / rate) / goods : extra / pcs)).toFixed(4) }));
+        landed_cost: +((+it.unit_cost || 0) / rate + (goods > 0 ? extra * ((+it.unit_cost || 0) / rate) / goods : extra / pcs)).toFixed(6) }));
       D.purchases.push({ id, purchase_no: 'PO-' + String(id).padStart(5, '0'), supplier_id: x.supplier_id, warehouse_id: x.warehouse_id, status: 'ordered', currency: x.currency || 'USD', rate, extra_cost: extra,
         total: +(goods + extra).toFixed(2), paid_amount: 0, note: x.note || '', ordered_on: x.ordered_on || localDay(now()), received_at: null, created_by: me.id, received_by: null, created_at: now() });
       save(); if (x.receive) await api.receivePurchase(id); return wait(id);
@@ -5036,7 +5036,7 @@ window.makeDemoApi = function () {
       D.parr = D.parr || []; const a = { id: Math.max(0, ...D.parr.map(x => x.id)) + 1, purchase_id: id, arrival_no: p.purchase_no + '-A' + n, shipping: ship, ship_to: ship > 0 ? shipTo : null,
         ship_method: ship > 0 && shipTo === 'company' ? (method || 'cash') : null, note: String(note || '').trim() || null, created_by: me.id, created_at: now(), items: [] };
       arr.forEach(x => { const c = x.unit + (ship ? (val > 0 ? ship * x.unit / val : ship / pcs) : 0), pr = D.products.find(y => y.id === x.product_id), have = Math.max(0, D.warehouses.reduce((s, w) => s + qty(pr.id, w.id), 0));
-        a.items.push({ product_id: x.product_id, qty: x.qty, unit_cost: +c.toFixed(4) }); pr.cost = +((have * pr.cost + x.qty * c) / (have + x.qty)).toFixed(2);
+        a.items.push({ product_id: x.product_id, qty: x.qty, unit_cost: +c.toFixed(6) }); pr.cost = +((have * pr.cost + x.qty * c) / (have + x.qty)).toFixed(6);
         setQty(pr.id, p.warehouse_id, qty(pr.id, p.warehouse_id) + x.qty);
         D.moves.push({ id: ++D.seq.move, product_id: pr.id, warehouse_id: p.warehouse_id, qty_change: x.qty, reason: 'in', ref: p.purchase_no, note: 'From ' + sup.name, created_by: me.id, created_at: now() }); });
       D.parr.push(a); p.arrivals = n; if (ship > 0 && shipTo === 'supplier') p.total = +(p.total + ship).toFixed(2);
@@ -5067,7 +5067,7 @@ window.makeDemoApi = function () {
         if (q > a) { gone += q - a; lst.push(D.products.find(y => y.id === prod).name + ' −' + (q - a)); }
         its.forEach(i => { if (a <= 0) D.pitems = D.pitems.filter(y => y !== i); else if (i.qty > a) { i.qty = a; a = 0; } else a -= i.qty; }); });
       const its = D.pitems.filter(i => i.purchase_id === id), goods = its.reduce((s, i) => s + i.qty * i.unit_cost / p.rate, 0), pcs = its.reduce((s, i) => s + i.qty, 0);
-      its.forEach(i => { i.landed_cost = +(i.unit_cost / p.rate + (goods > 0 ? p.extra_cost * (i.unit_cost / p.rate) / goods : p.extra_cost / Math.max(1, pcs))).toFixed(4); });
+      its.forEach(i => { i.landed_cost = +(i.unit_cost / p.rate + (goods > 0 ? p.extra_cost * (i.unit_cost / p.rate) / goods : p.extra_cost / Math.max(1, pcs))).toFixed(6); });
       Object.assign(p, { total: +(goods + p.extra_cost + api._poShipSup(id)).toFixed(2), status: 'received', received_at: now(), received_by: me.id, edited_at: now(), edited_by: me.id });
       (D.pedits = D.pedits || []).push({ id: D.pedits.length + 1, purchase_id: id, summary: 'Closed the rest: ' + gone + ' pcs will not come (' + lst.join(', ') + ') · total ' + oldTotal.toFixed(2) + ' → ' + p.total.toFixed(2) + (note ? ' · ' + note : ''), created_by: me.id, created_at: now() });
       pPurchaseFollow(p); api._poRecalc(p); save(); return wait({ gone, total: p.total });
@@ -5252,7 +5252,7 @@ window.makeDemoApi = function () {
     if (!ppS().some(s => s.id === +sup && s.partner_id === pid)) fail('Choose one of your suppliers'); if (rt <= 0) fail('Write how much 1 USD is in ' + cur);
     if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
     const lines = items.map(i => { if (!pHas(pid, i.product_id)) fail('Product not found'); if (seen.has(+i.product_id)) fail('Each product only once, please'); seen.add(+i.product_id);
-      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(4) }; });
+      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(6) }; });
     const goods = +lines.reduce((a, l) => a + l.qty * l.unit_cost / rt, 0).toFixed(2), n = ppP().filter(p => p.partner_id === pid).length + 1;
     const pu = { id: Math.max(0, ...ppP().map(x => x.id)) + 1, partner_id: pid, purchase_no: 'PP' + pid + '-' + String(n).padStart(4, '0'), supplier_id: +sup, ordered_on: on || localDay0(new Date()), currency: cur, rate: rt,
       note: (note || '').trim() || null, status: 'ordered', arrivals: 0, goods, shipping: 0, total: goods, created_at: now(), received_at: null, items: lines, arr: [], pays: [] };
@@ -5264,9 +5264,9 @@ window.makeDemoApi = function () {
     if (!L.length) fail('Type how many pieces arrived');
     const val = L.reduce((a, l) => a + l.qty * l.u, 0), pcs = L.reduce((a, l) => a + l.qty, 0), ano = pu.purchase_no + '-A' + (pu.arrivals + 1);
     const a = { id: Math.max(0, ...ppP().flatMap(x => x.arr.map(y => y.id || 0))) + 1, arrival_no: ano, shipping: shipTo === 'supplier' ? ship : 0, ship_other: shipTo === 'other' ? ship : 0, note: (note || '').trim() || null, at: now(), items: [] };
-    L.forEach(l => { const c = l.u + (ship === 0 ? 0 : val > 0 ? ship * l.u / val : ship / pcs); a.items.push({ product_id: l.product_id, qty: l.qty, unit_cost: +c.toFixed(4) });
+    L.forEach(l => { const c = l.u + (ship === 0 ? 0 : val > 0 ? ship * l.u / val : ship / pcs); a.items.push({ product_id: l.product_id, qty: l.qty, unit_cost: +c.toFixed(6) });
       const have = Math.max(0, pStock(pid, l.product_id)), old = pCost(pid, l.product_id); D.pCosts = (D.pCosts || []).filter(x => !(x.partner_id === pid && x.product_id === l.product_id));
-      D.pCosts.push({ partner_id: pid, product_id: l.product_id, cost: Math.round((old == null || !have ? c : (have * old + l.qty * c) / (have + l.qty)) * 100) / 100 });
+      D.pCosts.push({ partner_id: pid, product_id: l.product_id, cost: Math.round((old == null || !have ? c : (have * old + l.qty * c) / (have + l.qty)) * 1e6) / 1e6 });
       pStockChange(pid, l.product_id, l.qty, 'in', 'Purchase ' + pu.purchase_no, pu.purchase_no); });
     pu.arr.push(a); pu.arrivals++; pu.shipping = +(pu.shipping + a.shipping).toFixed(2); pu.total = +(pu.goods + pu.shipping).toFixed(2);
     const left = pu.items.reduce((s, i) => s + i.qty - got(i.product_id), 0); if (left <= 0) { pu.status = 'received'; pu.received_at = now(); }
@@ -5281,21 +5281,21 @@ window.makeDemoApi = function () {
     if (!ppS().some(s => s.id === +sup && s.partner_id === pid)) fail('Choose one of your suppliers'); if (rt <= 0) fail('Write how much 1 USD is in ' + cur);
     if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
     const L = items.map(i => { if (!pu.items.some(x => x.product_id === +i.product_id) && !pHas(pid, i.product_id)) fail('Product not found'); if (seen.has(+i.product_id)) fail('Each product only once, please'); seen.add(+i.product_id);
-      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(4) }; });
+      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(6) }; });
     const arrOf = x => pu.arr.reduce((a, r) => a + r.items.filter(i => i.product_id === x).reduce((b, i) => b + i.qty, 0), 0), ch = [];
     pu.items.forEach(o => { const n = L.find(l => l.product_id === o.product_id), q = n ? n.qty : 0;
       if (pu.status === 'ordered' && q < arrOf(o.product_id)) fail(pn(o.product_id) + ': ' + arrOf(o.product_id) + ' pcs already arrived, so it cannot be less');
       if (!q) ch.push('removed ' + pn(o.product_id)); else if (q !== o.qty) ch.push(pn(o.product_id) + ' ' + o.qty + ' → ' + q + ' pcs');
       if (n && (n.unit_cost !== o.unit_cost || cur !== pu.currency || rt !== +pu.rate)) { if (n.unit_cost !== o.unit_cost) ch.push(pn(o.product_id) + ' price ' + o.unit_cost + ' ' + pu.currency + ' → ' + n.unit_cost + ' ' + cur); const arr = arrOf(o.product_id);
-        const d = n.unit_cost / rt - o.unit_cost / +pu.rate; if (arr && Math.abs(d) > 1e-6) { pu.arr.forEach(r => r.items.forEach(i => { if (i.product_id === o.product_id) i.unit_cost = Math.max(0, +(i.unit_cost + d).toFixed(4)); }));
-          const have = Math.max(0, pStock(pid, o.product_id)), c = D.pCosts && D.pCosts.find(x => x.partner_id === pid && x.product_id === o.product_id); if (have && c) c.cost = Math.max(0, Math.round((c.cost + d * Math.min(arr, have) / have) * 100) / 100); } } });
+        const d = n.unit_cost / rt - o.unit_cost / +pu.rate; if (arr && Math.abs(d) > 1e-6) { pu.arr.forEach(r => r.items.forEach(i => { if (i.product_id === o.product_id) i.unit_cost = Math.max(0, +(i.unit_cost + d).toFixed(6)); }));
+          const have = Math.max(0, pStock(pid, o.product_id)), c = D.pCosts && D.pCosts.find(x => x.partner_id === pid && x.product_id === o.product_id); if (have && c) c.cost = Math.max(0, Math.round((c.cost + d * Math.min(arr, have) / have) * 1e6) / 1e6); } } });
     L.filter(l => !pu.items.some(o => o.product_id === l.product_id)).forEach(l => ch.push('added ' + pn(l.product_id) + ' ' + l.qty + ' pcs'));
     const goods = +L.reduce((a, l) => a + l.qty * l.unit_cost / rt, 0).toFixed(2), paid = pu.pays.reduce((a, y) => a + y.amount, 0);
     if (Math.round(paid * 100) > Math.round((goods + pu.shipping) * 100)) fail('You already paid $' + paid.toFixed(2) + ' but the new total is $' + (goods + pu.shipping).toFixed(2) + '. Delete a payment first.');
     if (pu.status === 'received') { const ids = [...new Set(L.map(l => l.product_id).concat(pu.items.map(o => o.product_id)))];
       ids.forEach(x => { const n = L.find(l => l.product_id === x), diff = (n ? n.qty : 0) - arrOf(x); if (!diff) return;
         pStockChange(pid, x, diff, 'fix', 'Purchase ' + pu.purchase_no + ' changed', pu.purchase_no);
-        if (diff > 0) { const last = pu.arr[pu.arr.length - 1], it = last.items.find(i => i.product_id === x); if (it) it.qty += diff; else last.items.push({ product_id: x, qty: diff, unit_cost: +(n.unit_cost / rt).toFixed(4) }); }
+        if (diff > 0) { const last = pu.arr[pu.arr.length - 1], it = last.items.find(i => i.product_id === x); if (it) it.qty += diff; else last.items.push({ product_id: x, qty: diff, unit_cost: +(n.unit_cost / rt).toFixed(6) }); }
         else { let left = -diff; for (let k = pu.arr.length - 1; k >= 0 && left > 0; k--) { const r = pu.arr[k]; r.items.forEach(i => { if (i.product_id === x && left > 0) { const t = Math.min(i.qty, left); i.qty -= t; left -= t; } }); r.items = r.items.filter(i => i.qty > 0); } } }); }
     if (+sup !== pu.supplier_id) ch.push('supplier ' + (ppS().find(x => x.id === pu.supplier_id) || {}).name + ' → ' + (ppS().find(x => x.id === +sup) || {}).name);
     if (on && on !== pu.ordered_on) ch.push('date ' + pu.ordered_on + ' → ' + on); if (cur !== pu.currency) ch.push('currency ' + pu.currency + ' → ' + cur + (cur !== 'USD' ? ' (1 USD = ' + rt + ')' : '')); else if (rt !== +pu.rate) ch.push('rate 1 USD = ' + pu.rate + ' → ' + rt + ' ' + cur);
@@ -5313,8 +5313,8 @@ window.makeDemoApi = function () {
   api.partnerPurchaseArrivalShip = async (aid, amt, to, note) => { const pid = pOwnerD(); const pu = ppP().find(x => x.partner_id === pid && x.arr.some(y => y.id === +aid)); if (!pu) fail('Arrival not found');
     if (pu.status === 'cancelled') fail('This purchase was cancelled'); amt = Math.round((+amt || 0) * 100) / 100; if (!(amt > 0)) fail('Write the amount'); if (!['supplier', 'other'].includes(to)) fail('Choose who you paid the shipping to');
     const a = pu.arr.find(y => y.id === +aid), val = a.items.reduce((s, i) => s + i.qty * i.unit_cost, 0), pcs = a.items.reduce((s, i) => s + i.qty, 0);
-    a.items.forEach(i => { const d = val > 0 ? amt * i.unit_cost / val : amt / pcs; i.unit_cost = +(i.unit_cost + d).toFixed(4); const have = Math.max(0, pStock(pid, i.product_id)), c = (D.pCosts || []).find(x => x.partner_id === pid && x.product_id === i.product_id);
-      if (have && c) c.cost = Math.round((c.cost + d * Math.min(i.qty, have) / have) * 100) / 100; });
+    a.items.forEach(i => { const d = val > 0 ? amt * i.unit_cost / val : amt / pcs; i.unit_cost = +(i.unit_cost + d).toFixed(6); const have = Math.max(0, pStock(pid, i.product_id)), c = (D.pCosts || []).find(x => x.partner_id === pid && x.product_id === i.product_id);
+      if (have && c) c.cost = Math.round((c.cost + d * Math.min(i.qty, have) / have) * 1e6) / 1e6; });
     if (to === 'supplier') { a.shipping = +(a.shipping + amt).toFixed(2); pu.shipping = +(pu.shipping + amt).toFixed(2); pu.total = +(pu.total + amt).toFixed(2); } else a.ship_other = +((a.ship_other || 0) + amt).toFixed(2);
     if ((note || '').trim()) a.note = [a.note, note.trim()].filter(Boolean).join(' · ');
     (pu.changes = pu.changes || []).unshift({ at: now(), summary: a.arrival_no + ': + $' + amt.toFixed(2) + ' shipping / other costs ' + (to === 'supplier' ? '(owed to the supplier)' : '(paid to someone else, cost only)'), by: me.full_name }); save(); return wait(ppJson(pu)); };
@@ -5324,7 +5324,7 @@ window.makeDemoApi = function () {
     if (a.shipping > 0 && a.ship_to !== to) fail('The shipping of this arrival was ' + (a.ship_to === 'supplier' ? 'owed to the supplier' : 'paid to a shipping company') + '. Add more the same way.');
     const val = a.items.reduce((s, i) => s + i.qty * i.unit_cost, 0), pcs = a.items.reduce((s, i) => s + i.qty, 0);
     a.items.forEach(i => { const d = val > 0 ? amt * i.unit_cost / val : amt / pcs, pr = D.products.find(y => y.id === i.product_id), have = Math.max(0, D.warehouses.reduce((s, w) => s + qty(pr.id, w.id), 0));
-      i.unit_cost = +(i.unit_cost + d).toFixed(4); if (have) pr.cost = +(pr.cost + d * Math.min(i.qty, have) / have).toFixed(2); });
+      i.unit_cost = +(i.unit_cost + d).toFixed(6); if (have) pr.cost = +(pr.cost + d * Math.min(i.qty, have) / have).toFixed(6); });
     Object.assign(a, { shipping: +(a.shipping + amt).toFixed(2), ship_to: to, ship_method: to === 'company' ? (method || a.ship_method || 'cash') : null, note: (note || '').trim() ? [a.note, note.trim()].filter(Boolean).join(' · ') : a.note });
     if (to === 'supplier') p.total = +(p.total + amt).toFixed(2);
     (D.pedits = D.pedits || []).push({ id: D.pedits.length + 1, purchase_id: p.id, summary: a.arrival_no + ': + $' + amt.toFixed(2) + ' shipping ' + (to === 'supplier' ? '(owed to the supplier)' : '(paid to a shipping company)'), created_at: now(), created_by: me.id });
@@ -5534,6 +5534,8 @@ window.makeDemoApi = function () {
   // ---------- small helpers ----------
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = n => { const v = Number(n) || 0; return (v < -0.004 ? '−$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  // a COST (each piece): up to 4 decimals, e.g. $0.3267, $0.021, $2.50 (19 Nov 2026, Mr. Lee: "even 0.021$ must be calculated and show")
+  const costMoney = n => { const v = Number(n) || 0; return (v < -0.00004 ? '−$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }); };
   const $ = (sel, el) => (el || root).querySelector(sel);
   const $$ = (sel, el) => Array.from((el || root).querySelectorAll(sel));
   const initials = n => { const p = String(n || '?').replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); };
@@ -5830,7 +5832,7 @@ window.makeDemoApi = function () {
     location.hash = '#/home'; render();
   }
 
-  window.KT = { isVoid, isSale, ding, soundOn, soundLevel, setSound, allow, canAdminWeb, SELLERS, ROLE_HINTS, isDeptHead, deptOf, isHeadOf, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
+  window.KT = { isVoid, isSale, ding, soundOn, soundLevel, setSound, allow, canAdminWeb, SELLERS, ROLE_HINTS, isDeptHead, deptOf, isHeadOf, CUST_STATUS, custPill, repOptions, PROVINCES, provinceOptions, api, live, root, S, esc, money, costMoney, $, $$, initials, avatar, colorFor, when, hhmm, dayLabel, sameDay, ROLE_LABEL, STATUS, statusPill,
     distanceM, icon, data, forget, staffName, can, toast, sheet, confirmSheet, busy, loading, emptyBox, page, header, tabbar, updateBadge,
     refreshUnread, route, go, render, ensure, afterLogin, logout, liveHandlers, screens: {}, loginHooks: [] };
 
@@ -12276,7 +12278,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${p.edited_at ? `<div class="row small"><span class="grow muted">Last edited</span><b>${dstr(p.edited_at)}${p.editor ? ' · ' + esc(p.editor.full_name) : ''}</b></div>` : ''}
         ${mgr && p.currency !== 'USD' ? `<div class="row small"><span class="grow muted">Currency</span><b>${esc(p.currency)} · $1 = ${(+p.rate).toLocaleString()} ${esc(p.currency)}</b></div>` : ''}
         ${p.note ? `<div class="row small"><span class="grow muted">Note</span><b>${esc(p.note)}</b></div>` : ''}</div>
-      <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(i.products.name)}</div><div class="st">${esc(i.products.sku || '')}${mgr ? ' · ' + i.qty + ' × ' + K.curMoney(i.unit_cost, p.currency) + ' · landed ' + money(i.landed_cost) + ' each' : ''}</div>${part ? `<div class="st" style="color:${(arrOf[i.product_id] || 0) >= K.poOrderedOf(p)[i.product_id] ? 'var(--gr)' : 'var(--or)'}">Arrived ${arrOf[i.product_id] || 0} of ${K.poOrderedOf(p)[i.product_id]} pcs</div>` : ''}</div><b>${mgr ? K.curMoney(i.qty * i.unit_cost, p.currency) : i.qty + ' pcs'}</b></div>`).join('')}</div>
+      <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt" style="font-size:14px">${esc(i.products.name)}</div><div class="st">${esc(i.products.sku || '')}${mgr ? ' · ' + i.qty + ' × ' + K.curMoney(i.unit_cost, p.currency) + ' · landed ' + K.costMoney(i.landed_cost) + ' each' : ''}</div>${part ? `<div class="st" style="color:${(arrOf[i.product_id] || 0) >= K.poOrderedOf(p)[i.product_id] ? 'var(--gr)' : 'var(--or)'}">Arrived ${arrOf[i.product_id] || 0} of ${K.poOrderedOf(p)[i.product_id]} pcs</div>` : ''}</div><b>${mgr ? K.curMoney(i.qty * i.unit_cost, p.currency) : i.qty + ' pcs'}</b></div>`).join('')}</div>
       ${arrs.length > 1 || arrs.some(a => +a.shipping > 0) || part || (mgr && arrs.length) ? `<div class="sec" style="margin:4px 0 -4px">Arrivals (${arrs.length})</div><div class="card flush">${arrs.map(a => `<div class="list-item" style="align-items:flex-start"><div class="ic-av sq" style="background:var(--grs);color:var(--gr)">📦</div>
         <div class="grow"><div class="tt" style="font-size:14px">${esc(a.arrival_no || '')} · ${dstr(a.created_at)}${a.creator && a.creator.full_name ? ' · ' + esc(a.creator.full_name) : ''}</div>
           <div class="st">${(a.items || []).map(x => esc(x.products ? x.products.name : '') + ' ×' + x.qty).join(', ')}</div>
@@ -12467,9 +12469,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const showLT = pid => { const x = K.$(`[data-lt="${pid}"]`, s.el); if (x) x.textContent = lineTot(pid); };
     const drawL = () => { const t = K.$('#pq', s.el).value.toLowerCase();
       const list = products.filter(p => d.lines[p.id] || !t || p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)).sort((a, b) => (!!d.lines[b.id]) - (!!d.lines[a.id]));
-      K.$('#pl', s.el).innerHTML = list.map(p => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(p.name)}</div><div class="st">${esc(p.sku)} · in stock ${p.total_qty} · cost now ${money(p.cost)}</div><div class="small" data-lt="${p.id}" style="font-weight:700;color:var(--p)">${lineTot(p.id)}</div></div>
+      K.$('#pl', s.el).innerHTML = list.map(p => `<div class="list-item" style="gap:8px"><div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(p.name)}</div><div class="st">${esc(p.sku)} · in stock ${p.total_qty} · cost now ${K.costMoney(p.cost)}</div><div class="small" data-lt="${p.id}" style="font-weight:700;color:var(--p)">${lineTot(p.id)}</div></div>
         <input class="inp" data-q="${p.id}" type="number" inputmode="numeric" min="0" placeholder="Qty" value="${d.lines[p.id] || ''}" style="width:74px;text-align:center" aria-label="Quantity ${esc(p.name)}">
-        <input class="inp" data-c="${p.id}" type="number" step="0.01" inputmode="decimal" min="0" placeholder="Price ${d.cur}" value="${d.cost[p.id] ?? ''}" style="width:104px;text-align:right" aria-label="Unit price ${esc(p.name)}"></div>`).join('') || '<div class="empty">No products found</div>';
+        <input class="inp" data-c="${p.id}" type="number" step="any" inputmode="decimal" min="0" placeholder="Price ${d.cur}" value="${d.cost[p.id] ?? ''}" style="width:104px;text-align:right" aria-label="Unit price ${esc(p.name)}"></div>`).join('') || '<div class="empty">No products found</div>';
       K.$$('[data-q]', s.el).forEach(i => i.oninput = () => { const v = Math.max(0, Math.floor(+i.value || 0)), pid = i.dataset.q;
         if (v) { d.lines[pid] = v; if (d.cost[pid] === undefined) { const pr = products.find(x => x.id === +pid); d.cost[pid] = +(pr.cost * (d.cur === 'USD' ? 1 : d.rate)).toFixed(2); K.$(`[data-c="${pid}"]`, s.el).value = d.cost[pid]; } } else delete d.lines[pid]; showLT(pid); drawT(); });
       K.$$('[data-c]', s.el).forEach(i => i.oninput = () => { d.cost[i.dataset.c] = +i.value || 0; showLT(i.dataset.c); drawT(); }); };
@@ -13123,7 +13125,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const list = products.filter(p => (!t || [p.name, p.sku, p.category].some(x => x.toLowerCase().includes(t))) && (!onlyLow || p.total_qty <= p.min_stock) && (!catF || p.category === catF) && (!comF || (comF === 'on') === (p.staff_orderable !== false)));
       shownP = list; if ($('#combar')) $('#combar').innerHTML = `<span class="grow small muted">${list.length} shown · reps can order from shared stocks ${list.filter(p => p.staff_orderable !== false).length}</span>${K.allow('stock.manage') && list.length ? `<button class="btn sm out" data-comall="1">Switch all shown On</button><button class="btn sm red" data-comall="0">Switch all shown Off</button>` : ''}`;
       $('#plist').innerHTML = list.length ? list.map(p => { const cls = p.total_qty <= 0 ? 'rd' : p.total_qty <= p.min_stock ? 'or' : 'gr';
-        return `<button class="list-item" data-p="${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · price ${K.allPricesTxt(p)} · cost ${money(p.cost)} · ${p.staff_orderable === false ? '<b style="color:var(--rd)">reps: Off</b>' : '<span style="color:var(--gr);font-weight:700">reps: On</span>'}</div>
+        return `<button class="list-item" data-p="${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · price ${K.allPricesTxt(p)} · cost ${K.costMoney(p.cost)} · ${p.staff_orderable === false ? '<b style="color:var(--rd)">reps: Off</b>' : '<span style="color:var(--gr);font-weight:700">reps: On</span>'}</div>
           <div class="st">${warehouses.filter(w => !w.rep_id || p.stock[w.id]).map(w => `${esc(K.whLabel(w))}: <b style="color:var(--ink)">${p.stock[w.id] || 0}</b>`).join(' · ')}</div></div>
           <div style="text-align:right"><div style="font-weight:800;font-size:18px">${p.total_qty}</div><span class="pill ${cls}">${cls === 'rd' ? 'Out' : cls === 'or' ? 'Low' : 'OK'}</span></div></button>`; }).join('') : emptyBox('box', 'No products found');
       $$('[data-p]').forEach(b => b.onclick = () => K.allow('stock.manage') ? productSheet(products.find(p => p.id === +b.dataset.p), warehouses) : toast('You can view stock only')); };
@@ -13149,7 +13151,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const s = sheet(p.id ? p.name : 'New product', `
       <label class="f">Product name<input class="inp" id="nm" value="${esc(p.name || '')}"></label>
       <div class="btns"><label class="f">SKU / code<input class="inp" id="sku" value="${esc(p.sku || '')}"></label>${K.catField(p.category, cats)}</div>
-      <div class="btns"><label class="f">Selling price ($)<input class="inp" id="pr" type="number" step="0.01" inputmode="decimal" value="${p.price ?? ''}"></label><label class="f">Cost ($)<input class="inp" id="co" type="number" step="0.01" inputmode="decimal" value="${p.cost ?? ''}"></label></div>
+      <div class="btns"><label class="f">Selling price ($)<input class="inp" id="pr" type="number" step="0.01" inputmode="decimal" value="${p.price ?? ''}"></label><label class="f">Cost ($)<input class="inp" id="co" type="number" step="any" inputmode="decimal" value="${p.cost ?? ''}"></label></div>
       <div class="small muted" style="margin-top:-6px">The selling price is filled in on new orders. Staff can still change the price on each order.</div>
       ${p.id ? `<div class="card" style="gap:6px;background:var(--bg)"><b>Quantity prices</b><div class="small muted" style="margin-top:-4px">Pieces of this product in one order. Empty price = not used.</div>
         ${(() => { const t = (p.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty); const rows = t.length ? t.concat(t.length < 3 ? [{}] : []) : [{ min_qty: 50 }, { min_qty: 100 }, {}];   // 18 Nov 2026: he uses 50 and 100 pcs up
@@ -14552,9 +14554,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const rows = items.filter(i => String(i.product_id) === prodF).map(i => Object.assign({ p: pos.find(p => p.id === i.purchase_id) }, i)).filter(r => r.p && r.p.status !== 'cancelled').sort((a, b) => b.p.ordered_on.localeCompare(a.p.ordered_on));
         const pr = prods.find(p => String(p.id) === prodF);
         h = `<div class="filters"><select class="inp" id="pf" style="width:auto;min-width:260px" aria-label="Product">${bought.map(b => `<option value="${b.id}" ${String(b.id) === prodF ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
-            ${pr ? `<span class="small">Average cost now <b>${money(pr.cost)}</b> · sell price <b>${money(pr.price)}</b> · margin <b style="color:var(--gr)">${pr.price ? Math.round((pr.price - pr.cost) / pr.price * 100) : 0}%</b></span>` : ''}</div>
+            ${pr ? `<span class="small">Average cost now <b>${K.costMoney(pr.cost)}</b> · sell price <b>${money(pr.price)}</b> · margin <b style="color:var(--gr)">${pr.price ? Math.round((pr.price - pr.cost) / pr.price * 100) : 0}%</b></span>` : ''}</div>
           <div class="card"><b>What you paid for it</b><div class="tbl"><table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Supplier</th><th style="text-align:right">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Landed cost</th></tr></thead><tbody>
-            ${rows.map(r => `<tr><td>${K.poDate(r.p.ordered_on)}</td><td>${esc(r.p.suppliers.name)} <span class="muted small">${esc(r.p.purchase_no)}</span></td><td style="text-align:right">${r.qty}</td><td style="text-align:right">${K.curMoney(r.unit_cost, r.p.currency)}</td><td style="text-align:right"><b>${money(r.landed_cost)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No purchases of this product yet</td></tr>'}</tbody></table></div>
+            ${rows.map(r => `<tr><td>${K.poDate(r.p.ordered_on)}</td><td>${esc(r.p.suppliers.name)} <span class="muted small">${esc(r.p.purchase_no)}</span></td><td style="text-align:right">${r.qty}</td><td style="text-align:right">${K.curMoney(r.unit_cost, r.p.currency)}</td><td style="text-align:right"><b>${K.costMoney(r.landed_cost)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No purchases of this product yet</td></tr>'}</tbody></table></div>
             <div class="small muted">Landed cost = price in dollars + its share of shipping, tax and other costs.</div></div>`;
       } else {
         const now = new Date(), months = []; for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')); }
@@ -17453,7 +17455,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const landed = new Map();   // product name -> {q, v}
     (p.arrival_list || []).forEach(a => (a.items || []).forEach(x => { const o = landed.get(x.name) || { q: 0, v: 0 }; o.q += +x.qty; o.v += +x.qty * +x.unit_cost; landed.set(x.name, o); }));
     const landedTotal = [...landed.values()].reduce((t, o) => t + o.v, 0);
-    const landedTxt = i => { const o = landed.get(i.name); return o && o.q > 0 ? `<div class="st" style="color:var(--gr);font-weight:700;white-space:normal">Real cost ${money(o.v / o.q)} each · ${money(o.v)} for ${o.q} pcs (with shipping)</div>` : ''; };
+    const landedTxt = i => { const o = landed.get(i.name); return o && o.q > 0 ? `<div class="st" style="color:var(--gr);font-weight:700;white-space:normal">Real cost ${K.costMoney(o.v / o.q)} each · ${money(o.v)} for ${o.q} pcs (with shipping)</div>` : ''; };
     const s = K.sheet(p.purchase_no + ' · ' + p.supplier, `<div class="row" style="gap:8px;flex-wrap:wrap">${stPill(p)}<span class="small muted grow">${esc(p.ordered_on)}${p.currency !== 'USD' ? ' · ' + esc(p.currency) + ' · 1 USD = ' + (+p.rate) : ''}</span></div>
       ${p.note ? `<div class="small muted">${esc(p.note)}</div>` : ''}
       <div class="card flush">${p.items.map(i => `<div class="list-item"><div class="grow"><div class="tt">${esc(i.name)}</div><div class="st">${i.qty} pcs × ${curMoney(i.unit_cost, p.currency)}${p.status !== 'cancelled' ? ' · arrived ' + i.arrived + ' of ' + i.qty : ''}</div>${landedTxt(i)}</div><b>${curMoney(i.qty * i.unit_cost, p.currency)}</b></div>`).join('')}</div>
@@ -17463,7 +17465,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${(() => { const o = (p.arrival_list || []).reduce((t, a) => t + (+a.ship_other || 0), 0); return o > 0.004 ? `<div class="row small muted" style="border-top:1px solid var(--line);padding-top:4px"><span class="grow">Shipping paid to others (cost only, not in the total)</span><b>${money(o)}</b></div>` : ''; })()}
         ${landedTotal > 0.004 ? `<div class="row" style="border-top:1px solid var(--line);padding-top:4px"><b class="grow">Real cost of the goods that arrived (with all shipping)</b><b>${money(landedTotal)}</b></div>` : ''}</div>
       ${p.arrival_list.length ? `<div class="sec" style="margin:0">Arrivals</div>${p.arrival_list.map(a => `<div class="card" style="gap:2px;padding:10px"><b>${esc(a.arrival_no)} · ${esc(K.when ? K.when(a.at) : a.at)}</b>
-        <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + money(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other (owed to the supplier): ${money(a.shipping)}</div>` : ''}${+a.ship_other ? `<div class="small muted">Shipping / other (paid to someone else, cost only): ${money(a.ship_other)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}
+        <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + K.costMoney(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other (owed to the supplier): ${money(a.shipping)}</div>` : ''}${+a.ship_other ? `<div class="small muted">Shipping / other (paid to someone else, cost only): ${money(a.ship_other)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}
         ${canAct && p.status !== 'cancelled' && a.id ? `<button class="btn sm out" data-psl="${a.id}" style="margin-top:4px;align-self:flex-start">🚚 Add shipping / other costs</button>` : ''}</div>`).join('')}` : ''}
       ${(p.changes || []).length ? `<div class="sec" style="margin:0">Changes</div><div class="card flush">${p.changes.map(c => `<div class="list-item"><div class="grow"><div class="st">${esc(K.when ? K.when(c.at) : c.at)}${c.by ? ' · ' + esc(c.by) : ''}</div><div class="small">${esc(c.summary)}</div></div></div>`).join('')}</div>` : ''}
       ${p.payments.length ? `<div class="sec" style="margin:0">Payments</div><div class="card flush">${p.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt">${money(y.amount)} · ${esc(y.method)}</div><div class="st">${esc(y.paid_on)}${y.note ? ' · ' + esc(y.note) : ''}</div></div>${canAct ? `<button class="linkbtn small" data-pyx="${y.id}" style="border:0;background:none;color:var(--rd);cursor:pointer">Delete</button>` : ''}</div>`).join('')}</div>` : ''}
@@ -17501,7 +17503,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="row" style="gap:8px;align-items:center"><b class="grow">Pieces that arrived now</b><button class="btn sm out" id="aall">All arrived</button><button class="btn sm out" id="aclr">Clear</button></div>
       <div class="card flush">${w.map(i => `<div class="list-item" style="gap:10px;align-items:center">${i.photo_url ? `<img src="${esc(i.photo_url)}" alt="" style="width:44px;height:44px;border-radius:8px;object-fit:cover">` : `<div class="ic-av sq">${icon('box', 20)}</div>`}
           <div class="grow" style="min-width:0"><div class="tt" style="font-size:14px">${esc(i.name)}</div>
-            <div class="st" style="white-space:normal">${p.currency !== 'USD' ? curMoney(i.unit_cost, p.currency) + ' = ' : ''}${money(usd(i))} each · waiting ${i.qty - i.arrived}</div>
+            <div class="st" style="white-space:normal">${p.currency !== 'USD' ? curMoney(i.unit_cost, p.currency) + ' = ' : ''}${K.costMoney(usd(i))} each · waiting ${i.qty - i.arrived}</div>
             <div class="st" data-ac="${i.product_id}" style="color:var(--gr);font-weight:700;white-space:normal"></div></div>
           <input class="inp" type="number" min="0" max="${i.qty - i.arrived}" inputmode="numeric" data-aq="${i.product_id}" data-max="${i.qty - i.arrived}" value="${i.qty - i.arrived}" style="width:84px;text-align:center" aria-label="Pieces arrived ${esc(i.name)}"></div>`).join('')}</div>
       <label class="f">Note (optional)<input class="inp" id="anote" maxlength="300" placeholder="e.g. express, tax, transport"></label>
@@ -17511,7 +17513,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const per = () => { const ship = Math.max(0, +$('#aship', s.el).value || 0); let val = 0, pcs = 0;
       w.forEach(i => { const q = qOf(i); val += q * usd(i); pcs += q; });
       w.forEach(i => { const q = qOf(i), x = $(`[data-ac="${i.product_id}"]`, s.el), add = ship > 0 && q ? (val > 0 ? ship * usd(i) / val : ship / pcs) : 0;
-        x.textContent = q ? (add ? 'Cost ' + money(usd(i)) + ' → ' + money(usd(i) + add) + ' each' : 'Cost ' + money(usd(i)) + ' each') : 'not arrived now'; });
+        x.textContent = q ? (add ? 'Cost ' + K.costMoney(usd(i)) + ' → ' + K.costMoney(usd(i) + add) + ' each' : 'Cost ' + K.costMoney(usd(i)) + ' each') : 'not arrived now'; });
       $('#asum', s.el).innerHTML = pcs ? `<div class="row"><span class="grow">${pcs} pcs of ${w.filter(i => qOf(i) > 0).length} product(s)</span><b>${money(val)}</b></div>
         ${ship > 0 ? `<div class="row"><span class="grow">Shipping / other · ${to === 'supplier' ? 'added to what you owe' : 'cost only'}</span><b>${money(ship)}</b></div><div class="row"><b class="grow">Cost of these goods</b><b>${money(val + ship)}</b></div>` : ''}`
         : '<div class="small muted">Type how many pieces arrived</div>'; };
@@ -17806,7 +17808,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="btns" style="margin:0"><button class="btn sm out" data-gcx="${r.id}" style="color:var(--rd)">Cancel</button><button class="btn sm green" data-grv="${r.id}">${icon('check', 16)}Received</button></div></div>`).join('')}` : ''}
         ${Object.keys(byPartner).length ? `<div class="sec" style="margin:0">Goods from partners (old way)</div>` : ''}
         ${Object.entries(byPartner).map(([ppid, g]) => `<div class="card flush"><div class="list-item"><b class="grow">${esc(g.name)}</b>${mgr ? `<button class="btn sm" data-gmv="${ppid}">${icon('box', 16)}Move to my stock</button>` : ''}</div>
-            ${g.rows.map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')} · ${K.money(x.unit_cost)} each</div></div><div style="text-align:right"><b>${x.qty}</b><div class="small muted">${K.money(x.value)}</div></div></div>`).join('')}</div>`).join('')
+            ${g.rows.map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')} · ${K.costMoney(x.unit_cost)} each</div></div><div style="text-align:right"><b>${x.qty}</b><div class="small muted">${K.money(x.value)}</div></div></div>`).join('')}</div>`).join('')
           }
         ${(d.moves || []).some(m => m.kind === 'moved') ? `<div class="sec" style="margin:0">Moved to my stock · last 10</div><div class="card flush">${d.moves.filter(m => m.kind === 'moved').slice(0, 10).map(m => `<div class="list-item"><div class="grow"><div class="tt">${esc(m.name)}</div><div class="st">${esc(m.partner)} · ${esc(m.ref || '')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(K.when(m.created_at))}</div></div><b>${-m.change}</b></div>`).join('')}</div>` : ''}
         ${d.orders.length ? `<div class="sec" style="margin:0">Bought from partners · money</div>${d.orders.map(o => `<div class="card" style="gap:6px;padding:12px">
@@ -18161,8 +18163,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const own = rows.filter(r => !r.linked), lk = rows.filter(r => r.linked), pcs = rows.reduce((s, r) => s + (+r.qty || 0), 0), val = rows.reduce((s, r) => s + (+r.value || 0), 0);
         const table = list => list.length ? `<div class="tbl"><table><thead><tr><th style="text-align:left">Product</th><th style="text-align:left">Category</th><th style="text-align:right">Cost</th><th style="text-align:right">Selling price</th><th style="text-align:right">Profit / pc</th><th style="text-align:right">Stock</th><th style="text-align:right">Value (cost)</th></tr></thead><tbody>
           ${list.map(r => `<tr><td><b>${esc(r.name)}</b>${r.active ? '' : ' <span class="pill gy">Off</span>'}<div class="small muted">${esc(r.sku)}</div></td><td>${esc(r.category || '')}</td>
-            <td style="text-align:right">${r.cost != null ? K.money(r.cost) : '<span class="muted">—</span>'}</td><td style="text-align:right">${r.price != null ? K.money(r.price) : '<span class="muted">—</span>'}</td>
-            <td style="text-align:right">${r.cost != null && r.price != null ? `<span style="color:${r.price - r.cost >= 0 ? 'var(--gr)' : 'var(--rd)'}">${K.money(r.price - r.cost)}</span>` : '—'}</td>
+            <td style="text-align:right">${r.cost != null ? K.costMoney(r.cost) : '<span class="muted">—</span>'}</td><td style="text-align:right">${r.price != null ? K.money(r.price) : '<span class="muted">—</span>'}</td>
+            <td style="text-align:right">${r.cost != null && r.price != null ? `<span style="color:${r.price - r.cost >= 0 ? 'var(--gr)' : 'var(--rd)'}">${K.costMoney(r.price - r.cost)}</span>` : '—'}</td>
             <td style="text-align:right"><b>${r.qty}</b>${r.warn_at != null && r.qty <= r.warn_at ? ' <span class="pill or">low</span>' : ''}</td><td style="text-align:right">${r.value != null ? K.money(r.value) : '—'}</td></tr>`).join('')}</tbody></table></div>` : '';
         body.innerHTML = `<div class="small muted" style="margin-bottom:8px">Everything ${esc(p.name)} has in its products list, with ${esc(p.name)}'s own cost and selling price (view only; only ${esc(p.name)} changes them). Not counted in your numbers.</div>
           <div class="kpis">${A.kpi(rows.length, 'Products')}${A.kpi(pcs, 'Pieces in stock')}${A.kpi(K.money(val), 'Stock value (their cost)')}${A.kpi(rows.filter(r => r.cost == null || r.price == null).length, 'Missing cost or price')}</div>
@@ -18239,7 +18241,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       $('#pslist', s.el).innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['up', '⬆ Going up (' + nUp + ')'], ['new', '➕ New 50+ / 100+ (' + nNew + ')'], ['down', '⬇ Going down (' + nDn + ')'], ['all', 'All (' + all.length + ')']].map(([k, l]) => `<button class="chip ${flt === k ? 'on' : ''}" data-pf="${k}">${l}</button>`).join('')}</div>`
         + (list.length ? `<div class="row" style="gap:8px;align-items:center"><b class="grow">${list.length} product(s) · ${pick.size} ticked in total</b><button class="btn sm out" id="psall">${here === list.length ? 'Untick these' : 'Tick these'}</button></div>
         <div class="card flush" style="max-height:440px;overflow:auto">${list.map(r => `<label class="list-item" style="gap:10px;cursor:pointer;align-items:flex-start"><input type="checkbox" data-pk="${r.product_id}" ${pick.has(r.product_id) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px">
-          <div class="grow"><div class="tt">${esc(r.name)}${r.own ? ' <span class="pill bl">own %</span>' : ''}</div><div class="st">${esc(r.sku || '')} · ${esc(r.category || '')} · cost ${money(r.cost)} · <button type="button" class="linkbtn" data-pmk="${r.product_id}" style="border:0;background:none;padding:0;font:inherit;color:var(--p);font-weight:700;cursor:pointer">% for this product</button></div>
+          <div class="grow"><div class="tt">${esc(r.name)}${r.own ? ' <span class="pill bl">own %</span>' : ''}</div><div class="st">${esc(r.sku || '')} · ${esc(r.category || '')} · cost ${K.costMoney(r.cost)} · <button type="button" class="linkbtn" data-pmk="${r.product_id}" style="border:0;background:none;padding:0;font:inherit;color:var(--p);font-weight:700;cursor:pointer">% for this product</button></div>
             ${r.lines.map(l => `<div class="small row" style="gap:8px"><span class="grow">${lineName(l.min_qty)} pcs · +${+l.markup}%</span>${l.price == null ? `<span class="pill gr" style="font-size:11px">new</span><b style="color:var(--gr)">${money(l.suggested)}</b>` : +l.suggested === +l.price ? `<span class="muted">${money(l.price)} (same)</span>`
               : `<span class="muted" style="text-decoration:line-through">${money(l.price)}</span><b style="color:${+l.suggested > +l.price ? 'var(--gr)' : 'var(--rd)'}">${money(l.suggested)}</b>`}</div>`).join('')}</div></label>`).join('')}</div>
         <button class="btn block" id="psuse">Use selected prices (${pick.size})</button>
