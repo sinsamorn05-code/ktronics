@@ -5202,7 +5202,7 @@ window.makeDemoApi = function () {
     const d = v && typeof v.default === 'object' ? v.default : v && typeof v.default === 'number' ? { 1: v.default } : { 1: 1, 50: 1, 100: 1 }; const c = {};
     Object.entries((v && v.categories) || {}).forEach(([k, x]) => { c[k] = typeof x === 'object' ? x : { 1: x }; }); return { default: d, categories: c, products: clone(D.pMarkups || {}) }; };
   const pmPct = (m, cat, line, pid) => [((m.products || {})[pid] || {})[line], ((m.categories[cat] || {})[line]), m.default[line], m.default[1], 0].find(x => x != null && x !== '');
-  const pmSug = (cost, pct) => Math.ceil(Math.round(cost * (1 + pct / 100) * 10000) / 10000 * 10) / 10;
+  const pmSug = (cost, pct) => Math.round(Math.round(cost * (1 + pct / 100) * 1e6) / 1e4) / 100;   // 19 Nov 2026: nearest cent (was: up to $0.10)
   api.priceMarkupGet = async () => wait(pmGet());
   api.productMarkupSave = async (pid, p) => { pmGet(); if (!D.products.some(x => x.id === +pid && !x.partner_id)) fail('Product not found'); const one = {};
     ['1', '50', '100'].forEach(l => { const v = (p || {})[l]; if (v === '' || v == null) return; if (!(+v >= 0 && +v <= 1000)) fail('Markup must be between 0% and 1000%'); one[l] = +v; });
@@ -5220,12 +5220,13 @@ window.makeDemoApi = function () {
   api.priceSuggestions = async () => { const m = pmGet(); D.qtyPrices = D.qtyPrices || [];
     return wait(D.products.filter(p => !p.partner_id && p.active !== false && +p.cost > 0).map(p => ({ product_id: p.id, sku: p.sku, name: p.name, category: p.category, cost: +p.cost,
       own: (m.products || {})[p.id] || null, lines: [{ min_qty: 1, price: +p.price, markup: pmPct(m, p.category, '1', p.id), suggested: pmSug(+p.cost, pmPct(m, p.category, '1', p.id)) }]
-        .concat(D.qtyPrices.filter(q => q.product_id === p.id && [50, 100].includes(+q.min_qty)).sort((a, b) => a.min_qty - b.min_qty).map(q => ({ min_qty: +q.min_qty, price: +q.price, markup: pmPct(m, p.category, String(q.min_qty), p.id), suggested: pmSug(+p.cost, pmPct(m, p.category, String(q.min_qty), p.id)) }))) }))
-      .filter(r => r.lines.some(l => Math.abs(l.suggested - l.price) > 0.0001)).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))); };
+        .concat([50, 100].map(mq => { const q = D.qtyPrices.find(x => x.product_id === p.id && +x.min_qty === mq), pct = pmPct(m, p.category, String(mq), p.id), sug = pmSug(+p.cost, pct);   // 19 Nov 2026: every product
+          return q ? { min_qty: mq, price: +q.price, markup: pct, suggested: sug, new: false } : sug < pmSug(+p.cost, pmPct(m, p.category, '1', p.id)) ? { min_qty: mq, price: null, markup: pct, suggested: sug, new: true } : null; }).filter(Boolean)) }))
+      .filter(r => r.lines.some(l => l.price == null || Math.abs(l.suggested - l.price) > 0.0001)).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))); };
   api.priceSuggestApply = async items => { pmGet(); if (!Array.isArray(items) || !items.length) fail('Choose at least one product'); let n = 0;
     items.forEach(i => { const p = D.products.find(x => x.id === +i.product_id && !x.partner_id); if (!p) fail('Product not found');
       (i.lines || []).forEach(l => { const pr = Math.round(+l.price * 100) / 100;
-        if (+l.min_qty === 1) { if (+p.price !== pr) { p.price = pr; n++; } } else { const q = (D.qtyPrices || []).find(x => x.product_id === p.id && +x.min_qty === +l.min_qty); if (q && +q.price !== pr) { q.price = pr; n++; } } }); });
+        if (+l.min_qty === 1) { if (+p.price !== pr) { p.price = pr; n++; } } else { const q = (D.qtyPrices || []).find(x => x.product_id === p.id && +x.min_qty === +l.min_qty); if (q && +q.price !== pr) { q.price = pr; n++; } else if (!q && [50, 100].includes(+l.min_qty)) { D.qtyPrices = D.qtyPrices || []; D.qtyPrices.push({ product_id: p.id, min_qty: +l.min_qty, price: pr }); n++; } } }); });
     save(); return wait(n); };
   // 19 Nov 2026: partner purchases (same rules as partner_purchase_* in the database)
   const ppS = () => (D.ppSup = D.ppSup || []), ppP = () => (D.ppPur = D.ppPur || []);
@@ -7323,6 +7324,8 @@ Object.assign(window.KT_KM, {"Categories": "ប្រភេទ", "Add, rename, d
 // partner purchases edit / delete (19 Nov 2026)
 Object.assign(window.KT_KM, {"Edit purchase": "កែការទិញ", "Delete purchase": "លុបការទិញ", "Save changes": "រក្សាទុកការប្តូរ", "Changes saved": "បានរក្សាទុកការប្តូរ", "Changes": "ការប្តូរ", "Goods already arrived: the currency and rate stay.": "ទំនិញបានមកដល់ហើយ៖ រូបិយប័ណ្ណ និងអត្រាមិនប្តូរ។", "Nothing arrived yet: you can change everything.": "មិនទាន់មានអ្វីមកដល់៖ អ្នកអាចប្តូរបានទាំងអស់។", "Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.": "ទំនិញខ្លះបានមកដល់៖ ផលិតផលមិនអាចតិចជាងចំនួនដែលបានមកដល់។ តម្លៃថ្មីក៏កែថ្លៃដើមនៃទំនិញដែលបានមកដល់ដែរ។", "All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.": "ទំនិញមកដល់ទាំងអស់៖ ការប្តូរចំនួនប្តូរស្តុករបស់អ្នកភ្លាម។ តម្លៃថ្មីក៏កែថ្លៃដើមនៃទំនិញដែលបានមកដល់ដែរ។"});
 Object.assign(window.KT_KM, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "ចែកតាមប្រភេទដោយស្វ័យប្រវត្តិ។ មានតែតម្លៃលក់ (រួមតម្លៃ 50+ / 100+ បើផលិតផលមាន) មិនបង្ហាញថ្លៃដើមទេ។ ឈ្មោះ ឡូហ្គោ និងទំនាក់ទំនង ពីការកំណត់ → ក្រុមហ៊ុន។"});
+Object.assign(window.KT_KM, {"new": "ថ្មី", "Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”).": "ផលិតផលគ្រប់មុខទទួលបានតម្លៃ 50+ និង 100+ នៅពេល % របស់វាធ្វើឱ្យថោកជាងតម្លៃ 1–49 (តម្លៃថ្មីមានសញ្ញា “ថ្មី”)។"});
+Object.assign(window.KT_KM, {"Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, to the nearest cent. Example: $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22. Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”). Prices change only when you tap": "ថ្លៃដើម = ថ្លៃដើមផលិតផល រួមដឹកជញ្ជូន និងចំណាយផ្សេង (មធ្យមក្រោយទំនិញមកដល់)។ តម្លៃនីមួយៗ = ថ្លៃដើម + % របស់វា គិតដល់សេនជិតបំផុត។ ឧ. $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22។ ផលិតផលគ្រប់មុខទទួលបានតម្លៃ 50+ និង 100+ នៅពេល % ធ្វើឱ្យថោកជាងតម្លៃ 1–49 (តម្លៃថ្មីមានសញ្ញា “ថ្មី”)។ តម្លៃប្តូរតែពេលអ្នកចុច"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9400,6 +9403,8 @@ Object.assign(window.KT_ZH, {"Categories": "分类", "Add, rename, delete · put
 // partner purchases edit / delete (19 Nov 2026)
 Object.assign(window.KT_ZH, {"Edit purchase": "修改采购", "Delete purchase": "删除采购", "Save changes": "保存修改", "Changes saved": "已保存修改", "Changes": "修改记录", "Goods already arrived: the currency and rate stay.": "货已到：币种和汇率不能改。", "Nothing arrived yet: you can change everything.": "还没有到货：都可以修改。", "Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.": "部分已到货：数量不能少于已到的件数。新价格也会修正已到货的成本。", "All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.": "已全部到货：修改件数会马上改变你的库存。新价格也会修正已到货的成本。"});
 Object.assign(window.KT_ZH, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "自动按分类排列。只显示售价（产品有 50+ / 100+ 价格时一起显示），从不显示成本。名称、标志和联系方式来自 设置 → 公司。"});
+Object.assign(window.KT_ZH, {"new": "新", "Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”).": "当 % 让价格比 1–49 价便宜时，每个产品都会有 50+ 和 100+ 价格（新的标为“新”）。"});
+Object.assign(window.KT_ZH, {"Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, to the nearest cent. Example: $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22. Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”). Prices change only when you tap": "成本 = 产品成本加运费和其他费用（到货后的平均）。每个价格 = 成本 + 它的加价 %，四舍五入到分。例：$0.45 + 70% = $0.77 · $2.90 + 80% = $5.22。当 % 让价格比 1–49 价便宜时，每个产品都会有 50+ 和 100+ 价格（新的标为“新”）。只有点"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -18127,16 +18132,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const money = v => K.money(v);
   const LINES = [['1', '1–49 pcs'], ['50', '50+ pcs'], ['100', '100+ pcs']];
   const lineName = q => +q === 1 ? '1–49' : q + '+';
-  const diff = r => r.lines.filter(l => +l.suggested !== +l.price);
-  const dir = r => { const d = diff(r)[0]; return d && +d.suggested > +d.price ? 'up' : 'down'; };   // the first line that changes decides
+  const diff = r => r.lines.filter(l => l.price == null || +l.suggested !== +l.price);
+  // the first line that changes decides; 19 Nov 2026: a 50+ / 100+ price the product does not have yet = 'new'
+  const dir = r => { const d = diff(r)[0]; return !d ? 'down' : d.price == null ? 'new' : +d.suggested > +d.price ? 'up' : 'down'; };
 
   K.priceSuggestSheet = async (onDone) => {
     const [m, list0, prods] = await Promise.all([api.priceMarkupGet(), api.priceSuggestions(), K.data.products(true)]);
     const cats = [...new Set(prods.filter(p => !p.partner_id).map(p => p.category).filter(Boolean))].sort();
-    let all = list0, flt = 'up', list = [], pick = new Set(all.filter(r => dir(r) === 'up').map(r => r.product_id));   // only price rises ticked at first
+    let all = list0, flt = list0.some(r => dir(r) === 'up') ? 'up' : list0.some(r => dir(r) === 'new') ? 'new' : 'all', list = [], pick = new Set(all.filter(r => dir(r) === 'up' || dir(r) === 'new').map(r => r.product_id));   // price rises + new 50+ / 100+ prices ticked at first
     const filt = () => { list = all.filter(r => flt === 'all' || dir(r) === flt); };
     const inp = (attr, val, ph) => `<input class="inp" style="width:84px" type="number" min="0" max="1000" step="any" inputmode="decimal" ${attr} value="${val != null ? +val : ''}" placeholder="${ph != null ? +ph : ''}">`;
-    const s = K.sheet('💲 Selling prices from cost', `<div class="small muted" style="line-height:1.5">Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, rounded up to $0.10. Example: $2.40 + 100% = $4.80. The 50+ and 100+ lines are suggested only for products that have those quantity prices. Prices change only when you tap <b>Use selected prices</b>.</div>
+    const s = K.sheet('💲 Selling prices from cost', `<div class="small muted" style="line-height:1.5">Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, to the nearest cent. Example: $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22. Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”). Prices change only when you tap <b>Use selected prices</b>.</div>
       <details class="card"><summary style="cursor:pointer;font-weight:800">⚙️ Markup %</summary>
         <div class="row" style="gap:8px"><span class="grow"></span>${LINES.map(([, l]) => `<b class="small" style="width:84px;text-align:center">${l}</b>`).join('')}</div>
         <div class="row" style="gap:8px;align-items:center"><b class="grow">All products</b>${LINES.map(([k]) => inp(`data-mkd="${k}"`, m.default[k], null)).join('')}</div>
@@ -18144,12 +18150,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${cats.map(c => `<div class="row" style="gap:8px;align-items:center"><span class="grow">${esc(c)}</span>${LINES.map(([k]) => inp(`data-mkc="${esc(c)}" data-ml="${k}"`, (m.categories[c] || {})[k], m.default[k] != null ? m.default[k] : m.default['1'])).join('')}</div>`).join('')}
         <button class="btn out block" id="mksave">Save markup</button></details>
       <div id="pslist"></div>`);
-    const draw = () => { filt(); const nUp = all.filter(r => dir(r) === 'up').length, nDn = all.length - nUp, here = list.filter(r => pick.has(r.product_id)).length;
-      $('#pslist', s.el).innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['up', '⬆ Going up (' + nUp + ')'], ['down', '⬇ Going down (' + nDn + ')'], ['all', 'All (' + all.length + ')']].map(([k, l]) => `<button class="chip ${flt === k ? 'on' : ''}" data-pf="${k}">${l}</button>`).join('')}</div>`
+    const draw = () => { filt(); const nUp = all.filter(r => dir(r) === 'up').length, nNew = all.filter(r => dir(r) === 'new').length, nDn = all.length - nUp - nNew, here = list.filter(r => pick.has(r.product_id)).length;
+      $('#pslist', s.el).innerHTML = `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['up', '⬆ Going up (' + nUp + ')'], ['new', '➕ New 50+ / 100+ (' + nNew + ')'], ['down', '⬇ Going down (' + nDn + ')'], ['all', 'All (' + all.length + ')']].map(([k, l]) => `<button class="chip ${flt === k ? 'on' : ''}" data-pf="${k}">${l}</button>`).join('')}</div>`
         + (list.length ? `<div class="row" style="gap:8px;align-items:center"><b class="grow">${list.length} product(s) · ${pick.size} ticked in total</b><button class="btn sm out" id="psall">${here === list.length ? 'Untick these' : 'Tick these'}</button></div>
         <div class="card flush" style="max-height:440px;overflow:auto">${list.map(r => `<label class="list-item" style="gap:10px;cursor:pointer;align-items:flex-start"><input type="checkbox" data-pk="${r.product_id}" ${pick.has(r.product_id) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px">
           <div class="grow"><div class="tt">${esc(r.name)}${r.own ? ' <span class="pill bl">own %</span>' : ''}</div><div class="st">${esc(r.sku || '')} · ${esc(r.category || '')} · cost ${money(r.cost)} · <button type="button" class="linkbtn" data-pmk="${r.product_id}" style="border:0;background:none;padding:0;font:inherit;color:var(--p);font-weight:700;cursor:pointer">% for this product</button></div>
-            ${r.lines.map(l => `<div class="small row" style="gap:8px"><span class="grow">${lineName(l.min_qty)} pcs · +${+l.markup}%</span>${+l.suggested === +l.price ? `<span class="muted">${money(l.price)} (same)</span>`
+            ${r.lines.map(l => `<div class="small row" style="gap:8px"><span class="grow">${lineName(l.min_qty)} pcs · +${+l.markup}%</span>${l.price == null ? `<span class="pill gr" style="font-size:11px">new</span><b style="color:var(--gr)">${money(l.suggested)}</b>` : +l.suggested === +l.price ? `<span class="muted">${money(l.price)} (same)</span>`
               : `<span class="muted" style="text-decoration:line-through">${money(l.price)}</span><b style="color:${+l.suggested > +l.price ? 'var(--gr)' : 'var(--rd)'}">${money(l.suggested)}</b>`}</div>`).join('')}</div></label>`).join('')}</div>
         <button class="btn block" id="psuse">Use selected prices (${pick.size})</button>
         <div class="small muted">Products without a cost are not listed. Old orders never change.</div>`
