@@ -1333,6 +1333,8 @@ window.makeSupabaseApi = function (cfg) {
     partnerPurchaseArrive: (id, items, ship, note) => q(sb.rpc('partner_purchase_arrive', { p_id: id, p_items: items, p_shipping: ship || 0, p_note: note || null })),
     partnerPurchaseCloseRest: id => q(sb.rpc('partner_purchase_close_rest', { p_id: id })),
     partnerPurchaseCancel: id => q(sb.rpc('partner_purchase_cancel', { p_id: id })),
+    partnerPurchaseEdit: (id, sup, cur, rate, note, items, on) => q(sb.rpc('partner_purchase_edit', { p_id: id, p_supplier: sup, p_currency: cur, p_rate: rate, p_note: note || null, p_items: items, p_ordered_on: on || null })),
+    partnerPurchaseDelete: id => q(sb.rpc('partner_purchase_delete', { p_id: id })),
     partnerPurchasePay: (id, amount, method, on, note) => q(sb.rpc('partner_purchase_pay', { p_id: id, p_amount: amount, p_method: method, p_paid_on: on || null, p_note: note || null })),
     partnerPurchasePayDelete: id => q(sb.rpc('partner_purchase_pay_delete', { p_payment: id })),
     partnerPoCreate: (pid, items, note) => q(sb.rpc('partner_po_create', { p_partner: pid, p_items: items, p_note: note || null })),
@@ -1373,6 +1375,10 @@ window.makeSupabaseApi = function (cfg) {
     partnerKtrPay: (oid, amount, method, note) => q(sb.rpc('partner_ktr_pay', { p_order: oid, p_amount: amount, p_method: method, p_note: note || null })),
     partnerKtrPayVoid: (id, reason) => q(sb.rpc('partner_ktr_pay_void', { p_id: id, p_reason: reason || '' })),
     partnerProductSave: p => q(sb.rpc('partner_product_save', { p })),
+    partnerCategoriesMine: () => q(sb.rpc('partner_categories_mine')),
+    partnerCategorySave: (old, nw) => q(sb.rpc('partner_category_save', { p_old: old || null, p_new: nw })),
+    partnerCategoryDelete: (name, moveTo) => q(sb.rpc('partner_category_delete', { p_name: name, p_move_to: moveTo || null })),
+    partnerCategoryOrder: names => q(sb.rpc('partner_category_order', { p_names: names })),
     partnerOwnProductsAdmin: pid => q(sb.rpc('partner_own_products_admin', { p_partner: pid })),
     partnerStockInDecide: (id, ok, reason) => q(sb.rpc('partner_stock_in_decide', { p_id: id, p_ok: !!ok, p_reason: reason || null })),
     partnerStockInCancel: (id, reason) => q(sb.rpc('partner_stock_in_cancel', { p_id: id, p_reason: reason || null })),
@@ -2696,6 +2702,29 @@ window.makeDemoApi = function () {
       if (p.tr !== undefined) x.tr = p.tr && Object.keys(p.tr).length ? p.tr : null;
       if (pr != null) { D.pPrices = (D.pPrices || []).filter(y => !(y.partner_id === pid && y.product_id === x.id)); D.pPrices.push({ partner_id: pid, product_id: x.id, price: Math.round(pr * 100) / 100 }); }
       save(); return wait(x.id); },
+    // partner categories (19 Nov 2026): own list; K-TRONiCS categories of its list shown but locked
+    _pCatsOf(pid) { D.pCats = D.pCats || {}; const mine = D.pCats[pid] = D.pCats[pid] || [];
+      D.products.filter(p => p.partner_id === pid && p.category).forEach(p => { if (!mine.some(c => c.name === p.category)) mine.push({ name: p.category, sort: mine.reduce((m, c) => Math.max(m, c.sort), 0) + 1 }); });
+      const k = {}, o = {}; D.products.forEach(p => { if (!pHas(pid, p.id)) return; const m = p.partner_id ? o : k; m[p.category] = (m[p.category] || 0) + 1; });
+      const names = [...new Set(mine.map(c => c.name).concat(Object.keys(k), Object.keys(o)))], kOrd = D.pcats || [];
+      return names.map(n => ({ name: n, own: !k[n], count: (k[n] || 0) + (o[n] || 0), own_count: o[n] || 0, ktr_count: k[n] || 0,
+        s1: (mine.find(c => c.name === n) || {}).sort ?? 100000, s2: kOrd.includes(n) ? kOrd.indexOf(n) : 100000 }))
+        .sort((x, y) => x.s1 - y.s1 || x.s2 - y.s2 || x.name.localeCompare(y.name)).map(({ s1, s2, ...r }) => r); },
+    async partnerCategoriesMine() { const pid = myPartner(); if (!pid) fail('Not a partner account'); return wait(api._pCatsOf(pid)); },
+    _pOwnerNeed() { const pid = myPartner(); if (!pid) fail('Not a partner account'); if ((me.partner_role || 'owner') !== 'owner') fail('Only the partner owner can do this'); return pid; },
+    async partnerCategorySave(old, nw) { const pid = api._pOwnerNeed(); nw = String(nw || '').trim(); old = String(old || '').trim();
+      if (!nw || nw.length > 60) fail('Write a category name (up to 60 letters)'); const list = api._pCatsOf(pid), mine = D.pCats[pid];
+      if (!old) { if (list.some(c => c.name.toLowerCase() === nw.toLowerCase())) fail('There is already a category called ' + nw); mine.push({ name: nw, sort: mine.reduce((m, c) => Math.max(m, c.sort), 0) + 1 }); }
+      else { const c = list.find(x => x.name === old); if (!c) fail('Category not found'); if (!c.own) fail('This category comes from K-TRONiCS products. Only K-TRONiCS can rename it.');
+        if (nw.toLowerCase() !== old.toLowerCase() && list.some(x => x.name.toLowerCase() === nw.toLowerCase())) fail('There is already a category called ' + nw);
+        mine.forEach(x => { if (x.name === old) x.name = nw; }); D.products.forEach(p => { if (p.partner_id === pid && p.category === old) p.category = nw; }); }
+      save(); return wait(api._pCatsOf(pid)); },
+    async partnerCategoryDelete(name, moveTo) { const pid = api._pOwnerNeed(); const c = api._pCatsOf(pid).find(x => x.name === name); if (!c) fail('Category not found');
+      if (!c.own) fail('This category comes from K-TRONiCS products. Only K-TRONiCS can change it.');
+      if (c.own_count) { if (!moveTo) fail('Choose where its products go'); if (moveTo === name) fail('Choose another category'); D.products.forEach(p => { if (p.partner_id === pid && p.category === name) p.category = moveTo; }); }
+      D.pCats[pid] = D.pCats[pid].filter(x => x.name !== name); save(); return wait(api._pCatsOf(pid)); },
+    async partnerCategoryOrder(names) { const pid = api._pOwnerNeed(); api._pCatsOf(pid); const mine = D.pCats[pid];
+      (names || []).forEach((n, i) => { const c = mine.find(x => x.name === n); if (c) c.sort = i + 1; else mine.push({ name: n, sort: i + 1 }); }); save(); return wait(api._pCatsOf(pid)); },
     async partnerOwnProductsAdmin(pid) { if (!hasRole('admin')) fail('Only the admin can see partners'); pid = +pid;   // 18 Nov 2026: + K-TRONiCS products in its list, cost, value
       return wait(D.products.filter(p => pHas(pid, p.id)).map(p => { const c = pCost(pid, p.id), q = pStock(pid, p.id); return { product_id: p.id, sku: p.sku, name: p.name, category: p.category, photo_url: p.photo_url || null, linked: !p.partner_id, tr: p.tr || null,
         active: p.partner_id ? p.partner_active !== false : p.active !== false, qty: q, warn_at: (pStockRow(pid, p.id) || {}).warn_at ?? null, cost: c, price: pPrice(pid, p.id), value: c != null ? Math.round(q * c * 100) / 100 : null }; })
@@ -5205,7 +5234,7 @@ window.makeDemoApi = function () {
     return Object.assign(clone(pu), { supplier: s.name, paid: +pu.pays.reduce((a, y) => a + y.amount, 0).toFixed(2),
       items: pu.items.map(i => ({ product_id: i.product_id, name: pn(i.product_id).name, sku: pn(i.product_id).sku, qty: i.qty, unit_cost: i.unit_cost, arrived: arr(i.product_id) })),
       arrival_list: pu.arr.map(a => ({ arrival_no: a.arrival_no, shipping: a.shipping, note: a.note, at: a.at, items: a.items.map(i => ({ name: pn(i.product_id).name, qty: i.qty, unit_cost: i.unit_cost })) })),
-      payments: pu.pays.map(y => clone(y)) }); };
+      payments: pu.pays.map(y => clone(y)), changes: (pu.changes || []).map(c => clone(c)) }); };
   const ppOf = pid => ({ suppliers: ppS().filter(s => s.partner_id === pid).sort((a, b) => a.name.localeCompare(b.name)).map(s => Object.assign(clone(s), { owed: +ppP().filter(p => p.supplier_id === s.id && p.status !== 'cancelled').reduce((a, p) => a + p.total - p.pays.reduce((b, y) => b + y.amount, 0), 0).toFixed(2) })),
     purchases: ppP().filter(p => p.partner_id === pid).sort((a, b) => b.id - a.id).map(ppJson) });
   const ppMine = id => { const pid = pOwnerD(), pu = ppP().find(x => x.id === +id && x.partner_id === pid); if (!pu) fail('Purchase not found'); return [pid, pu]; };
@@ -5243,6 +5272,41 @@ window.makeDemoApi = function () {
     let gone = 0; pu.items = pu.items.map(i => { const arr = pu.arr.reduce((a, x) => a + x.items.filter(y => y.product_id === i.product_id).reduce((b, y) => b + y.qty, 0), 0); gone += i.qty - arr; return Object.assign(i, { qty: arr }); }).filter(i => i.qty > 0);
     pu.goods = +pu.items.reduce((a, i) => a + i.qty * i.unit_cost / pu.rate, 0).toFixed(2); pu.total = +(pu.goods + pu.shipping).toFixed(2); pu.status = 'received'; pu.received_at = now();
     pu.note = [pu.note, 'Closed the rest: ' + gone + ' pcs will not come'].filter(Boolean).join(' · '); save(); return wait({ gone, total: pu.total }); };
+  // edit and delete (19 Nov 2026): same rules as partner_purchase_edit / partner_purchase_delete
+  api.partnerPurchaseEdit = async (id, sup, cur, rate, note, items, on) => { const [pid, pu] = ppMine(id); if (pu.status === 'cancelled') fail('This purchase was cancelled');
+    cur = String(cur || 'USD').toUpperCase(); const rt = cur === 'USD' ? 1 : +rate || 0, pn = x => (D.products.find(p => p.id === x) || {}).name;
+    if (!ppS().some(s => s.id === +sup && s.partner_id === pid)) fail('Choose one of your suppliers'); if (rt <= 0) fail('Write how much 1 USD is in ' + cur);
+    if (pu.arrivals && (cur !== pu.currency || rt !== +pu.rate)) fail('Goods already arrived: the currency and rate cannot change');
+    if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
+    const L = items.map(i => { if (!pu.items.some(x => x.product_id === +i.product_id) && !pHas(pid, i.product_id)) fail('Product not found'); if (seen.has(+i.product_id)) fail('Each product only once, please'); seen.add(+i.product_id);
+      if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(4) }; });
+    const arrOf = x => pu.arr.reduce((a, r) => a + r.items.filter(i => i.product_id === x).reduce((b, i) => b + i.qty, 0), 0), ch = [];
+    pu.items.forEach(o => { const n = L.find(l => l.product_id === o.product_id), q = n ? n.qty : 0;
+      if (pu.status === 'ordered' && q < arrOf(o.product_id)) fail(pn(o.product_id) + ': ' + arrOf(o.product_id) + ' pcs already arrived, so it cannot be less');
+      if (!q) ch.push('removed ' + pn(o.product_id)); else if (q !== o.qty) ch.push(pn(o.product_id) + ' ' + o.qty + ' → ' + q + ' pcs');
+      if (n && n.unit_cost !== o.unit_cost) { ch.push(pn(o.product_id) + ' price ' + o.unit_cost + ' → ' + n.unit_cost + ' ' + cur); const arr = arrOf(o.product_id);
+        if (arr) { const d = (n.unit_cost - o.unit_cost) / rt; pu.arr.forEach(r => r.items.forEach(i => { if (i.product_id === o.product_id) i.unit_cost = Math.max(0, +(i.unit_cost + d).toFixed(4)); }));
+          const have = Math.max(0, pStock(pid, o.product_id)), c = D.pCosts && D.pCosts.find(x => x.partner_id === pid && x.product_id === o.product_id); if (have && c) c.cost = Math.max(0, Math.round((c.cost + d * Math.min(arr, have) / have) * 100) / 100); } } });
+    L.filter(l => !pu.items.some(o => o.product_id === l.product_id)).forEach(l => ch.push('added ' + pn(l.product_id) + ' ' + l.qty + ' pcs'));
+    const goods = +L.reduce((a, l) => a + l.qty * l.unit_cost / rt, 0).toFixed(2), paid = pu.pays.reduce((a, y) => a + y.amount, 0);
+    if (Math.round(paid * 100) > Math.round((goods + pu.shipping) * 100)) fail('You already paid $' + paid.toFixed(2) + ' but the new total is $' + (goods + pu.shipping).toFixed(2) + '. Delete a payment first.');
+    if (pu.status === 'received') { const ids = [...new Set(L.map(l => l.product_id).concat(pu.items.map(o => o.product_id)))];
+      ids.forEach(x => { const n = L.find(l => l.product_id === x), diff = (n ? n.qty : 0) - arrOf(x); if (!diff) return;
+        pStockChange(pid, x, diff, 'fix', 'Purchase ' + pu.purchase_no + ' changed', pu.purchase_no);
+        if (diff > 0) { const last = pu.arr[pu.arr.length - 1], it = last.items.find(i => i.product_id === x); if (it) it.qty += diff; else last.items.push({ product_id: x, qty: diff, unit_cost: +(n.unit_cost / rt).toFixed(4) }); }
+        else { let left = -diff; for (let k = pu.arr.length - 1; k >= 0 && left > 0; k--) { const r = pu.arr[k]; r.items.forEach(i => { if (i.product_id === x && left > 0) { const t = Math.min(i.qty, left); i.qty -= t; left -= t; } }); r.items = r.items.filter(i => i.qty > 0); } } }); }
+    if (+sup !== pu.supplier_id) ch.push('supplier ' + (ppS().find(x => x.id === pu.supplier_id) || {}).name + ' → ' + (ppS().find(x => x.id === +sup) || {}).name);
+    if (on && on !== pu.ordered_on) ch.push('date ' + pu.ordered_on + ' → ' + on); if (cur !== pu.currency || rt !== +pu.rate) ch.push('currency ' + pu.currency + ' → ' + cur);
+    if (((note || '').trim() || null) !== pu.note) ch.push('note');
+    Object.assign(pu, { supplier_id: +sup, ordered_on: on || pu.ordered_on, currency: cur, rate: rt, note: (note || '').trim() || null, items: L, goods, total: +(goods + pu.shipping).toFixed(2) });
+    if (pu.status === 'ordered' && pu.arrivals && L.every(l => arrOf(l.product_id) >= l.qty)) { pu.status = 'received'; pu.received_at = now(); }
+    if (ch.length) (pu.changes = pu.changes || []).unshift({ at: now(), summary: ch.join(' · '), by: me.full_name });
+    save(); return wait(ppJson(pu)); };
+  api.partnerPurchaseDelete = async id => { const [pid, pu] = ppMine(id); const tot = {};
+    pu.arr.forEach(r => r.items.forEach(i => { tot[i.product_id] = (tot[i.product_id] || 0) + i.qty; }));
+    Object.entries(tot).forEach(([x, q]) => { if (pStock(pid, +x) < q) fail('Not enough stock of ' + (D.products.find(p => p.id === +x) || {}).name + ': only ' + pStock(pid, +x) + ' left'); });
+    Object.entries(tot).forEach(([x, q]) => pStockChange(pid, +x, -q, 'fix', 'Purchase ' + pu.purchase_no + ' deleted', pu.purchase_no));
+    D.ppPur = ppP().filter(x => x !== pu); save(); return wait(pu.purchase_no); };
   api.partnerPurchaseCancel = async id => { const [, pu] = ppMine(id); if (pu.status !== 'ordered') fail('This purchase is already ' + pu.status); if (pu.arrivals) fail('Some goods already arrived. Use Close the rest instead.');
     if (pu.pays.length) fail('This purchase has payments. Delete the payments first.'); pu.status = 'cancelled'; save(); return wait(null); };
   api.partnerPurchasePay = async (id, amount, method, on, note) => { const [, pu] = ppMine(id); if (pu.status === 'cancelled') fail('This purchase was cancelled'); amount = Math.round((+amount || 0) * 100) / 100; if (amount <= 0) fail('Write the amount');
@@ -7512,6 +7576,11 @@ window.KT_KM_PATTERNS.push([/^Break-even % (.*)$/, "ភាគរយរួចខ�
 Object.assign(window.KT_KM, {"💲 Markup % for this product": "💲 ភាគរយបន្ថែមសម្រាប់ផលិតផលនេះ", "% for this product": "% សម្រាប់ផលិតផលនេះ", "own %": "% ផ្ទាល់", "Use the category %": "ប្រើ % តាមប្រភេទ", "Follows the category again": "ប្រើតាមប្រភេទវិញ", "📄 Catalog of my products": "📄 កាតាឡុកផលិតផលរបស់ខ្ញុំ", " Catalog": " កាតាឡុក", "Which products": "ផលិតផលណាខ្លះ", "Languages": "ភាសា", "No products": "គ្មានផលិតផល"});
 // automatic SKU (19 Nov 2026)
 Object.assign(window.KT_KM, {"Automatic": "ស្វ័យប្រវត្តិ", "Leave empty = automatic SKU": "ទុកទទេ = SKU ស្វ័យប្រវត្តិ", "Write the product name": "សូមសរសេរឈ្មោះផលិតផល"});
+// partner categories (19 Nov 2026)
+Object.assign(window.KT_KM, {"Categories": "ប្រភេទ", "Add, rename, delete · put in order": "បន្ថែម ប្តូរឈ្មោះ លុប · រៀបលំដាប់", "Your product categories": "ប្រភេទផលិតផលរបស់អ្នក", "New category": "ប្រភេទថ្មី", "Rename category": "ប្តូរឈ្មោះប្រភេទ", "Delete category": "លុបប្រភេទ", "Category added": "បានបន្ថែមប្រភេទ", "Category deleted": "បានលុបប្រភេទ", "Renamed · your products moved too": "បានប្តូរឈ្មោះ · ផលិតផលរបស់អ្នកក៏ផ្លាស់ទីដែរ", "It has no products.": "គ្មានផលិតផល។", "Choose where its products go": "សូមជ្រើសកន្លែងសម្រាប់ផលិតផលរបស់វា", "Use ▲ ▼ to put them in order (My products follows it). Categories marked K-TRONiCS come with K-TRONiCS products: only K-TRONiCS can rename them.": "ប្រើ ▲ ▼ ដើម្បីរៀបលំដាប់ (ផលិតផលរបស់ខ្ញុំ តាមលំដាប់នេះ)។ ប្រភេទដែលមានសញ្ញា K-TRONiCS មកជាមួយផលិតផល K-TRONiCS៖ មានតែ K-TRONiCS ទេដែលអាចប្តូរឈ្មោះ។", "No categories yet": "មិនទាន់មានប្រភេទ", "🗂 Categories": "🗂 ប្រភេទ", "Rename": "ប្តូរឈ្មោះ", "Choose category": "ជ្រើសប្រភេទ", "Choose a category": "សូមជ្រើសប្រភេទ"});
+// partner purchases edit / delete (19 Nov 2026)
+Object.assign(window.KT_KM, {"Edit purchase": "កែការទិញ", "Delete purchase": "លុបការទិញ", "Save changes": "រក្សាទុកការប្តូរ", "Changes saved": "បានរក្សាទុកការប្តូរ", "Changes": "ការប្តូរ", "Goods already arrived: the currency and rate stay.": "ទំនិញបានមកដល់ហើយ៖ រូបិយប័ណ្ណ និងអត្រាមិនប្តូរ។", "Nothing arrived yet: you can change everything.": "មិនទាន់មានអ្វីមកដល់៖ អ្នកអាចប្តូរបានទាំងអស់។", "Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.": "ទំនិញខ្លះបានមកដល់៖ ផលិតផលមិនអាចតិចជាងចំនួនដែលបានមកដល់។ តម្លៃថ្មីក៏កែថ្លៃដើមនៃទំនិញដែលបានមកដល់ដែរ។", "All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.": "ទំនិញមកដល់ទាំងអស់៖ ការប្តូរចំនួនប្តូរស្តុករបស់អ្នកភ្លាម។ តម្លៃថ្មីក៏កែថ្លៃដើមនៃទំនិញដែលបានមកដល់ដែរ។"});
+Object.assign(window.KT_KM, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "ចែកតាមប្រភេទដោយស្វ័យប្រវត្តិ។ មានតែតម្លៃលក់ (រួមតម្លៃ 50+ / 100+ បើផលិតផលមាន) មិនបង្ហាញថ្លៃដើមទេ។ ឈ្មោះ ឡូហ្គោ និងទំនាក់ទំនង ពីការកំណត់ → ក្រុមហ៊ុន។"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9584,6 +9653,11 @@ window.KT_ZH_PATTERNS.push([/^Break-even % (.*)$/, "保本加价 % $1"], [/^Add 
 Object.assign(window.KT_ZH, {"💲 Markup % for this product": "💲 此产品的加价 %", "% for this product": "此产品的 %", "own %": "自定 %", "Use the category %": "使用类别 %", "Follows the category again": "重新按类别", "📄 Catalog of my products": "📄 我的产品目录", " Catalog": " 目录", "Which products": "哪些产品", "Languages": "语言", "No products": "没有产品"});
 // automatic SKU (19 Nov 2026)
 Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU": "留空 = 自动 SKU", "Write the product name": "请填写产品名称"});
+// partner categories (19 Nov 2026)
+Object.assign(window.KT_ZH, {"Categories": "分类", "Add, rename, delete · put in order": "添加、改名、删除 · 排序", "Your product categories": "你的产品分类", "New category": "新分类", "Rename category": "分类改名", "Delete category": "删除分类", "Category added": "已添加分类", "Category deleted": "已删除分类", "Renamed · your products moved too": "已改名 · 你的产品也一起移动", "It has no products.": "没有产品。", "Choose where its products go": "请选择它的产品移到哪里", "Use ▲ ▼ to put them in order (My products follows it). Categories marked K-TRONiCS come with K-TRONiCS products: only K-TRONiCS can rename them.": "用 ▲ ▼ 排序（我的产品按这个顺序）。标有 K-TRONiCS 的分类来自 K-TRONiCS 产品：只有 K-TRONiCS 可以改名。", "No categories yet": "还没有分类", "🗂 Categories": "🗂 分类", "Rename": "改名", "Choose category": "选择分类", "Choose a category": "请选择分类"});
+// partner purchases edit / delete (19 Nov 2026)
+Object.assign(window.KT_ZH, {"Edit purchase": "修改采购", "Delete purchase": "删除采购", "Save changes": "保存修改", "Changes saved": "已保存修改", "Changes": "修改记录", "Goods already arrived: the currency and rate stay.": "货已到：币种和汇率不能改。", "Nothing arrived yet: you can change everything.": "还没有到货：都可以修改。", "Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.": "部分已到货：数量不能少于已到的件数。新价格也会修正已到货的成本。", "All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.": "已全部到货：修改件数会马上改变你的库存。新价格也会修正已到货的成本。"});
+Object.assign(window.KT_ZH, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "自动按分类排列。只显示售价（产品有 50+ / 100+ 价格时一起显示），从不显示成本。名称、标志和联系方式来自 设置 → 公司。"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -10785,7 +10859,7 @@ Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU
         const inS = products.filter(p => K.hasStock(p, wh)).length;
         $('#sum').innerHTML = `<div class="stat"><b>${products.length}</b><span>Products</span></div><div class="stat"><b style="color:var(--gr)">${inS}</b><span>In stock</span></div><div class="stat"><b style="color:var(--rd)">${products.length - inS}</b><span>Out of stock</span></div>`;
         $('#plist').innerHTML = list.length ? list.map(p => { const ok = K.hasStock(p, wh) && p.staff_orderable !== false;
-          return `<div class="list-item"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · ${money(p.price)}</div></div>
+          return `<div class="list-item"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · ${K.allPricesTxt(p)}</div></div>
             <span class="pill ${ok ? 'gr' : 'rd'}">${ok ? 'In stock' : 'Out of stock'}</span></div>`; }).join('') : emptyBox('box', 'No products found');
         return;
       }
@@ -10795,7 +10869,7 @@ Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU
       $('#sum').innerHTML = `<div class="stat"><b>${products.length}</b><span>Products</span></div><button class="stat" id="lowbtn" style="text-align:left;background:${onlyLow ? 'var(--ors)' : '#fff'}"><b style="color:var(--or)">${low}</b><span>Low stock</span></button><div class="stat"><b style="color:var(--rd)">${out}</b><span>Out of stock</span></div>`;
       $('#lowbtn').onclick = () => { onlyLow = !onlyLow; draw(); };
       $('#plist').innerHTML = list.length ? list.map(p => { const qn = qtyOf(p), [lab, cls, col] = level(qn, p.min_stock);
-        return `<a class="list-item" href="#/stock/${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · ${money(p.price)}</div>
+        return `<a class="list-item" href="#/stock/${p.id}"><div class="grow"><div class="tt">${esc(p.name)}</div><div class="st">${esc(p.sku)} · ${esc(p.category)} · ${K.allPricesTxt(p)}</div>
           <div class="bar" style="margin-top:6px"><div style="width:${Math.min(100, (qn / Math.max(1, p.min_stock * 3)) * 100)}%;background:${col}"></div></div></div>
           <div style="text-align:right;flex-shrink:0"><div style="font-weight:800;font-size:17px">${qn}</div><span class="pill ${cls}">${lab}</span></div></a>`; }).join('') : emptyBox('box', 'No products found');
     };
@@ -10831,7 +10905,7 @@ Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU
     const REASON = { in: 'Stock in', out: 'Stock out', adjust: 'Count fix', order: 'Order', cancel: 'Order cancelled', transfer: 'Transfer', return: 'Order returned', deleted: 'Order deleted' };
     main.innerHTML = `<div class="pad">
       <div class="card"><div class="row"><div class="grow"><div class="small muted">${esc(p.sku)} · ${esc(p.category)}</div><div class="big">${K.sellFrom(warehouses).filter(w => !K.hiddenWh(w.id)).reduce((a, w) => a + (p.stock[w.id] || 0), 0)} pcs${K.hidesQty() ? ' <span class="small muted">(your stock)</span>' : ''}</div></div>${(() => { const [l, c] = level(K.sellFrom(warehouses).reduce((a, w) => a + (p.stock[w.id] || 0), 0), p.min_stock); return `<span class="pill ${c}">${l}</span>`; })()}</div>
-        <div class="row small muted"><span class="grow">Price ${money(p.price)}${manage ? ' · cost ' + money(p.cost) : ''}</span><span>Minimum ${p.min_stock}</span></div></div>
+        <div class="row small muted"><span class="grow">Price ${K.allPricesTxt(p)}${manage ? ' · cost ' + money(p.cost) : ''}</span><span>Minimum ${p.min_stock}</span></div></div>
       <div class="stats" style="flex-wrap:wrap">${K.sellFrom(warehouses).map(w => `<div class="stat" style="flex:1 0 40%"><b>${K.hiddenWh(w.id) ? (K.hasStock(p, w.id) ? '<span style="color:var(--gr)">In stock</span>' : '<span style="color:var(--rd)">Out of stock</span>') : p.stock[w.id] || 0}</b><span>${esc(K.whLabel(w))}</span></div>`).join('')}</div>
       ${manage ? `<a class="btn ghost block" href="#/stockctl" style="text-decoration:none">📦 Change stock: Stock control (move, adjust, count)</a>` : ''}
       <div class="sec">History</div>
@@ -12001,6 +12075,8 @@ Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU
   K.linesPayload = lines => lines.filter(l => l.qty > 0).map(l => ({ product_id: l.pid, qty: l.qty, price: r2(+l.price || 0) }));
   // quantity prices (17 Nov 2026): the price for qty pieces of one product = highest step reached, else the list price
   K.qtyPrice = (p, qty) => { const t = (p.tiers || []).filter(x => qty >= x.min_qty).sort((a, b) => b.min_qty - a.min_qty)[0]; return t ? +t.price : +p.price; };
+  // 19 Nov 2026: all price lines of a product, e.g. "1–49 $0.65 · 50+ $0.60 · 100+ $0.55" (only the selling price when it has no quantity prices)
+  K.allPricesTxt = p => { const t = (p.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty); return t.length ? ['1–' + (t[0].min_qty - 1) + ' ' + money(p.price)].concat(t.map(x => x.min_qty + '+ ' + money(x.price))).join(' · ') : money(p.price); };
   K.tierTxt = p => (p.tiers || []).length ? (p.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty).map(t => t.min_qty + '+ ' + money(t.price)).join(' · ') : '';
   K.lineEditor = function ({ el, products, lines, wh, onChange, listHeight }) {
     let search = '', catF = '';   // 16 Nov 2026 (Mr. Lee): choose a category to see only its products
@@ -12047,7 +12123,12 @@ Object.assign(window.KT_ZH, {"Automatic": "自动", "Leave empty = automatic SKU
       const setQ = (i, v) => { const pid = lines[i].pid; v = Math.floor(+v || 0); if (v <= 0) lines.splice(i, 1); else lines[i].qty = v; reprice(pid); draw(); onChange(); };
       $$('[data-lm]').forEach(b => b.onclick = () => setQ(+b.dataset.lm, lines[+b.dataset.lm].qty - 1));
       $$('[data-lpl]').forEach(b => b.onclick = () => setQ(+b.dataset.lpl, lines[+b.dataset.lpl].qty + 1));
-      $$('[data-lq]').forEach(i => i.onchange = () => setQ(+i.dataset.lq, i.value));
+      $$('[data-lq]').forEach(i => { i.onchange = () => setQ(+i.dataset.lq, i.value);
+        // 19 Nov 2026 (Mr. Lee: "fix auto price when select qty to order"): the quantity price follows while typing, not only after leaving the box
+        i.oninput = () => { const k = +i.dataset.lq, l = lines[k], v = Math.floor(+i.value || 0); if (!l || v <= 0) return; l.qty = v; reprice(l.pid);
+          lines.forEach((x, j) => { if (x.pid !== l.pid) return; const pi = el.querySelector(`[data-lp="${j}"]`); if (pi && document.activeElement !== pi) pi.value = +x.price;
+            const t = el.querySelector(`[data-lt="${j}"]`); if (t) t.textContent = money(x.qty * (+x.price || 0)); });
+          onChange(); }; });
       $$('[data-lp]').forEach(i => { i.oninput = () => { const k = +i.dataset.lp, l = lines[k]; l.price = Math.max(0, +i.value || 0);
           const qp = K.qtyPrice(P(l.pid), inOrder(l.pid)); l.man = r2(l.price) !== r2(qp);   // typed back to the quantity price = follows it again
           el.querySelector(`[data-lt="${k}"]`).textContent = money(l.qty * l.price); i.parentNode.classList.toggle('chg', l.man); onChange(); };
@@ -16474,7 +16555,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     main.innerHTML = `<div class="pad">
       <div class="card flush"><div class="list-item">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:48px;height:36px;object-fit:contain">` : icon('store', 24)}<div class="grow"><div class="tt">${esc(p.name || '')}</div><div class="st">${esc([p.phone, p.address].filter(Boolean).join(' · '))}</div></div><span class="pill ${own ? 'bl' : 'gy'}">${own ? 'Owner' : 'Seller'}</span></div></div>
       ${own ? grp('🤝 K-TRONiCS', li('#/partner/ktronics', 'send', 'K-TRONiCS', 'Orders & offers · Approvals · Payments & statement', todo)) : ''}
-      ${own ? grp('📦 Products', li('#/partner/products', 'box', 'My products', 'Add or update products · cost and selling price') + li('#/partner/stock', 'box', 'Stock', 'Add stock · damaged / lost · count')) : ''}
+      ${own ? grp('📦 Products', li('#/partner/products', 'box', 'My products', 'Add or update products · cost and selling price') + li('#/partner/categories', 'list', 'Categories', 'Add, rename, delete · put in order') + li('#/partner/stock', 'box', 'Stock', 'Add stock · damaged / lost · count')) : ''}
       ${own ? grp('🛒 My purchases', li('#/partner/purchases', 'truck', 'My purchases', 'Buy from your own suppliers · goods arrived · shipping · pay')) : ''}
       <div class="small muted" style="margin:14px 4px 6px;font-weight:700;letter-spacing:.04em">⚙️ Settings</div>
       <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}</div>
@@ -16716,7 +16797,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function productSheet(x, onDone) {
     x = x || {};
     const s = K.sheet(x.product_id ? 'Edit product' : 'New product', `<label class="f">Name<input class="inp" id="pnn" value="${esc(x.name || '')}" maxlength="120"></label>
-      <div class="btns"><label class="f">Code (SKU)<input class="inp" id="pns" value="${esc(x.sku || '')}" placeholder="empty = made for you" maxlength="40"></label><label class="f">Category<input class="inp" id="pnc" value="${esc(x.category || '')}" maxlength="60"></label></div>
+      <div class="btns"><label class="f">Code (SKU)<input class="inp" id="pns" value="${esc(x.sku || '')}" placeholder="empty = made for you" maxlength="40"></label><label class="f">Category<select class="inp" id="pnc"><option value="">Choose category</option></select></label></div>
       <div class="btns"><label class="f">My cost ($)<input class="inp" id="pnco" type="number" min="0" step="0.01" inputmode="decimal" value="${x.cost ?? ''}" placeholder="what you pay"></label>
         <label class="f">My selling price ($)<input class="inp" id="pnp" type="number" min="0" step="0.01" inputmode="decimal" value="${x.price ?? ''}"></label></div>
       <div class="small muted" id="pnm"></div>
@@ -16729,8 +16810,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       K.$('#pnm', s.el).innerHTML = c !== '' && p !== '' ? `Profit per piece: <b style="color:${+p - +c >= 0 ? 'var(--gr)' : 'var(--rd)'}">${K.money(+p - +c)}</b>${+p > 0 ? ` (${Math.round((+p - +c) / +p * 100)}%)` : ''}` : ''; };
     K.$('#pnco', s.el).oninput = K.$('#pnp', s.el).oninput = margin; margin();
     const photoOf = K.bindProductPhoto(s.el, x, 'pproducts');
+    // 19 Nov 2026: category from my list (+ new category)
+    const csel = K.$('#pnc', s.el); let cprev = x.category || '';
+    const fillCats = list => { const names = list.map(c => c.name); if (cprev && !names.includes(cprev)) names.unshift(cprev);
+      csel.innerHTML = `<option value="">Choose category</option>${names.map(n => `<option ${n === cprev ? 'selected' : ''}>${esc(n)}</option>`).join('')}${K.pOwner() ? '<option value="__new">+ New category…</option>' : ''}`; };
+    fillCats([]); api.partnerCategoriesMine().then(fillCats).catch(() => {});
+    csel.onchange = () => { if (csel.value !== '__new') { cprev = csel.value; return; } csel.value = cprev;
+      K.catNameSheet('New category', '', async n => { const list = await api.partnerCategorySave('', n); cprev = n; fillCats(list); }); };
     K.$('#pnok', s.el).onclick = async e => {
       const name = K.$('#pnn', s.el).value.trim(); if (!name) return toast('Write the product name');
+      if (!csel.value || csel.value === '__new') return toast('Choose a category');
       const cost = K.$('#pnco', s.el).value;
       if (cost !== '' && !(+cost >= 0 && +cost <= 1000000)) return toast('Cost must be between 0 and 1,000,000');
       await busy(e.currentTarget, async () => {
@@ -16767,20 +16856,54 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       await busy(e.currentTarget, () => api.partnerCatalogRemove(x.product_id)); s.close(); toast('Removed'); if (onDone) onDone();
     };
   }
+  // my categories (19 Nov 2026): add, rename, delete (my products move), order. K-TRONiCS categories: order only.
+  ownerRoute(/^\/partner\/categories$/, async (_, __, current) => {
+    const main = page({ title: 'Categories', sub: 'Your product categories', back: '#/partner/products' });
+    let list = await api.partnerCategoriesMine(); if (!current()) return;
+    const draw = () => {
+      main.innerHTML = `<div class="pad"><button class="btn block" id="cnew">${icon('plus', 18)}New category</button>
+        <div class="small muted">Use ▲ ▼ to put them in order (My products follows it). Categories marked K-TRONiCS come with K-TRONiCS products: only K-TRONiCS can rename them.</div>
+        <div class="card flush">${list.map((c, i) => `<div class="list-item" style="gap:6px;flex-wrap:wrap"><div class="grow" style="min-width:100%"><div class="tt">${esc(c.name)}${c.own ? '' : ' <span class="pill bl">K-TRONiCS</span>'}</div>
+          <div class="st">${c.count} product(s)${c.own_count && c.ktr_count ? ' · ' + c.own_count + ' of my own' : ''}</div></div>
+          <div class="row" style="gap:6px;margin-left:auto"><button class="btn sm out" data-up="${i}" ${i ? '' : 'disabled'} aria-label="Up">▲</button><button class="btn sm out" data-dn="${i}" ${i < list.length - 1 ? '' : 'disabled'} aria-label="Down">▼</button>
+          ${c.own ? `<button class="btn sm out" data-rn="${i}">Rename</button><button class="btn sm red" data-dl="${i}">Delete</button>` : ''}</div></div>`).join('') || '<div class="empty">No categories yet</div>'}</div></div>`;
+      K.$('#cnew', main).onclick = () => K.catNameSheet('New category', '', async n => { list = await api.partnerCategorySave('', n); draw(); toast('Category added'); });
+      const move = async (i, d) => { const names = list.map(c => c.name); [names[i], names[i + d]] = [names[i + d], names[i]]; list = await api.partnerCategoryOrder(names); draw(); };
+      K.$$('[data-up]', main).forEach(b => b.onclick = () => move(+b.dataset.up, -1));
+      K.$$('[data-dn]', main).forEach(b => b.onclick = () => move(+b.dataset.dn, 1));
+      K.$$('[data-rn]', main).forEach(b => b.onclick = () => { const c = list[+b.dataset.rn];
+        K.catNameSheet('Rename category', c.name, async n => { list = await api.partnerCategorySave(c.name, n); draw(); toast('Renamed · your products moved too'); }); });
+      K.$$('[data-dl]', main).forEach(b => b.onclick = () => { const c = list[+b.dataset.dl], others = list.filter(x => x.name !== c.name);
+        const s = K.sheet('Delete “' + c.name + '”?', c.own_count ? `<div class="small muted">${c.own_count} product(s) of your own are in it. Choose where they go:</div>
+            <select class="inp" id="cmv"><option value="">Choose category</option>${others.map(x => `<option>${esc(x.name)}</option>`).join('')}</select>` : '<div class="small muted">It has no products.</div>'
+          + `<button class="btn red block" id="cdok">Delete category</button>`);
+        if (c.own_count) K.$('#cmv', s.el).insertAdjacentHTML('afterend', '<button class="btn red block" id="cdok">Delete category</button>');
+        K.$('#cdok', s.el).onclick = async e => { const mv = K.$('#cmv', s.el) ? K.$('#cmv', s.el).value : ''; if (c.own_count && !mv) return toast('Choose where its products go');
+          list = await busy(e.currentTarget, () => api.partnerCategoryDelete(c.name, mv)); s.close(); draw(); toast('Category deleted'); }; });
+    };
+    draw();
+  });
   ownerRoute(/^\/partner\/products$/, async (_, __, current) => {
     const main = page({ title: 'My products', sub: 'Your own products + K-TRONiCS products you added', back: '#/partner' });
+    let catF = '';
     const draw = async () => {
-      const [all, costs] = await Promise.all([api.partnerProducts(), api.partnerMyCosts().catch(() => ({}))]);
+      const [all, costs, cats] = await Promise.all([api.partnerProducts(), api.partnerMyCosts().catch(() => ({})), api.partnerCategoriesMine().catch(() => [])]);
       const rows = all.map(r => Object.assign({}, r, { cost: costs[r.product_id] ?? null })), own = rows.filter(r => r.mine), lk = rows.filter(r => !r.mine);
       if (!current()) return;
-      const item = (r, attr) => `<button class="list-item" ${attr}="${r.product_id}" style="width:100%;text-align:left">${r.photo_url ? `<img src="${esc(r.photo_url)}" alt="" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : ''}<div class="grow"><div class="tt">${esc(r.name)}${r.active === false ? ' <span class="pill gy">Off</span>' : ''}</div>
+      const item = (r, attr, kt) => `<button class="list-item" ${attr}="${r.product_id}" style="width:100%;text-align:left">${r.photo_url ? `<img src="${esc(r.photo_url)}" alt="" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : ''}<div class="grow"><div class="tt">${esc(r.name)}${r.active === false ? ' <span class="pill gy">Off</span>' : ''}${kt ? ' <span class="pill bl">K-TRONiCS</span>' : ''}</div>
           <div class="st">${esc(r.sku)} · ${esc(r.category || '')} · ${r.cost != null ? 'cost ' + K.money(r.cost) + ' · ' : ''}${r.price != null ? 'price ' + K.money(r.price) : 'no price yet'}</div></div><b>${r.qty}</b></button>`;
-      main.innerHTML = `<div class="pad"><a class="btn block" href="#/partner/ktr">${icon('search', 18)}Add K-TRONiCS products</a><button class="btn out block" id="pnew">${icon('plus', 18)}New product of my own</button><button class="btn out block" id="pcatz">📄 Save as catalog</button>
-        <div class="sec">My own products (${own.length})</div>
-        <div class="card flush">${own.map(r => item(r, 'data-pe')).join('') || '<div class="empty">No products of your own yet</div>'}</div>
-        <div class="sec">K-TRONiCS products in my list (${lk.length})</div>
-        <div class="card flush">${lk.map(r => item(r, 'data-lk')).join('') || '<div class="empty">None yet · tap “Add K-TRONiCS products”</div>'}</div>
+      // 19 Nov 2026 (Mr. Lee: "partner they don't have categories created"): grouped by category in the partner's order + filter
+      const order = cats.map(c => c.name), groups = [...new Set(order.concat(rows.map(r => r.category || 'Other')))].filter(n => rows.some(r => (r.category || 'Other') === n));
+      if (catF && !groups.includes(catF)) catF = '';
+      const shownG = catF ? [catF] : groups;
+      main.innerHTML = `<div class="pad"><a class="btn block" href="#/partner/ktr">${icon('search', 18)}Add K-TRONiCS products</a><button class="btn out block" id="pnew">${icon('plus', 18)}New product of my own</button>
+        <div class="btns" style="margin:0"><a class="btn out" href="#/partner/categories" style="text-decoration:none">🗂 Categories</a><button class="btn out" id="pcatz">📄 Save as catalog</button></div>
+        <select class="inp" id="pcf"><option value="">All categories (${rows.length})</option>${groups.map(n => `<option value="${esc(n)}" ${n === catF ? 'selected' : ''}>${esc(n)} (${rows.filter(r => (r.category || 'Other') === n).length})</option>`).join('')}</select>
+        <div class="small muted">My own products: ${own.length} · K-TRONiCS products: ${lk.length}</div>
+        ${shownG.map(n => { const g = rows.filter(r => (r.category || 'Other') === n); return `<div class="sec">${esc(n)} (${g.length})</div>
+          <div class="card flush">${g.map(r => r.mine ? item(r, 'data-pe') : item(r, 'data-lk', true)).join('')}</div>`; }).join('') || '<div class="empty">No products yet · tap “Add K-TRONiCS products” or “New product of my own”</div>'}
         <div class="small muted">Put stock of them with My stock → Add stock (no approval needed). Tap a K-TRONiCS product to change your cost and price, or to remove it.</div></div>`;
+      K.$('#pcf', main).onchange = e => { catF = e.target.value; draw(); };
       K.$('#pnew', main).onclick = () => productSheet(null, draw);
       K.$('#pcatz', main).onclick = () => K.pCatalogSheet(all);   // 19 Nov 2026: catalog from My products (selling price only)
       K.$$('[data-pe]', main).forEach(b => b.onclick = () => productSheet(own.find(r => r.product_id === +b.dataset.pe), draw));
@@ -17251,20 +17374,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   // new purchase
-  async function newSheet(sups, onDone) {
-    const prods = (await api.partnerProducts()).filter(p => p.active !== false);
-    const act = sups.filter(x => x.active);
-    const st = { sup: (act[0] || {}).id || '', cur: 'USD', rate: '', lines: new Map() };   // product_id -> {qty, cost}
-    const s = K.sheet('New purchase', `<div class="f"><span>Supplier</span><div class="row" style="gap:8px"><select class="inp grow" id="nps"></select><button class="btn sm out" id="npsn">${icon('plus', 16)}New</button></div></div>
-      <div class="btns"><label class="f">Currency<select class="inp" id="npc">${['USD', 'CNY', 'KHR', 'THB', 'VND'].map(c => `<option>${c}</option>`).join('')}</select></label>
-        <label class="f" id="nprw" style="display:none">1 USD = <input class="inp" id="npr" type="number" min="0" step="any" inputmode="decimal"></label></div>
-      <label class="f">Date bought<input class="inp" id="npd" type="date" value="${today()}" max="${today()}"></label>
+  // new purchase, or (19 Nov 2026) edit one: ed = the purchase
+  async function newSheet(sups, onDone, ed) {
+    const prods = (await api.partnerProducts()).filter(p => p.active !== false || (ed && ed.items.some(i => i.product_id === p.product_id)));
+    if (ed) ed.items.forEach(i => { if (!prods.some(p => p.product_id === i.product_id)) prods.push({ product_id: i.product_id, name: i.name, sku: i.sku, qty: 0 }); });
+    const act = sups.filter(x => x.active || (ed && x.id === ed.supplier_id));
+    const st = { sup: ed ? ed.supplier_id : (act[0] || {}).id || '', cur: ed ? ed.currency : 'USD', rate: ed && ed.currency !== 'USD' ? String(+ed.rate) : '', lines: new Map() };   // product_id -> {qty, cost}
+    const arrOf = id => ed ? ((ed.items.find(i => i.product_id === id) || {}).arrived || 0) : 0, lockCur = !!(ed && ed.arrivals > 0);
+    if (ed) ed.items.forEach(i => st.lines.set(i.product_id, { qty: i.qty, cost: String(+i.unit_cost) }));
+    const s = K.sheet(ed ? 'Edit ' + ed.purchase_no : 'New purchase', `${ed ? `<div class="small muted">${ed.status === 'received' ? 'All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.' : ed.arrivals ? 'Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.' : 'Nothing arrived yet: you can change everything.'}</div>` : ''}<div class="f"><span>Supplier</span><div class="row" style="gap:8px"><select class="inp grow" id="nps"></select><button class="btn sm out" id="npsn">${icon('plus', 16)}New</button></div></div>
+      <div class="btns"><label class="f">Currency<select class="inp" id="npc" ${lockCur ? 'disabled' : ''}>${[...new Set(['USD', 'CNY', 'KHR', 'THB', 'VND', st.cur])].map(c => `<option ${c === st.cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+        <label class="f" id="nprw" style="${st.cur === 'USD' ? 'display:none' : ''}">1 USD = <input class="inp" id="npr" type="number" min="0" step="any" inputmode="decimal" value="${esc(st.rate)}" ${lockCur ? 'disabled' : ''}></label></div>
+      ${lockCur ? '<div class="small muted" style="margin-top:-6px">Goods already arrived: the currency and rate stay.</div>' : ''}
+      <label class="f">Date bought<input class="inp" id="npd" type="date" value="${ed ? esc(ed.ordered_on) : today()}" max="${today()}"></label>
       <div class="search">${icon('search', 18)}<input id="npq" placeholder="Search your products to add"></div>
       <div class="card flush" id="npres" style="max-height:220px;overflow:auto"></div>
       <div class="sec" style="margin:6px 0 0">Products in this purchase</div><div id="nplines"></div>
-      <label class="f">Note<input class="inp" id="npn" maxlength="500"></label>
+      <label class="f">Note<input class="inp" id="npn" maxlength="500" value="${ed ? esc(ed.note || '') : ''}"></label>
       <div class="row"><b class="grow" id="nptot"></b></div>
-      <button class="btn block" id="npgo">Save purchase</button>`);
+      <button class="btn block" id="npgo">${ed ? 'Save changes' : 'Save purchase'}</button>`);
     const fillSup = (sel) => { const all = sups.filter(x => x.active); $('#nps', s.el).innerHTML = all.length ? all.map(x => `<option value="${x.id}" ${x.id === +sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : '<option value="">— add a supplier first —</option>'; };
     fillSup(st.sup);
     $('#npsn', s.el).onclick = () => supForm(null, null, async id => { const d = await api.partnerPurchasesMine(); sups = d.suppliers; fillSup(id); });
@@ -17272,7 +17400,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const sum = () => { let t = 0; st.lines.forEach(l => { t += (+l.qty || 0) * (+l.cost || 0); }); $('#nptot', s.el).textContent = 'Total ' + curMoney(t, st.cur) + (st.cur !== 'USD' && rate() > 0 ? ' ≈ ' + money(t / rate()) : ''); };
     const drawLines = () => {
       $('#nplines', s.el).innerHTML = [...st.lines].map(([id, l]) => { const p = prods.find(x => x.product_id === id) || {};
-        return `<div class="card" style="gap:6px;padding:10px;margin:6px 0"><div class="row"><b class="grow">${esc(p.name || '')}</b><button class="ib" data-nx="${id}" aria-label="Remove">${icon('x', 16)}</button></div>
+        return `<div class="card" style="gap:6px;padding:10px;margin:6px 0"><div class="row"><b class="grow">${esc(p.name || '')}${arrOf(id) ? ` <span class="small muted" style="font-weight:600">· ${arrOf(id)} arrived</span>` : ''}</b><button class="ib" data-nx="${id}" aria-label="Remove">${icon('x', 16)}</button></div>
           <div class="btns" style="margin:0"><label class="f">Pieces<input class="inp" type="number" min="1" inputmode="numeric" data-nq="${id}" value="${l.qty}"></label><label class="f">Price each (${st.cur})<input class="inp" type="number" min="0" step="any" inputmode="decimal" data-nc="${id}" value="${l.cost}"></label></div></div>`; }).join('') || '<div class="small muted">Search above and tap a product to add it.</div>';
       $$('[data-nq]', s.el).forEach(i => i.oninput = () => { st.lines.get(+i.dataset.nq).qty = i.value; sum(); });
       $$('[data-nc]', s.el).forEach(i => i.oninput = () => { st.lines.get(+i.dataset.nc).cost = i.value; sum(); });
@@ -17292,6 +17420,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const items = [...st.lines].map(([product_id, l]) => ({ product_id, qty: +l.qty, unit_cost: l.cost === '' ? 0 : +l.cost }));
       if (items.some(i => !(i.qty > 0))) return toast('Pieces must be more than 0');
       if (st.cur !== 'USD' && !(rate() > 0)) return toast('Write how much 1 USD is in ' + st.cur);
+      if (ed && ed.status === 'ordered') { const low = items.find(i => i.qty < arrOf(i.product_id)) || [...ed.items].find(i => i.arrived > 0 && !st.lines.has(i.product_id));
+        if (low) return toast((low.name || (prods.find(p => p.product_id === low.product_id) || {}).name) + ': ' + arrOf(low.product_id) + ' pcs already arrived'); }
+      if (ed) { await busy(e.currentTarget, () => api.partnerPurchaseEdit(ed.id, sup, st.cur, rate(), $('#npn', s.el).value, items, $('#npd', s.el).value || null));
+        s.close(); toast('Changes saved'); onDone && onDone(); return; }
       await busy(e.currentTarget, () => api.partnerPurchaseCreate(sup, st.cur, rate(), $('#npn', s.el).value, items, $('#npd', s.el).value || null));
       s.close(); toast('Purchase saved'); onDone && onDone();
     };
@@ -17308,10 +17440,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ${p.status !== 'cancelled' ? `<div class="row"><b class="grow">${owe > 0.004 ? 'You still owe' : 'Paid in full'}</b><b>${owe > 0.004 ? money(owe) : ''}</b></div>` : ''}</div>
       ${p.arrival_list.length ? `<div class="sec" style="margin:0">Arrivals</div>${p.arrival_list.map(a => `<div class="card" style="gap:2px;padding:10px"><b>${esc(a.arrival_no)} · ${esc(K.when ? K.when(a.at) : a.at)}</b>
         <div class="small">${(a.items || []).map(x => esc(x.name) + ' ×' + x.qty + ' (' + money(x.unit_cost) + ' each)').join(' · ')}</div>${+a.shipping ? `<div class="small muted">Shipping / other: ${money(a.shipping)}</div>` : ''}${a.note ? `<div class="small muted">${esc(a.note)}</div>` : ''}</div>`).join('')}` : ''}
+      ${(p.changes || []).length ? `<div class="sec" style="margin:0">Changes</div><div class="card flush">${p.changes.map(c => `<div class="list-item"><div class="grow"><div class="st">${esc(K.when ? K.when(c.at) : c.at)}${c.by ? ' · ' + esc(c.by) : ''}</div><div class="small">${esc(c.summary)}</div></div></div>`).join('')}</div>` : ''}
       ${p.payments.length ? `<div class="sec" style="margin:0">Payments</div><div class="card flush">${p.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt">${money(y.amount)} · ${esc(y.method)}</div><div class="st">${esc(y.paid_on)}${y.note ? ' · ' + esc(y.note) : ''}</div></div>${canAct ? `<button class="linkbtn small" data-pyx="${y.id}" style="border:0;background:none;color:var(--rd);cursor:pointer">Delete</button>` : ''}</div>`).join('')}</div>` : ''}
       ${canAct ? `<div class="btns">${wait ? `<button class="btn green" id="pparr">${icon('box', 18)}Goods arrived</button>` : ''}${p.status !== 'cancelled' && owe > 0.004 ? `<button class="btn out" id="pppay">${icon('cash', 18)}Pay supplier</button>` : ''}</div>
         ${wait && p.arrivals > 0 ? '<button class="btn out block" id="ppclose">Close the rest (missing goods will not come)</button>' : ''}
-        ${wait && !p.arrivals && !p.payments.length ? '<button class="btn out block" id="ppcx" style="color:var(--rd)">Cancel purchase</button>' : ''}` : ''}`);
+        ${wait && !p.arrivals && !p.payments.length ? '<button class="btn out block" id="ppcx" style="color:var(--rd)">Cancel purchase</button>' : ''}
+        <div class="btns">${p.status !== 'cancelled' ? `<button class="btn out" id="ppedit">${icon('pen', 18)}Edit purchase</button>` : ''}<button class="btn out" id="ppdel" style="color:var(--rd)">${icon('trash', 18)}Delete purchase</button></div>` : ''}`);
     if (!canAct) return;
     const again = () => { s.close(); onDone && onDone(); };
     if ($('#pparr', s.el)) $('#pparr', s.el).onclick = () => { s.close(); arriveSheet(p, onDone); };
@@ -17320,6 +17454,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const r = await busy(e.currentTarget, () => api.partnerPurchaseCloseRest(p.id)); toast(r.gone + ' pcs will not come · received'); again(); };
     if ($('#ppcx', s.el)) $('#ppcx', s.el).onclick = async e => { if (!(await K.confirmSheet('Cancel this purchase?', 'Nothing arrived and nothing was paid.', 'Cancel purchase', true))) return;
       await busy(e.currentTarget, () => api.partnerPurchaseCancel(p.id)); toast('Cancelled'); again(); };
+    if ($('#ppedit', s.el)) $('#ppedit', s.el).onclick = async () => { const d = await api.partnerPurchasesMine(); s.close(); newSheet(d.suppliers, onDone, d.purchases.find(x => x.id === p.id) || p); };
+    $('#ppdel', s.el).onclick = async e => { const arr = p.items.reduce((a, i) => a + i.arrived, 0);
+      if (!(await K.confirmSheet('Delete ' + p.purchase_no + ' completely?', (arr ? arr + ' pcs that arrived leave your stock again. ' : '') + (p.payments.length ? 'Its ' + p.payments.length + ' payment(s) are deleted too. ' : '') + 'This cannot be undone.', 'Delete purchase', true))) return;
+      await busy(e.currentTarget, () => api.partnerPurchaseDelete(p.id)); toast(p.purchase_no + ' deleted'); again(); };
     $$('[data-pyx]', s.el).forEach(b => b.onclick = async () => { if (!(await K.confirmSheet('Delete this payment?', 'Only if it was typed by mistake.', 'Delete', true))) return;
       await busy(b, () => api.partnerPurchasePayDelete(+b.dataset.pyx)); toast('Deleted'); again(); });
   };
@@ -17683,7 +17821,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       y += 30;
     };
     // card height: photo + names (first language up to 2 lines, the others 1 line each) + details + price
-    const textH = it => { c.font = `700 ${nfs}px ${FONT}`; const nl = Math.min(2, wrap(it.lines[0] || '', cw - 32, 2).length); return 18 + nl * (nfs + 8) + (it.lines.length - 1) * (ofs + 8) + (it.det ? ofs + 4 : 0) + (o.showPrice !== false ? pfs + 18 : 0) + 14; };
+    // 19 Nov 2026 (Mr. Lee: "catalog i want to show all price"): quantity prices under the price, e.g. "50+ $0.60 · 100+ $0.55"
+    const tiersOf = it => (it.tiers || []).filter(t => +t.price > 0).slice().sort((a, b) => a.min_qty - b.min_qty);
+    const textH = it => { c.font = `700 ${nfs}px ${FONT}`; const nl = Math.min(2, wrap(it.lines[0] || '', cw - 32, 2).length); return 18 + nl * (nfs + 8) + (it.lines.length - 1) * (ofs + 8) + (it.det ? ofs + 4 : 0) + (o.showPrice !== false ? pfs + 18 + (tiersOf(it).length ? ofs + 10 : 0) : 0) + 14; };
     const card = (it, x, cy, ch) => {
       c.save(); c.shadowColor = 'rgba(0,0,0,.06)'; c.shadowBlur = 10; c.fillStyle = '#fff'; rrect(c, x, cy, cw, ch, 16); c.fill(); c.restore();
       c.strokeStyle = '#e3e6ea'; c.lineWidth = 2; rrect(c, x, cy, cw, ch, 16); c.stroke();
@@ -17698,7 +17838,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       it.lines.slice(1).forEach(l => { c.fillText(fit(l, cw - 32), x + 16, ty - 2); ty += ofs + 8; });
       if (it.det) { c.fillStyle = '#888'; c.font = `400 ${ofs - 2}px ${FONT}`; c.fillText(fit(it.det, cw - 32), x + 16, ty - 2); ty += ofs + 4; }
       if (o.showPrice !== false) { ty += 8;
-        if (it.price != null && +it.price > 0) { c.fillStyle = color; c.font = `800 ${pfs}px ${FONT}`; c.fillText(money(it.price), x + 16, ty + pfs - 10); }
+        if (it.price != null && +it.price > 0) { c.fillStyle = color; c.font = `800 ${pfs}px ${FONT}`; const tl = tiersOf(it);
+          if (tl.length) { const lab = '1–' + (tl[0].min_qty - 1) + ': '; c.font = `600 ${ofs}px ${FONT}`; c.fillStyle = '#666'; c.fillText(lab, x + 16, ty + pfs - 10); const lw = c.measureText(lab).width;
+            c.fillStyle = color; c.font = `800 ${pfs}px ${FONT}`; c.fillText(money(it.price), x + 16 + lw, ty + pfs - 10);
+            c.fillStyle = '#333'; c.font = `700 ${ofs}px ${FONT}`; c.fillText(fit(tl.map(t => t.min_qty + '+: ' + money(t.price)).join('  ·  '), cw - 32), x + 16, ty + pfs - 10 + ofs + 10); }
+          else c.fillText(money(it.price), x + 16, ty + pfs - 10); }
         else { c.fillStyle = '#999'; c.font = `600 ${ofs}px ${FONT}`; c.fillText(fit(wAll('Ask for price', langs), cw - 32), x + 16, ty + pfs - 12); } }
     };
     // prepare each product: the names in the chosen languages (no repeats), details in the first language that has them
