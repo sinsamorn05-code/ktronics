@@ -7373,6 +7373,8 @@ Object.assign(window.KT_KM, {"🔗 Same company as one of your suppliers?": "�
 // 19 Nov 2026: unlink a partner from a supplier · link = see the record only
 Object.assign(window.KT_KM, {"Unlink: the partner no longer sees these purchases. Nothing in Purchasing changes.": "ផ្ដាច់៖ ដៃគូលែងឃើញការទិញទាំងនេះ។ គ្មានអ្វីប្រែប្រួលក្នុងការទិញចូលទេ។", "Unlink": "ផ្ដាច់", "K-TRONiCS purchase": "ការទិញរបស់ K-TRONiCS", "Linking only lets the partner SEE its record: every purchase, return and payment of that supplier shows in the partner's Statement. The supplier stays normal in Purchasing (buy, edit, receive, pay as now). Stock does not change. You can unlink later.": "ការភ្ជាប់គ្រាន់តែឱ្យដៃគូ ឃើញ កំណត់ត្រារបស់ខ្លួន៖ រាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់របស់អ្នកផ្គត់ផ្គង់នោះ បង្ហាញក្នុងរបាយការណ៍របស់ដៃគូ។ អ្នកផ្គត់ផ្គង់នៅធម្មតាក្នុងការទិញចូល (ទិញ កែ ទទួល បង់ ដូចសព្វថ្ងៃ)។ ស្តុកមិនប្រែប្រួល។ អាចផ្ដាច់ពេលក្រោយបាន។"});
 window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+)$/, "បានផ្ដាច់ · $1"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 នៅក្នុងការទិញចូលដដែល។ ការទិញរបស់វាចេញពីរបាយការណ៍ដៃគូ។ ស្តុក និងលុយមិនប្រែប្រួល។"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 នៅជាអ្នកផ្គត់ផ្គង់ធម្មតាក្នុងការទិញចូល។ $2 ឃើញរាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់ក្នុងរបាយការណ៍របស់ខ្លួន។"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "បានភ្ជាប់ · ការទិញ $1 បង្ហាញក្នុងរបាយការណ៍ដៃគូ"]);
+// 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
+Object.assign(window.KT_KM, {"Sell & orders": "លក់ និងការបញ្ជាទិញ", "Requests": "សំណើ", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "លក់ និងការបញ្ជាទិញ · សំណើ · ការអនុម័ត · របាយការណ៍គណនី", "Your products + K-TRONiCS products · cost and selling price": "ផលិតផលរបស់អ្នក + ផលិតផល K-TRONiCS · ថ្លៃដើម និងតម្លៃលក់", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 ផលិតផល", "📊 Reports": "📊 របាយការណ៍", "👥 People": "👥 មនុស្ស", "⚙️ Settings": "⚙️ ការកំណត់", "Stock history": "ប្រវត្តិស្តុក", "Approvals": "ការអនុម័ត"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9424,6 +9426,8 @@ Object.assign(window.KT_ZH, {"🔗 Same company as one of your suppliers?": "�
 // 19 Nov 2026: unlink a partner from a supplier · link = see the record only
 Object.assign(window.KT_ZH, {"Unlink: the partner no longer sees these purchases. Nothing in Purchasing changes.": "取消关联：合作伙伴将不再看到这些采购。采购中的内容不变。", "Unlink": "取消关联", "K-TRONiCS purchase": "K-TRONiCS 采购", "Linking only lets the partner SEE its record: every purchase, return and payment of that supplier shows in the partner's Statement. The supplier stays normal in Purchasing (buy, edit, receive, pay as now). Stock does not change. You can unlink later.": "关联只让合作伙伴查看记录：该供应商的每笔采购、退货和付款都显示在合作伙伴的对账单中。供应商在采购中保持正常（照常购买、编辑、收货、付款）。库存不变。之后可以取消关联。"});
 window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+)$/, "已取消关联 · $1"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 在采购中保持不变。其采购将从合作伙伴对账单中移除。库存和金额不变。"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 在采购中仍是普通供应商。$2 可在对账单中看到其所有采购、退货和付款。"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "已关联 · $1 笔采购显示在合作伙伴对账单中"]);
+// 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
+Object.assign(window.KT_ZH, {"Sell & orders": "销售与订单", "Requests": "请求", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "销售与订单 · 请求 · 审批 · 对账单", "Your products + K-TRONiCS products · cost and selling price": "您的产品 + K-TRONiCS 产品 · 成本和售价", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 产品", "📊 Reports": "📊 报表", "👥 People": "👥 人员", "⚙️ Settings": "⚙️ 设置"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -16258,6 +16262,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.pOwner = () => (K.S.me || {}).partner_role !== 'seller';
   K.pOwnerRoute = (re, fn) => route(re, (a, b, c) => K.pOwner() ? fn(a, b, c) : K.go('#/partner'));
   const ownerRoute = K.pOwnerRoute;
+  // 19 Nov 2026 (Mr. Lee: partner More page "too messy"): everything with K-TRONiCS = one place with tabs
+  K.pKtrTabs = on => `<div class="chips">${[['sell', 'Sell & orders'], ['requests', 'Requests'], ['approve', 'Approvals'], ['statement', 'Statement']]
+    .map(([k, l]) => `<a class="chip${k === on ? ' on' : ''}" href="#/partner/${k}" style="display:inline-flex;align-items:center;text-decoration:none">${l}</a>`).join('')}</div>`;
+  K.pKtrCounts = async () => {
+    const [reqs, apv, offs] = await Promise.all([api.partnerRequestsMine().catch(() => []), api.partnerApprovals ? api.partnerApprovals().catch(() => null) : null, api.partnerOffersMine ? api.partnerOffersMine().catch(() => []) : []]);
+    return { sell: offs.filter(r => r.from_partner === false && r.status === 'waiting').length, requests: reqs.filter(r => r.status === 'waiting').length, approve: apv ? apv.stock_ins.length + apv.payments.length : 0 };
+  };
+  ownerRoute(/^\/partner\/ktronics$/, async () => { const c = await K.pKtrCounts(); K.go('#/partner/' + (c.sell ? 'sell' : c.requests ? 'requests' : c.approve ? 'approve' : 'sell')); });
 
   // Home (24 Oct 2026, Mr. Lee: same style as the staff app): round icons, then the dashboard. Settings are in More.
   route(/^\/partner$/, async (_, __, current) => {
@@ -16293,25 +16305,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const main = page({ title: 'More', sub: K.S.me.full_name, tab: 'more' });
     const p = await api.partnerMe().catch(() => ({}));
     if (!current()) return;
-    const own = K.pOwner();
-    const li = (href, ic, t, st) => own || /customers|history/.test(href) ? `<a class="list-item" href="${href}">${icon(ic, 20)}<div class="grow"><div class="tt">${t}</div><div class="st">${st}</div></div>${icon('right', 18)}</a>` : '';
+    const own = K.pOwner(), cnt = own ? await K.pKtrCounts().catch(() => ({})) : {}, todo = (cnt.sell || 0) + (cnt.requests || 0) + (cnt.approve || 0);
+    if (!current()) return;
+    const li = (href, ic, t, st, n) => `<a class="list-item" href="${href}">${icon(ic, 20)}<div class="grow"><div class="tt">${t}</div><div class="st">${st}</div></div>${n ? `<i class="badge">${n}</i>` : ''}${icon('right', 18)}</a>`;
+    const grp = (title, rows) => rows ? `<div class="small muted" style="margin:14px 4px 6px;font-weight:700;letter-spacing:.04em">${title}</div><div class="card flush" style="margin-top:0">${rows}</div>` : '';
     main.innerHTML = `<div class="pad">
       <div class="card flush"><div class="list-item">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:48px;height:36px;object-fit:contain">` : icon('store', 24)}<div class="grow"><div class="tt">${esc(p.name || '')}</div><div class="st">${esc([p.phone, p.address].filter(Boolean).join(' · '))}</div></div><span class="pill ${own ? 'bl' : 'gy'}">${own ? 'Owner' : 'Seller'}</span></div></div>
-      <div class="card flush">
-        ${li('#/partner/pnl', 'chart', 'Profit & loss', 'Sales, cost, expenses, profit')}
-        ${li('#/partner/statement', 'receipt', 'Statement with K-TRONiCS', 'Goods, given back, payments · who owes whom')}
-        ${li('#/partner/report', 'chart', 'Sales report', 'Sales, collected, by product and customer')}
-        ${li('#/partner/customers', 'store', 'Customers', 'Your own customers and what they owe')}
-        ${li('#/partner/products', 'box', 'My products', 'Your own products + K-TRONiCS products you added')}
-        ${li('#/partner/ktr', 'search', 'K-TRONiCS products', 'Add them to your products with your cost and price')}
-        ${li('#/partner/catalog', 'list', 'Make catalog', 'PDF or pictures of your products to send to shops')}
-        ${li('#/partner/prices', 'cash', 'My prices', 'Cost and selling price')}
-        ${li('#/partner/team', 'users', 'My team', 'Your seller logins: add, rename, turn off')}
-        ${li('#/partner/sell', 'send', 'Sell to K-TRONiCS', 'Offer goods · K-TRONiCS approves · Sent · money both ways')}
-        ${li('#/partner/approve', 'check', 'Approvals', 'Stock in and payments between you and K-TRONiCS')}
-        ${li('#/partner/requests', 'send', 'Purchase orders from K-TRONiCS', 'K-TRONiCS buys goods from you')}
-        ${li('#/partner/history', 'list', 'Stock history', 'Stock in, counts and sales')}
-      </div>
+      ${own ? grp('🤝 K-TRONiCS', li('#/partner/ktronics', 'send', 'K-TRONiCS', 'Sell & orders · Requests · Approvals · Statement', todo)) : ''}
+      ${own ? grp('📦 Products', li('#/partner/products', 'box', 'My products', 'Your products + K-TRONiCS products · cost and selling price') + li('#/partner/catalog', 'list', 'Make catalog', 'PDF or pictures of your products to send to shops')) : ''}
+      ${own ? grp('📊 Reports', li('#/partner/report', 'chart', 'Sales report', 'Sales, collected, by product and customer') + li('#/partner/pnl', 'chart', 'Profit & loss', 'Sales, cost, expenses, profit')) : ''}
+      ${grp('👥 People', li('#/partner/customers', 'store', 'Customers', 'Your own customers and what they owe') + (own ? li('#/partner/team', 'users', 'My team', 'Your seller logins: add, rename, turn off') : ''))}
+      <div class="small muted" style="margin:14px 4px 6px;font-weight:700;letter-spacing:.04em">⚙️ Settings</div>
       <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}</div>
       <div class="card flush">
         <button class="list-item" id="pprof" style="width:100%;text-align:left">${icon('lock', 20)}<div class="grow"><div class="tt">My profile</div><div class="st">Appearance and password</div></div>${icon('right', 18)}</button>
@@ -16331,7 +16335,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // statement with K-TRONiCS (24 Oct 2026): same numbers as the admin sees
   ownerRoute(/^\/partner\/statement$/, async (_, __, current) => {
-    const main = page({ title: 'Statement', sub: 'You and K-TRONiCS', back: '#/partner/more' });
+    const main = page({ title: 'Statement', sub: 'You and K-TRONiCS', back: '#/partner/more', top: K.pKtrTabs('statement') });
     if (!current()) return;
     main.innerHTML = '<div class="pad"><div id="pstm"></div></div>';
     K.partnerStatementBox(K.$('#pstm', main), (f, t) => api.partnerStatement(f, t), K.S.pSt = K.S.pSt || { p: 'month' });
@@ -16408,6 +16412,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           <div class="btns" style="margin:0"><button class="btn out" id="sdmg">${icon('x', 18)}Damaged / lost</button><button class="btn out" id="scnt">${icon('list', 18)}Count stock</button></div>` : ''}
         ${adj.filter(x => x.status === 'waiting' || Date.now() - new Date(x.decided_at || 0) < 7 * 864e5).slice(0, 10).map(x => `<div class="card" style="gap:4px;padding:12px"><div class="row"><b class="grow">${esc(x.adj_no)} · ${x.kind === 'count' ? 'Stock count' : 'Damaged / lost'}</b>${x.status === 'waiting' ? '<span class="pill or">Waiting for K-TRONiCS</span>' : x.status === 'approved' ? '<span class="pill gr">Approved</span>' : x.status === 'rejected' ? '<span class="pill rd">Not approved</span>' : '<span class="pill gy">Cancelled</span>'}</div>
           <div class="small">${x.items.map(i => esc(i.name) + ' ' + (i.change > 0 ? '+' : '') + i.change).join(' · ')}</div>${x.reason ? `<div class="small muted">${esc(x.reason)}</div>` : ''}${x.can_cancel ? `<button class="btn sm out" data-jcx="${x.id}" style="align-self:flex-start">Cancel</button>` : ''}</div>`).join('')}
+        <a class="btn out block" href="#/partner/history" style="margin-bottom:10px">${icon('list', 18)}Stock history</a>
         <div class="kpis">${'<div class="stat"><b>' + rows.filter(r => r.qty > 0).length + '</b><span>Products in stock</span></div><div class="stat"><b>' + pcs + '</b><span>Pieces</span></div>'}</div>
         <div class="search">${icon('search', 18)}<input id="q" placeholder="Search product or SKU" value="${esc(term)}"></div>
         <div class="seg">${[['1', 'In stock'], ['0', 'All products']].map(([k, l]) => `<button data-o="${k}" class="${(only ? '1' : '0') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -16466,7 +16471,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // stock history: every change of my partner warehouse
   route(/^\/partner\/history$/, async (_, __, current) => {
-    const main = page({ title: 'Stock history', sub: 'Your partner warehouse', back: '#/partner' });
+    const main = page({ title: 'Stock history', sub: 'Your partner warehouse', back: '#/partner/stock' });
     const moves = await api.partnerMyMoves();
     if (!current()) return;
     main.innerHTML = `<div class="pad"><div class="card flush">${moves.map(m => `<div class="list-item"><div class="grow"><div class="tt">${esc(m.product)}</div><div class="st">${esc(KIND[m.kind] || m.kind)}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(fmtWhen(m.at))}</div></div><b style="color:${m.change > 0 ? 'var(--gr)' : 'var(--rd)'}">${m.change > 0 ? '+' : ''}${m.change}</b><span class="small muted" style="width:52px;text-align:right">= ${m.qty_after}</span></div>`).join('') || '<div class="empty">No history yet</div>'}</div></div>`;
@@ -16475,7 +16480,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // approvals (24 Oct 2026): stock K-TRONiCS put into my warehouse and money K-TRONiCS paid me wait for my OK
   const METH = { cash: 'Cash', aba: 'ABA', bank: 'Bank', other: 'Other' };
   ownerRoute(/^\/partner\/approve$/, async (_, __, current) => {
-    const main = page({ title: 'Approvals', sub: 'Between you and K-TRONiCS', back: '#/partner' });
+    const main = page({ title: 'Approvals', sub: 'Between you and K-TRONiCS', back: '#/partner/more', top: K.pKtrTabs('approve') });
     const draw = async () => {
       const [a, all] = await Promise.all([api.partnerApprovals(), api.partnerStockInsList(null, null)]);
       if (!current()) return;
@@ -16915,7 +16920,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const rpill = r => { const x = RST[r.status] || [r.status, 'gy']; return `<span class="pill ${x[1]}">${esc(x[0])}</span>`; };
 
   K.pOwnerRoute(/^\/partner\/requests$/, async (_, __, current) => {
-    const main = page({ title: 'Purchase orders from K-TRONiCS', sub: 'K-TRONiCS buys goods from you', back: '#/partner' });
+    const main = page({ title: 'Purchase orders from K-TRONiCS', sub: 'K-TRONiCS buys goods from you', back: '#/partner/more', top: K.pKtrTabs('requests') });
     const rows = await api.partnerRequestsMine();
     if (!current()) return;
     main.innerHTML = `<div class="pad"><div class="card flush">${rows.map(r => `<a class="list-item" href="#/partner/request/${r.id}"><div class="grow"><div class="tt">${esc(r.request_no)}</div>
@@ -16973,7 +16978,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     : y.side === 'ktronics' ? '<span class="pill or">Waiting for you</span>' : '<span class="pill or">Waiting for K-TRONiCS</span>';
 
   K.pOwnerRoute(/^\/partner\/sell$/, async (_, __, current) => {
-    const main = page({ title: 'Sell to K-TRONiCS', sub: 'Your offers and money', back: '#/partner/more', right: `<a class="ib" href="#/partner/new?k=1" aria-label="New offer">${icon('plus')}</a>` });
+    const main = page({ title: 'Sell to K-TRONiCS', sub: 'Your offers and money', back: '#/partner/more', top: K.pKtrTabs('sell'), right: `<a class="ib" href="#/partner/new?k=1" aria-label="New offer">${icon('plus')}</a>` });
     const draw = async () => {
       const rows = await api.partnerOffersMine().catch(e => { toast(e.message); return []; });
       if (!current()) return;
