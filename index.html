@@ -5753,7 +5753,7 @@ window.makeDemoApi = function () {
 
   // ---------- layout ----------
   const TABS = [['home', 'Home', '#/home'], ['chat', 'Chat', '#/chat'], ['order', 'Orders', '#/orders'], ['box', 'Stock', '#/stock'], ['more', 'More', '#/more']];
-  const PTABS = [['home', 'Home', '#/partner'], ['order', 'Orders', '#/partner/orders'], ['box', 'Stock', '#/partner/stock'], ['more', 'More', '#/partner/more']];   // partner app (24 Oct 2026)
+  const PTABS = [['home', 'Home', '#/partner'], ['order', 'K-TRONiCS', '#/partner/sell'], ['box', 'Stock', '#/partner/stock'], ['more', 'More', '#/partner/more']];   // 19 Nov 2026: only trade with K-TRONiCS   // partner app (24 Oct 2026)
   function tabbar(active) {
     const isG = S.me && S.me.role === 'guest';
     return `<nav class="tabs" aria-label="Main">${(S.me && S.me.role === 'partner' ? PTABS : TABS).filter(t => !isG || t[0] === 'chat' || t[0] === 'more').map(([ic, label, href]) => `<a href="${href}" class="${active === ic ? 'on' : ''}">${icon(ic, 23, active === ic ? 2.2 : 1.8)}<span>${label}</span>${ic === 'chat' && S.unread ? `<span class="badge" data-unread>${S.unread > 99 ? '99+' : S.unread}</span>` : ''}</a>`).join('')}</nav>`;
@@ -7375,6 +7375,12 @@ Object.assign(window.KT_KM, {"Unlink: the partner no longer sees these purchases
 window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+)$/, "បានផ្ដាច់ · $1"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 នៅក្នុងការទិញចូលដដែល។ ការទិញរបស់វាចេញពីរបាយការណ៍ដៃគូ។ ស្តុក និងលុយមិនប្រែប្រួល។"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 នៅជាអ្នកផ្គត់ផ្គង់ធម្មតាក្នុងការទិញចូល។ $2 ឃើញរាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់ក្នុងរបាយការណ៍របស់ខ្លួន។"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "បានភ្ជាប់ · ការទិញ $1 បង្ហាញក្នុងរបាយការណ៍ដៃគូ"]);
 // 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
 Object.assign(window.KT_KM, {"Sell & orders": "លក់ និងការបញ្ជាទិញ", "Requests": "សំណើ", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "លក់ និងការបញ្ជាទិញ · សំណើ · ការអនុម័ត · របាយការណ៍គណនី", "Your products + K-TRONiCS products · cost and selling price": "ផលិតផលរបស់អ្នក + ផលិតផល K-TRONiCS · ថ្លៃដើម និងតម្លៃលក់", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 ផលិតផល", "📊 Reports": "📊 របាយការណ៍", "👥 People": "👥 មនុស្ស", "⚙️ Settings": "⚙️ ការកំណត់", "Stock history": "ប្រវត្តិស្តុក", "Approvals": "ការអនុម័ត"});
+// 19 Nov 2026: partner app = only trade with K-TRONiCS
+Object.assign(window.KT_KM, {"Orders & offers": "ការបញ្ជាទិញ និងការផ្តល់ជូន", "Payments & statement": "ការបង់ប្រាក់ និងរបាយការណ៍គណនី", "Orders & offers · Approvals · Payments & statement": "ការបញ្ជាទិញ និងការផ្តល់ជូន · ការអនុម័ត · ការបង់ប្រាក់ និងរបាយការណ៍", "Add or update products · cost and selling price": "បន្ថែម ឬកែផលិតផល · ថ្លៃដើម និងតម្លៃលក់", "Add stock · damaged / lost · count": "បន្ថែមស្តុក · ខូច / បាត់ · រាប់", "Only the owner uses the partner app": "មានតែម្ចាស់ទេដែលប្រើកម្មវិធីដៃគូ", "Offer goods": "ផ្តល់ជូនទំនិញ", "Nothing owed": "គ្មានជំពាក់", "🛒 Orders from K-TRONiCS": "🛒 ការបញ្ជាទិញពី K-TRONiCS", "Products & stock": "ផលិតផល និងស្តុក", "Order": "បញ្ជាទិញ", "Purchases": "ការទិញ", "Open": "បើក", "Trade between you and this partner": "ការជួញដូររវាងអ្នក និងដៃគូនេះ", "Orders from K-TRONiCS and your offers": "ការបញ្ជាទិញពី K-TRONiCS និងការផ្តល់ជូនរបស់អ្នក", "Send purchase order": "ផ្ញើការបញ្ជាទិញ", "Waiting for the partner": "រង់ចាំដៃគូ", "Offers waiting for you": "ការផ្តល់ជូនរង់ចាំអ្នក", "Approved · not sent yet": "បានអនុម័ត · មិនទាន់ផ្ញើ"});
+window.KT_KM_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS ជំពាក់អ្នក $1"], [/^You owe K-TRONiCS (.+)$/, "អ្នកជំពាក់ K-TRONiCS $1"], [/^(\d+) waiting for you \(answer or send\)$/, "$1 រង់ចាំអ្នក (ឆ្លើយ ឬផ្ញើ)"], [/^(\d+) payment\(s\) waiting for your answer$/, "ការបង់ប្រាក់ $1 រង់ចាំចម្លើយ"], [/^Purchase order sent to (.+)$/, "បានផ្ញើការបញ្ជាទិញទៅ $1"]);
+// 19 Nov 2026: Save as catalog in My products
+Object.assign(window.KT_KM, {"📄 Save as catalog": "📄 រក្សាទុកជាកាតាឡុក", "Save as catalog": "រក្សាទុកជាកាតាឡុក", "📄 Save PDF": "📄 រក្សាទុក PDF", "🖼 Save as pictures": "🖼 រក្សាទុកជារូបភាព", "Add products first": "បន្ថែមផលិតផលជាមុនសិន"});
+window.KT_KM_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "ផលិតផល $1 · ដាក់ជាក្រុមតាមប្រភេទដោយស្វ័យប្រវត្តិ។ បង្ហាញតែតម្លៃលក់ មិនបង្ហាញថ្លៃដើមទេ។"], [/^PDF saved · (\d+) page\(s\)$/, "បានរក្សាទុក PDF · $1 ទំព័រ"]);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9428,6 +9434,12 @@ Object.assign(window.KT_ZH, {"Unlink: the partner no longer sees these purchases
 window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+)$/, "已取消关联 · $1"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 在采购中保持不变。其采购将从合作伙伴对账单中移除。库存和金额不变。"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 在采购中仍是普通供应商。$2 可在对账单中看到其所有采购、退货和付款。"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "已关联 · $1 笔采购显示在合作伙伴对账单中"]);
 // 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
 Object.assign(window.KT_ZH, {"Sell & orders": "销售与订单", "Requests": "请求", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "销售与订单 · 请求 · 审批 · 对账单", "Your products + K-TRONiCS products · cost and selling price": "您的产品 + K-TRONiCS 产品 · 成本和售价", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 产品", "📊 Reports": "📊 报表", "👥 People": "👥 人员", "⚙️ Settings": "⚙️ 设置"});
+// 19 Nov 2026: partner app = only trade with K-TRONiCS
+Object.assign(window.KT_ZH, {"Orders & offers": "订单与报价", "Payments & statement": "付款与对账单", "Orders & offers · Approvals · Payments & statement": "订单与报价 · 审批 · 付款与对账单", "Add or update products · cost and selling price": "添加或更新产品 · 成本和售价", "Add stock · damaged / lost · count": "入库 · 损坏 / 丢失 · 盘点", "Only the owner uses the partner app": "只有老板使用合作伙伴应用", "Offer goods": "提供商品", "Nothing owed": "没有欠款", "🛒 Orders from K-TRONiCS": "🛒 来自 K-TRONiCS 的订单", "Products & stock": "产品与库存", "Order": "下单", "Purchases": "采购", "Open": "打开", "Trade between you and this partner": "您与此合作伙伴之间的交易", "Orders from K-TRONiCS and your offers": "来自 K-TRONiCS 的订单和您的报价", "Send purchase order": "发送采购单", "Waiting for the partner": "等待合作伙伴", "Offers waiting for you": "等待您处理的报价", "Approved · not sent yet": "已批准 · 尚未发货"});
+window.KT_ZH_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS 欠您 $1"], [/^You owe K-TRONiCS (.+)$/, "您欠 K-TRONiCS $1"], [/^(\d+) waiting for you \(answer or send\)$/, "$1 个等待您（回复或发货）"], [/^(\d+) payment\(s\) waiting for your answer$/, "$1 笔付款等待您回复"], [/^Purchase order sent to (.+)$/, "采购单已发送给 $1"]);
+// 19 Nov 2026: Save as catalog in My products
+Object.assign(window.KT_ZH, {"📄 Save as catalog": "📄 保存为目录", "Save as catalog": "保存为目录", "📄 Save PDF": "📄 保存 PDF", "🖼 Save as pictures": "🖼 保存为图片", "Add products first": "请先添加产品"});
+window.KT_ZH_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "$1 个产品，自动按类别分组。只显示售价，不显示成本。"], [/^PDF saved · (\d+) page\(s\)$/, "PDF 已保存 · $1 页"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -16263,41 +16275,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   K.pOwnerRoute = (re, fn) => route(re, (a, b, c) => K.pOwner() ? fn(a, b, c) : K.go('#/partner'));
   const ownerRoute = K.pOwnerRoute;
   // 19 Nov 2026 (Mr. Lee: partner More page "too messy"): everything with K-TRONiCS = one place with tabs
-  K.pKtrTabs = on => `<div class="chips">${[['sell', 'Sell & orders'], ['requests', 'Requests'], ['approve', 'Approvals'], ['statement', 'Statement']]
+  // 19 Nov 2026 (Mr. Lee: "partner only sell to me and only check payment records, and update new products … Partners no allow to sell others customers"):
+  // the partner app is only for trade with K-TRONiCS. Pages for the partner's own shop business are closed (data kept).
+  ['customers', 'customer\\/\\d+', 'orders', 'report', 'pnl', 'catalog', 'team', 'requests', 'request\\/\\d+', 'prices', 'ktronics-old'].forEach(p => route(new RegExp('^\\/partner\\/' + p + '$'), () => K.go('#/partner/sell')));
+  K.pKtrTabs = on => `<div class="chips">${[['sell', 'Orders & offers'], ['approve', 'Approvals'], ['statement', 'Payments & statement']]
     .map(([k, l]) => `<a class="chip${k === on ? ' on' : ''}" href="#/partner/${k}" style="display:inline-flex;align-items:center;text-decoration:none">${l}</a>`).join('')}</div>`;
   K.pKtrCounts = async () => {
     const [reqs, apv, offs] = await Promise.all([api.partnerRequestsMine().catch(() => []), api.partnerApprovals ? api.partnerApprovals().catch(() => null) : null, api.partnerOffersMine ? api.partnerOffersMine().catch(() => []) : []]);
-    return { sell: offs.filter(r => r.from_partner === false && r.status === 'waiting').length, requests: reqs.filter(r => r.status === 'waiting').length, approve: apv ? apv.stock_ins.length + apv.payments.length : 0 };
+    return { sell: offs.filter(r => r.from_partner === false && r.status === 'waiting').length + offs.filter(r => r.status === 'approved' && !r.sent_at).length, requests: 0, approve: apv ? apv.stock_ins.length + apv.payments.length : 0 };
   };
-  ownerRoute(/^\/partner\/ktronics$/, async () => { const c = await K.pKtrCounts(); K.go('#/partner/' + (c.sell ? 'sell' : c.requests ? 'requests' : c.approve ? 'approve' : 'sell')); });
+  ownerRoute(/^\/partner\/ktronics$/, async () => { const c = await K.pKtrCounts(); K.go('#/partner/' + (c.sell ? 'sell' : c.approve ? 'approve' : 'sell')); });
 
   // Home (24 Oct 2026, Mr. Lee: same style as the staff app): round icons, then the dashboard. Settings are in More.
   route(/^\/partner$/, async (_, __, current) => {
     const main = page({ title: 'Partner app', sub: K.S.me.full_name, tab: 'home' });
-    const qa0 = (href, ic, label, bg, fg) => `<a class="qa" href="${href}"><span class="i" style="background:${bg};color:${fg}">${icon(ic, 26)}</span>${label}</a>`;
-    if (!K.pOwner()) {   // seller: selling only
-      main.innerHTML = `<div class="pad"><div class="card" style="padding:18px 10px"><div class="grid4">
-        ${qa0('#/partner/new', 'order', 'New order', 'var(--grs)', 'var(--gr)')}${qa0('#/partner/orders', 'list', 'Orders', 'var(--ps)', 'var(--p)')}
-        ${qa0('#/partner/stock', 'box', 'Stock', 'var(--bls)', 'var(--bl)')}${qa0('#/partner/customers', 'store', 'Customers', 'var(--grs)', 'var(--gr)')}${qa0('#/partner/catalog', 'list', 'Catalog', 'var(--ors)', 'var(--or)')}</div></div>
-        <div class="small muted" style="margin-top:12px">You are a seller: make orders, collect payments, see customers and stock.</div></div>`;
+    if (!K.pOwner()) {   // 19 Nov 2026: one owner login per partner, no sellers
+      main.innerHTML = `<div class="pad"><div class="card"><b>Only the owner uses the partner app</b><div class="small muted">Ask your owner to log in, or ask K-TRONiCS to make your login the owner.</div></div></div>`;
       return;
     }
-    const [reqs, apv, offs] = await Promise.all([api.partnerRequestsMine().catch(() => []), api.partnerApprovals ? api.partnerApprovals().catch(() => null) : null, api.partnerOffersMine ? api.partnerOffersMine().catch(() => []) : []]);
-    const poWait = offs.filter(r => r.from_partner === false && r.status === 'waiting').length;   // 19 Nov 2026: K-TRONiCS purchase orders to answer
-    const waiting = reqs.filter(r => r.status === 'waiting').length, toOk = apv ? apv.stock_ins.length + apv.payments.length : 0;
+    const t0 = K.today ? K.today() : new Date().toISOString().slice(0, 10);
+    const [c, st] = await Promise.all([K.pKtrCounts().catch(() => ({})), api.partnerStatement ? api.partnerStatement('2020-01-01', t0).catch(() => null) : null]);
     if (!current()) return;
+    const now = st ? +st.now || 0 : 0, wait = st ? (st.waiting || []).length : 0;
     const qa = (href, ic, label, n, bg = 'var(--ps)', fg = 'var(--p)') => `<a class="qa" href="${href}" style="position:relative"><span class="i" style="background:${bg};color:${fg}">${icon(ic, 26)}</span>${label}${n ? `<i class="badge" style="position:absolute;top:0;right:12%">${n}</i>` : ''}</a>`;
     main.innerHTML = `<div class="pad">
+      <a class="card" href="#/partner/statement" style="gap:4px;text-decoration:none;color:inherit"><div class="small muted">Payments & statement</div>
+        <b style="font-size:22px">${now > 0.004 ? 'K-TRONiCS owes you ' + K.money(now) : now < -0.004 ? 'You owe K-TRONiCS ' + K.money(-now) : 'Nothing owed'}</b>
+        ${wait ? `<div class="small" style="color:var(--or)">${wait} payment(s) waiting for your answer</div>` : ''}</a>
+      ${c.sell ? `<a class="card" href="#/partner/sell" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px">${icon('bell', 20)}<div class="grow"><b>🛒 Orders from K-TRONiCS</b><div class="small">${c.sell} waiting for you (answer or send)</div></div>${icon('right', 18)}</a>` : ''}
       <div class="card" style="padding:18px 10px"><div class="grid4">
-        ${qa('#/partner/approve', 'check', 'Approvals', toOk, 'var(--ors)', 'var(--or)')}${qa('#/partner/new', 'order', 'New order', 0, 'var(--grs)', 'var(--gr)')}
-        ${qa('#/partner/stock', 'box', 'Stock', 0, 'var(--bls)', 'var(--bl)')}${qa('#/partner/customers', 'store', 'Customers', 0, 'var(--grs)', 'var(--gr)')}
-        ${qa('#/partner/orders?s=unpaid', 'cash', 'Payments', 0, 'var(--grs)', 'var(--gr)')}${qa('#/partner/products', 'box', 'Products')}
-        ${qa('#/partner/prices', 'cash', 'Prices', 0, 'var(--bls)', 'var(--bl)')}${qa('#/partner/pnl', 'chart', 'Profit & loss', 0, 'var(--ors)', 'var(--or)')}${qa('#/partner/catalog', 'list', 'Catalog', 0, 'var(--ors)', 'var(--or)')}
+        ${qa('#/partner/sell', 'order', 'Orders & offers', c.sell, 'var(--ors)', 'var(--or)')}${qa('#/partner/approve', 'check', 'Approvals', c.approve, 'var(--grs)', 'var(--gr)')}
+        ${qa('#/partner/statement', 'cash', 'Payments', 0, 'var(--grs)', 'var(--gr)')}${qa('#/partner/products', 'box', 'My products', 0)}
+        ${qa('#/partner/stock', 'box', 'Stock', 0, 'var(--bls)', 'var(--bl)')}${qa('#/partner/new?k=1', 'send', 'Offer goods', 0, 'var(--bls)', 'var(--bl)')}
       </div></div>
-      ${poWait ? `<a class="card" href="#/partner/sell" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;margin-top:12px">${icon('bell', 20)}<div class="grow"><b>🛒 Purchase order from K-TRONiCS</b><div class="small">${poWait} waiting for your answer</div></div>${icon('right', 18)}</a>` : ''}
-      ${waiting ? `<a class="card" href="#/partner/requests" style="background:var(--ors);flex-direction:row;align-items:center;gap:10px;margin-top:12px">${icon('bell', 20)}<div class="grow"><b>Purchase order request from K-TRONiCS</b><div class="small">${waiting} waiting for your answer</div></div>${icon('right', 18)}</a>` : ''}
-      <div id="pdash" style="margin-top:12px"></div></div>`;
-    K.partnerDashBox(K.$('#pdash', main), (f, t) => Promise.all([api.partnerDashboard(f, t), api.partnerPnl ? api.partnerPnl(f, t).catch(() => null) : null]).then(([d, pl]) => Object.assign(d, { pnl: pl })), true, K.S.pDash = K.S.pDash || { p: 'today' });
+      <div class="small muted" style="line-height:1.5">This app is only between you and K-TRONiCS: K-TRONiCS orders → you approve and send · you offer goods → K-TRONiCS approves · payments confirmed by both sides · your products and stock.</div></div>`;
   });
 
   // More: everything else, language, profile, log out
@@ -16311,10 +16322,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const grp = (title, rows) => rows ? `<div class="small muted" style="margin:14px 4px 6px;font-weight:700;letter-spacing:.04em">${title}</div><div class="card flush" style="margin-top:0">${rows}</div>` : '';
     main.innerHTML = `<div class="pad">
       <div class="card flush"><div class="list-item">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:48px;height:36px;object-fit:contain">` : icon('store', 24)}<div class="grow"><div class="tt">${esc(p.name || '')}</div><div class="st">${esc([p.phone, p.address].filter(Boolean).join(' · '))}</div></div><span class="pill ${own ? 'bl' : 'gy'}">${own ? 'Owner' : 'Seller'}</span></div></div>
-      ${own ? grp('🤝 K-TRONiCS', li('#/partner/ktronics', 'send', 'K-TRONiCS', 'Sell & orders · Requests · Approvals · Statement', todo)) : ''}
-      ${own ? grp('📦 Products', li('#/partner/products', 'box', 'My products', 'Your products + K-TRONiCS products · cost and selling price') + li('#/partner/catalog', 'list', 'Make catalog', 'PDF or pictures of your products to send to shops')) : ''}
-      ${own ? grp('📊 Reports', li('#/partner/report', 'chart', 'Sales report', 'Sales, collected, by product and customer') + li('#/partner/pnl', 'chart', 'Profit & loss', 'Sales, cost, expenses, profit')) : ''}
-      ${grp('👥 People', li('#/partner/customers', 'store', 'Customers', 'Your own customers and what they owe') + (own ? li('#/partner/team', 'users', 'My team', 'Your seller logins: add, rename, turn off') : ''))}
+      ${own ? grp('🤝 K-TRONiCS', li('#/partner/ktronics', 'send', 'K-TRONiCS', 'Orders & offers · Approvals · Payments & statement', todo)) : ''}
+      ${own ? grp('📦 Products', li('#/partner/products', 'box', 'My products', 'Add or update products · cost and selling price') + li('#/partner/stock', 'box', 'Stock', 'Add stock · damaged / lost · count')) : ''}
       <div class="small muted" style="margin:14px 4px 6px;font-weight:700;letter-spacing:.04em">⚙️ Settings</div>
       <div class="card"><div class="row"><b class="grow">Language</b></div>${K.langButtons()}</div>
       <div class="card flush">
@@ -16614,13 +16623,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!current()) return;
       const item = (r, attr) => `<button class="list-item" ${attr}="${r.product_id}" style="width:100%;text-align:left">${r.photo_url ? `<img src="${esc(r.photo_url)}" alt="" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : ''}<div class="grow"><div class="tt">${esc(r.name)}${r.active === false ? ' <span class="pill gy">Off</span>' : ''}</div>
           <div class="st">${esc(r.sku)} · ${esc(r.category || '')} · ${r.cost != null ? 'cost ' + K.money(r.cost) + ' · ' : ''}${r.price != null ? 'price ' + K.money(r.price) : 'no price yet'}</div></div><b>${r.qty}</b></button>`;
-      main.innerHTML = `<div class="pad"><a class="btn block" href="#/partner/ktr">${icon('search', 18)}Add K-TRONiCS products</a><button class="btn out block" id="pnew">${icon('plus', 18)}New product of my own</button>
+      main.innerHTML = `<div class="pad"><a class="btn block" href="#/partner/ktr">${icon('search', 18)}Add K-TRONiCS products</a><button class="btn out block" id="pnew">${icon('plus', 18)}New product of my own</button><button class="btn out block" id="pcatz">📄 Save as catalog</button>
         <div class="sec">My own products (${own.length})</div>
         <div class="card flush">${own.map(r => item(r, 'data-pe')).join('') || '<div class="empty">No products of your own yet</div>'}</div>
         <div class="sec">K-TRONiCS products in my list (${lk.length})</div>
         <div class="card flush">${lk.map(r => item(r, 'data-lk')).join('') || '<div class="empty">None yet · tap “Add K-TRONiCS products”</div>'}</div>
         <div class="small muted">Put stock of them with My stock → Add stock (no approval needed). Tap a K-TRONiCS product to change your cost and price, or to remove it.</div></div>`;
       K.$('#pnew', main).onclick = () => productSheet(null, draw);
+      K.$('#pcatz', main).onclick = () => K.pCatalogSheet(all);   // 19 Nov 2026: catalog from My products (selling price only)
       K.$$('[data-pe]', main).forEach(b => b.onclick = () => productSheet(own.find(r => r.product_id === +b.dataset.pe), draw));
       K.$$('[data-lk]', main).forEach(b => b.onclick = () => linkedSheet(Object.assign({ linked_in: true }, lk.find(r => r.product_id === +b.dataset.lk)), draw));
     };
@@ -16719,6 +16729,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   // ---------- new order ----------
   route(/^\/partner\/new$/, async (_, query, current) => {
+    if (!query.k) return K.go('#/partner/sell');   // 19 Nov 2026: partners only sell to K-TRONiCS (offer = ?k=1)
     const main = page({ title: 'New order', sub: 'Stock goes out when you save', back: '#/partner' });
     let [custs, prods] = await Promise.all([api.partnerCustomers(), api.partnerProducts()]);
     if (!current()) return;
@@ -16978,7 +16989,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     : y.side === 'ktronics' ? '<span class="pill or">Waiting for you</span>' : '<span class="pill or">Waiting for K-TRONiCS</span>';
 
   K.pOwnerRoute(/^\/partner\/sell$/, async (_, __, current) => {
-    const main = page({ title: 'Sell to K-TRONiCS', sub: 'Your offers and money', back: '#/partner/more', top: K.pKtrTabs('sell'), right: `<a class="ib" href="#/partner/new?k=1" aria-label="New offer">${icon('plus')}</a>` });
+    const main = page({ title: 'K-TRONiCS', sub: 'Orders from K-TRONiCS and your offers', tab: 'order', top: K.pKtrTabs('sell'), right: `<a class="ib" href="#/partner/new?k=1" aria-label="New offer">${icon('plus')}</a>` });
     const draw = async () => {
       const rows = await api.partnerOffersMine().catch(e => { toast(e.message); return []; });
       if (!current()) return;
@@ -17483,6 +17494,42 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 400)); }
       toast(files.length + ' picture(s) saved'); };
   });
+
+  // 19 Nov 2026 (Mr. Lee: "Don't need to make catalogs … Just add they can save those products as catalogs and can choose products per page,
+  // 4 large or 6 or 9 small and catalog will list by category auto"): My products → "Save as catalog". Selling price only, never cost.
+  K.pCatalogSheet = async rows0 => {
+    const info = await api.partnerCatalogGet().catch(() => ({})), pa = info.partner || {}, sv = info.settings || {};
+    const rows = (rows0 || []).filter(r => r.active !== false);
+    if (!rows.length) return toast('Add products first');
+    const lsGet = k => { try { return localStorage.getItem(k); } catch (er) { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (er) {} };
+    let per = [4, 6, 9].includes(+lsGet('kt_pcat_per')) ? +lsGet('kt_pcat_per') : 6;
+    const langs = ['km', 'zh', 'en'].filter(l => l === 'en' || rows.some(r => r.tr && r.tr[l] && r.tr[l].name));   // names typed in Khmer / Chinese → shown too
+    const s = K.sheet('Save as catalog', `<div class="small muted">${rows.length} product(s), grouped by category automatically. Only your selling price shows, never your cost.</div>
+      <div class="f"><span>Products per page</span><div class="seg" id="cper">${[[4, '4 large'], [6, '6'], [9, '9 small']].map(([k, l]) => `<button type="button" data-pp="${k}" class="${per === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div class="btns"><button class="btn out" id="cimg">🖼 Save as pictures</button><button class="btn" id="cpdf">📄 Save PDF</button></div>`);
+    K.$$('[data-pp]', s.el).forEach(b => b.onclick = () => { per = +b.dataset.pp; lsSet('kt_pcat_per', per); K.$$('[data-pp]', s.el).forEach(x => x.classList.toggle('on', x === b)); });
+    const make = async btn => {
+      const old = btn.textContent; btn.disabled = true;
+      try {
+        btn.textContent = 'Loading photos…';
+        const urls = [...new Set(rows.map(r => r.photo_url).filter(Boolean))], imgs = {};
+        for (let k = 0; k < urls.length; k += 6) (await Promise.all(urls.slice(k, k + 6).map(loadImg))).forEach((im, j) => { if (im) imgs[urls[k + j]] = im; });
+        try { await Promise.all([document.fonts.load(`800 20px "Plus Jakarta Sans"`), langs.includes('km') ? document.fonts.load(`700 20px "Noto Sans Khmer"`) : null]); } catch (er) {}
+        const logo = pa.logo_url ? await loadImg(pa.logo_url) : null;
+        btn.textContent = 'Making…';
+        return K.catalogDraw(rows.map(r => ({ name: r.name, tr: r.tr, category: r.category, price: r.price, img: imgs[r.photo_url] || null })),
+          { title: pa.name || '', subtitle: sv.subtitle || '', contact: [pa.phone, pa.address].filter(Boolean).join('\n'), color: sv.color || '#2F6FEB', currency: 'USD', rate: 4100, perPage: per, langs, showPrice: true, logo });
+      } finally { btn.disabled = false; btn.textContent = old; }
+    };
+    const fname = () => 'catalog-' + String(pa.name || 'products').replace(/[^\wក-៿一-鿿-]+/g, '-').slice(0, 40);
+    K.$('#cpdf', s.el).onclick = async e => { const pages = await make(e.currentTarget);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(K.pdfPages(pages)); a.download = fname() + '.pdf'; document.body.appendChild(a); a.click(); a.remove(); toast('PDF saved · ' + pages.length + ' page(s)'); };
+    K.$('#cimg', s.el).onclick = async e => { const pages = await make(e.currentTarget);
+      const files = await Promise.all(pages.map((cv, k) => new Promise(r => cv.toBlob(b => r(new File([b], fname() + '-' + (k + 1) + '.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9))));
+      if (navigator.canShare && navigator.canShare({ files })) { try { await navigator.share({ files }); return; } catch (er) { if (er && er.name === 'AbortError') return; } }
+      for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 400)); }
+      toast(files.length + ' picture(s) saved'); };
+  };
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>

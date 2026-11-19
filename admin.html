@@ -5495,7 +5495,7 @@ window.makeDemoApi = function () {
 
   // ---------- layout ----------
   const TABS = [['home', 'Home', '#/home'], ['chat', 'Chat', '#/chat'], ['order', 'Orders', '#/orders'], ['box', 'Stock', '#/stock'], ['more', 'More', '#/more']];
-  const PTABS = [['home', 'Home', '#/partner'], ['order', 'Orders', '#/partner/orders'], ['box', 'Stock', '#/partner/stock'], ['more', 'More', '#/partner/more']];   // partner app (24 Oct 2026)
+  const PTABS = [['home', 'Home', '#/partner'], ['order', 'K-TRONiCS', '#/partner/sell'], ['box', 'Stock', '#/partner/stock'], ['more', 'More', '#/partner/more']];   // 19 Nov 2026: only trade with K-TRONiCS   // partner app (24 Oct 2026)
   function tabbar(active) {
     const isG = S.me && S.me.role === 'guest';
     return `<nav class="tabs" aria-label="Main">${(S.me && S.me.role === 'partner' ? PTABS : TABS).filter(t => !isG || t[0] === 'chat' || t[0] === 'more').map(([ic, label, href]) => `<a href="${href}" class="${active === ic ? 'on' : ''}">${icon(ic, 23, active === ic ? 2.2 : 1.8)}<span>${label}</span>${ic === 'chat' && S.unread ? `<span class="badge" data-unread>${S.unread > 99 ? '99+' : S.unread}</span>` : ''}</a>`).join('')}</nav>`;
@@ -7117,6 +7117,12 @@ Object.assign(window.KT_KM, {"Unlink: the partner no longer sees these purchases
 window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+)$/, "បានផ្ដាច់ · $1"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 នៅក្នុងការទិញចូលដដែល។ ការទិញរបស់វាចេញពីរបាយការណ៍ដៃគូ។ ស្តុក និងលុយមិនប្រែប្រួល។"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 នៅជាអ្នកផ្គត់ផ្គង់ធម្មតាក្នុងការទិញចូល។ $2 ឃើញរាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់ក្នុងរបាយការណ៍របស់ខ្លួន។"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "បានភ្ជាប់ · ការទិញ $1 បង្ហាញក្នុងរបាយការណ៍ដៃគូ"]);
 // 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
 Object.assign(window.KT_KM, {"Sell & orders": "លក់ និងការបញ្ជាទិញ", "Requests": "សំណើ", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "លក់ និងការបញ្ជាទិញ · សំណើ · ការអនុម័ត · របាយការណ៍គណនី", "Your products + K-TRONiCS products · cost and selling price": "ផលិតផលរបស់អ្នក + ផលិតផល K-TRONiCS · ថ្លៃដើម និងតម្លៃលក់", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 ផលិតផល", "📊 Reports": "📊 របាយការណ៍", "👥 People": "👥 មនុស្ស", "⚙️ Settings": "⚙️ ការកំណត់", "Stock history": "ប្រវត្តិស្តុក", "Approvals": "ការអនុម័ត"});
+// 19 Nov 2026: partner app = only trade with K-TRONiCS
+Object.assign(window.KT_KM, {"Orders & offers": "ការបញ្ជាទិញ និងការផ្តល់ជូន", "Payments & statement": "ការបង់ប្រាក់ និងរបាយការណ៍គណនី", "Orders & offers · Approvals · Payments & statement": "ការបញ្ជាទិញ និងការផ្តល់ជូន · ការអនុម័ត · ការបង់ប្រាក់ និងរបាយការណ៍", "Add or update products · cost and selling price": "បន្ថែម ឬកែផលិតផល · ថ្លៃដើម និងតម្លៃលក់", "Add stock · damaged / lost · count": "បន្ថែមស្តុក · ខូច / បាត់ · រាប់", "Only the owner uses the partner app": "មានតែម្ចាស់ទេដែលប្រើកម្មវិធីដៃគូ", "Offer goods": "ផ្តល់ជូនទំនិញ", "Nothing owed": "គ្មានជំពាក់", "🛒 Orders from K-TRONiCS": "🛒 ការបញ្ជាទិញពី K-TRONiCS", "Products & stock": "ផលិតផល និងស្តុក", "Order": "បញ្ជាទិញ", "Purchases": "ការទិញ", "Open": "បើក", "Trade between you and this partner": "ការជួញដូររវាងអ្នក និងដៃគូនេះ", "Orders from K-TRONiCS and your offers": "ការបញ្ជាទិញពី K-TRONiCS និងការផ្តល់ជូនរបស់អ្នក", "Send purchase order": "ផ្ញើការបញ្ជាទិញ", "Waiting for the partner": "រង់ចាំដៃគូ", "Offers waiting for you": "ការផ្តល់ជូនរង់ចាំអ្នក", "Approved · not sent yet": "បានអនុម័ត · មិនទាន់ផ្ញើ"});
+window.KT_KM_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS ជំពាក់អ្នក $1"], [/^You owe K-TRONiCS (.+)$/, "អ្នកជំពាក់ K-TRONiCS $1"], [/^(\d+) waiting for you \(answer or send\)$/, "$1 រង់ចាំអ្នក (ឆ្លើយ ឬផ្ញើ)"], [/^(\d+) payment\(s\) waiting for your answer$/, "ការបង់ប្រាក់ $1 រង់ចាំចម្លើយ"], [/^Purchase order sent to (.+)$/, "បានផ្ញើការបញ្ជាទិញទៅ $1"]);
+// 19 Nov 2026: Save as catalog in My products
+Object.assign(window.KT_KM, {"📄 Save as catalog": "📄 រក្សាទុកជាកាតាឡុក", "Save as catalog": "រក្សាទុកជាកាតាឡុក", "📄 Save PDF": "📄 រក្សាទុក PDF", "🖼 Save as pictures": "🖼 រក្សាទុកជារូបភាព", "Add products first": "បន្ថែមផលិតផលជាមុនសិន"});
+window.KT_KM_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "ផលិតផល $1 · ដាក់ជាក្រុមតាមប្រភេទដោយស្វ័យប្រវត្តិ។ បង្ហាញតែតម្លៃលក់ មិនបង្ហាញថ្លៃដើមទេ។"], [/^PDF saved · (\d+) page\(s\)$/, "បានរក្សាទុក PDF · $1 ទំព័រ"]);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9170,6 +9176,12 @@ Object.assign(window.KT_ZH, {"Unlink: the partner no longer sees these purchases
 window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+)$/, "已取消关联 · $1"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 在采购中保持不变。其采购将从合作伙伴对账单中移除。库存和金额不变。"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 在采购中仍是普通供应商。$2 可在对账单中看到其所有采购、退货和付款。"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "已关联 · $1 笔采购显示在合作伙伴对账单中"]);
 // 19 Nov 2026: partner More page in groups + K-TRONiCS tabs
 Object.assign(window.KT_ZH, {"Sell & orders": "销售与订单", "Requests": "请求", "K-TRONiCS": "K-TRONiCS", "Sell & orders · Requests · Approvals · Statement": "销售与订单 · 请求 · 审批 · 对账单", "Your products + K-TRONiCS products · cost and selling price": "您的产品 + K-TRONiCS 产品 · 成本和售价", "🤝 K-TRONiCS": "🤝 K-TRONiCS", "📦 Products": "📦 产品", "📊 Reports": "📊 报表", "👥 People": "👥 人员", "⚙️ Settings": "⚙️ 设置"});
+// 19 Nov 2026: partner app = only trade with K-TRONiCS
+Object.assign(window.KT_ZH, {"Orders & offers": "订单与报价", "Payments & statement": "付款与对账单", "Orders & offers · Approvals · Payments & statement": "订单与报价 · 审批 · 付款与对账单", "Add or update products · cost and selling price": "添加或更新产品 · 成本和售价", "Add stock · damaged / lost · count": "入库 · 损坏 / 丢失 · 盘点", "Only the owner uses the partner app": "只有老板使用合作伙伴应用", "Offer goods": "提供商品", "Nothing owed": "没有欠款", "🛒 Orders from K-TRONiCS": "🛒 来自 K-TRONiCS 的订单", "Products & stock": "产品与库存", "Order": "下单", "Purchases": "采购", "Open": "打开", "Trade between you and this partner": "您与此合作伙伴之间的交易", "Orders from K-TRONiCS and your offers": "来自 K-TRONiCS 的订单和您的报价", "Send purchase order": "发送采购单", "Waiting for the partner": "等待合作伙伴", "Offers waiting for you": "等待您处理的报价", "Approved · not sent yet": "已批准 · 尚未发货"});
+window.KT_ZH_PATTERNS.push([/^K-TRONiCS owes you (.+)$/, "K-TRONiCS 欠您 $1"], [/^You owe K-TRONiCS (.+)$/, "您欠 K-TRONiCS $1"], [/^(\d+) waiting for you \(answer or send\)$/, "$1 个等待您（回复或发货）"], [/^(\d+) payment\(s\) waiting for your answer$/, "$1 笔付款等待您回复"], [/^Purchase order sent to (.+)$/, "采购单已发送给 $1"]);
+// 19 Nov 2026: Save as catalog in My products
+Object.assign(window.KT_ZH, {"📄 Save as catalog": "📄 保存为目录", "Save as catalog": "保存为目录", "📄 Save PDF": "📄 保存 PDF", "🖼 Save as pictures": "🖼 保存为图片", "Add products first": "请先添加产品"});
+window.KT_ZH_PATTERNS.push([/^(\d+) product\(s\), grouped by category automatically\. Only your selling price shows, never your cost\.$/, "$1 个产品，自动按类别分组。只显示售价，不显示成本。"], [/^PDF saved · (\d+) page\(s\)$/, "PDF 已保存 · $1 页"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -17159,7 +17171,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const s = K.sheet('New partner user · ' + p.name, `<div class="small muted" style="line-height:1.5">This person logs in to the normal K-TRONiCS phone app and sees <b>only ${esc(p.name)}</b>. They never see K-TRONiCS stock, shops, orders, prices, staff or chat.</div>
       <div class="btns"><label class="f">Full name<input class="inp" id="un" placeholder="e.g. Sokha"></label><label class="f">Phone<input class="inp" id="uph" type="tel" placeholder="012 345 678"></label></div>
       <div class="btns"><label class="f">Username (for login)<input class="inp" id="uu" autocapitalize="none" autocorrect="off" placeholder="e.g. sokha.partner"></label><label class="f">First password<input class="inp" id="upw"></label></div>
-      <label class="f">Owner or seller<select class="inp" id="urole"><option value="owner">Owner — sees everything of ${esc(p.name)}</option><option value="seller">Seller — only sells, customers and stock</option></select></label>
+      <label class="f">Owner or seller<select class="inp" id="urole"><option value="owner">Owner — sees everything of ${esc(p.name)}</option><option value="seller" disabled>Seller — not used</option></select></label>
       <button class="btn block" id="uok">${icon('plus', 18)}Create partner user</button>`);
     const v = id => $('#' + id, s.el).value.trim();
     $('#upw', s.el).value = String(10000000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90000000));
@@ -17261,9 +17273,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const draw = () => {
       const byPartner = {}; d.goods.forEach(g => { (byPartner[g.partner_id] = byPartner[g.partner_id] || { name: g.partner, rows: [] }).rows.push(g); });
       el.innerHTML = `<div class="card" style="gap:10px"><b>🛒 ${pid ? 'Bought by K-TRONiCS' : 'Buying from partners'}</b>
-        <div class="small muted" style="line-height:1.5"><b>Offers</b>: a partner sells you its goods → you approve (choose your product) → a purchase waits in Purchasing → the partner taps Sent → you tap Receive → into your stock. Payments: each side confirms the other's. <b>Purchase order requests</b> (you ask): the partner gives → you tap <b>Received</b> → <b>Goods from partners</b> → <b>Move to my stock</b>.</div>
-        <div class="kpis">${kpi(d.waiting.length, 'Waiting to receive')}${kpi(d.goods.reduce((a, g) => a + g.qty, 0) + ' pcs', 'Goods from partners')}${kpi(K.money(goodsVal), 'Value (cost)')}${mgr ? kpi(K.money(owedAll), 'K-TRONiCS owes') : ''}</div>
-        ${d.offers.length ? `<div class="sec" style="margin:0">Offers · partners sell to you</div>${d.offers.map(r => `<div class="card" style="gap:6px;padding:12px;background:var(--bg)">
+        <div class="small muted" style="line-height:1.5"><b>Your purchase orders</b> (Order tab): the partner approves all or part → taps Sent → you tap Goods arrived in Purchasing. <b>Partner offers</b>: the partner offers goods → you approve → Sent → Goods arrived. Payments: each side confirms the other's.</div>
+        <div class="kpis">${kpi(d.offers.filter(r => r.status === 'waiting' && r.from_partner === false).length, 'Waiting for the partner')}${kpi(d.offers.filter(r => r.status === 'waiting' && r.from_partner !== false).length, 'Offers waiting for you')}${kpi(d.offers.filter(r => r.status === 'approved' && !r.sent_at).length, 'Approved · not sent yet')}${mgr ? kpi(K.money(owedAll), 'K-TRONiCS owes') : ''}</div>
+        ${d.offers.length ? `<div class="sec" style="margin:0">Orders &amp; offers</div>${d.offers.map(r => `<div class="card" style="gap:6px;padding:12px;background:var(--bg)">
             <div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">${esc(r.request_no)} · ${esc(r.partner)}</b>${r.from_partner === false ? '<span class="pill bl">Your purchase order</span>' : ''}${r.status === 'waiting' ? (r.from_partner === false ? '<span class="pill or">Waiting for the partner</span>' : '<span class="pill or">Waiting for you</span>') : '<span class="pill bl">Approved · partner has not sent yet</span>'}</div>
             <div class="small muted">${esc(K.when(r.created_at))} · ${K.money(r.total)}${r.note ? ' · ' + esc(r.note) : ''}${r.purchase_no ? ' · ' + esc(r.purchase_no) : ''}</div>
             <div class="small">${r.items.map(i => `${esc(i.name)} ×${i.qty} @ ${K.money(i.price)}${i.to_name ? ' → ' + esc(i.to_name) : ''}`).join('<br>')}</div>
@@ -17274,10 +17286,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <div class="small muted">${esc(K.when(r.answered_at))} · ${pcs(r)} pcs · ${K.money(r.total)}${r.reply ? ' · ' + esc(r.reply) : ''}</div>
             <div class="small">${r.items.filter(i => +i.qty_given > 0).map(i => esc(i.name) + ' ×' + i.qty_given).join(' · ')}</div>
             <div class="btns" style="margin:0"><button class="btn sm out" data-gcx="${r.id}" style="color:var(--rd)">Cancel</button><button class="btn sm green" data-grv="${r.id}">${icon('check', 16)}Received</button></div></div>`).join('')}` : ''}
-        <div class="sec" style="margin:0">Goods from partners</div>
+        ${Object.keys(byPartner).length ? `<div class="sec" style="margin:0">Goods from partners (old way)</div>` : ''}
         ${Object.entries(byPartner).map(([ppid, g]) => `<div class="card flush"><div class="list-item"><b class="grow">${esc(g.name)}</b>${mgr ? `<button class="btn sm" data-gmv="${ppid}">${icon('box', 16)}Move to my stock</button>` : ''}</div>
             ${g.rows.map(x => `<div class="list-item"><div class="grow"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.sku || '')} · ${K.money(x.unit_cost)} each</div></div><div style="text-align:right"><b>${x.qty}</b><div class="small muted">${K.money(x.value)}</div></div></div>`).join('')}</div>`).join('')
-          || '<div class="card small muted">Nothing here. Goods come here when you tap Received.</div>'}
+          }
         ${(d.moves || []).some(m => m.kind === 'moved') ? `<div class="sec" style="margin:0">Moved to my stock · last 10</div><div class="card flush">${d.moves.filter(m => m.kind === 'moved').slice(0, 10).map(m => `<div class="list-item"><div class="grow"><div class="tt">${esc(m.name)}</div><div class="st">${esc(m.partner)} · ${esc(m.ref || '')}${m.note ? ' · ' + esc(m.note) : ''} · ${esc(K.when(m.created_at))}</div></div><b>${-m.change}</b></div>`).join('')}</div>` : ''}
         ${d.orders.length ? `<div class="sec" style="margin:0">Bought from partners · money</div>${d.orders.map(o => `<div class="card" style="gap:6px;padding:12px">
             <div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">${esc(o.request_no)} · ${esc(o.partner)}</b>${o.flow === 'offer' ? (o.purchase_status === 'received' ? '<span class="pill gr">Received</span>' : '<span class="pill or">On the way</span>') : o.received_at ? '' : '<span class="pill or">Not received yet</span>'}${+o.waiting_pay - (+o.partner_says_paid || 0) > 0.004 ? `<span class="pill or">${K.money(+o.waiting_pay - (+o.partner_says_paid || 0))} waiting for partner</span>` : ''}${+o.partner_says_paid > 0.004 ? `<span class="pill or">${K.money(o.partner_says_paid)} waiting for you</span>` : ''}${+o.owed - (+o.waiting_pay || 0) > 0.004 ? `<span class="pill rd">${K.money(+o.owed - (+o.waiting_pay || 0))} to pay</span>` : +o.owed < -0.004 ? `<span class="pill bl">Partner owes ${K.money(-o.owed)}</span>` : +o.owed <= 0.004 ? '<span class="pill gr">Paid</span>' : ''}</div>
@@ -17454,13 +17466,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (K.S.me.role !== 'admin') return K.allow('partners.stock') || K.allow('partners.request') || (q.o && canBuyView()) ? stockViewPage(current, q.o) : go('#/dashboard');
     const A = K.adm;
     await A.refreshCounts();
-    const main = A.shell('partners', 'Partners', `<button class="btn sm out" id="preqs">${icon('list', 16)}<span class="hide-sm">Purchase order requests</span></button><button class="btn sm" id="padd" aria-label="New partner">${icon('plus', 16)}<span class="hide-sm">New partner</span></button>`, 'Partner businesses · separate from K-TRONiCS');
+    const main = A.shell('partners', 'Partners', `<button class="btn sm" id="padd" aria-label="New partner">${icon('plus', 16)}<span class="hide-sm">New partner</span></button>`, 'Partner businesses · separate from K-TRONiCS');
     const load = async () => { const [ps, staff] = await Promise.all([api.listPartners(), api.listStaff()]); return [ps, staff.filter(u => u.role === 'partner')]; };
     let [ps, pusers] = await load();
     if (!current()) return;
     const draw = () => {
       main.innerHTML = `<div class="apad">
-        <div class="card small muted"><div style="line-height:1.6">Each partner is a separate business with its own Partner warehouse, customers and prices. Partner users log in to the phone app and see <b>only their own partner</b>, never your stock, shops, orders, prices, staff, salaries, chat, dashboard or reports. Partner sales are never counted in your numbers.</div></div>
+        <div class="card small muted"><div style="line-height:1.6">The partner app is only for trade between you and each partner: you order (Open → Order), the partner approves and sends; the partner offers goods, you approve; payments are confirmed by both sides. Partners see only their own products, stock and payments, never your stock, shops, prices, staff or reports.</div></div>
         <div class="kpis">${A.kpi(ps.filter(p => p.active).length, 'Active partners')}${A.kpi(pusers.filter(u => u.active).length, 'Partner users')}</div>
         <div id="papv" style="margin-bottom:12px"></div>
         <div id="pbuy"></div>
@@ -17468,7 +17480,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           return `<div class="card"><div class="row" style="gap:12px">${p.logo_url ? `<img src="${esc(p.logo_url)}" alt="" style="width:56px;height:40px;object-fit:contain">` : `<div class="ic-av sq" style="background:var(--bls);color:var(--bl)">${icon('store', 20)}</div>`}
               <div class="grow" style="min-width:0"><div class="tt">${esc(p.name)}</div><div class="st">${esc([p.phone, p.address].filter(Boolean).join(' · ') || 'No phone or address yet')}</div></div>
               ${p.active ? '<span class="pill gr">Active</span>' : '<span class="pill gy">Switched off</span>'}</div>
-            <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn sm out" href="#/partners/${p.id}">${icon('chart', 16)}Sales</a>${p.active && p.pieces > 0 ? `<button class="btn sm out" data-rq="${p.id}">${icon('send', 16)}Purchase order request</button>` : ''}<button class="btn sm out" data-ps="${p.id}">${icon('box', 16)}Stock</button><button class="btn sm out" data-pe="${p.id}">${icon('pen', 16)}Edit</button></div>
+            <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/partners/${p.id}">${icon('box', 16)}Open</a>${false ? `<button class="btn sm out" data-rq="${p.id}">${icon('send', 16)}Purchase order request</button>` : ''}<button class="btn sm out" data-pe="${p.id}">${icon('pen', 16)}Edit</button></div>
             <div class="small muted">${p.products_in_stock || 0} products in stock · ${p.pieces || 0} pieces${p.can_add_stock ? ' · can add its own stock' : ''}</div>
             <div class="small" style="font-weight:700;margin-top:4px">Partner users</div>
             ${us.map(u => `<button class="list-item" data-pu="${esc(u.id)}" style="width:100%;text-align:left">${avatar(u.full_name, 'sm', u.avatar_url || null)}<div class="grow"><div class="tt">${esc(u.full_name)}</div><div class="st">@${esc(u.username)}</div></div><span class="pill ${u.partner_role === 'seller' ? 'gy' : 'bl'}" data-prl="${esc(u.id)}" style="cursor:pointer">${u.partner_role === 'seller' ? 'Seller' : 'Owner'}</span>${u.active ? '<span class="pill gr">Active</span>' : '<span class="pill gy">Disabled</span>'}</button>`).join('') || '<div class="small muted">No users yet.</div>'}
@@ -17476,7 +17488,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       </div>`;
       const reload = async () => { [ps, pusers] = await load(); draw(); };
       $('#padd').onclick = () => partnerSheet(null, reload);
-      $('#preqs').onclick = () => K.partnerRequestsSheet();
       $$('[data-rq]', main).forEach(b => b.onclick = async () => { const v = await api.partnerStockView(), p = v.find(x => x.id === +b.dataset.rq);
         if (!p) return toast('This partner is switched off'); K.partnerRequestSheet(p, reload); });
       $$('[data-pe]', main).forEach(b => b.onclick = () => partnerSheet(ps.find(p => p.id === +b.dataset.pe), reload));
@@ -17521,12 +17532,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     await A.refreshCounts();
     const ps = await api.listPartners(), p = ps.find(x => x.id === +id);
     if (!p) return go('#/partners');
-    const main = A.shell('partners', p.name, `<a class="btn sm out" href="#/partners">‹ Partners</a>`, 'Partner sales · not counted in your numbers');
+    const main = A.shell('partners', p.name, `<a class="btn sm out" href="#/partners">‹ Partners</a>`, 'Trade between you and this partner');
     if (!current()) return;
     const t0 = K.period.today(), addD = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return K.period.dstr(x); };
     const mon = (() => { const x = new Date(t0 + 'T12:00:00'); return addD(t0, -((x.getDay() + 6) % 7)); })();
     const PER = { today: [t0, t0], week: [mon, t0], month: [t0.slice(0, 8) + '01', t0] };
-    let tab = ['dash', 'pnl', 'statement', 'report', 'orders', 'customers', 'bought', 'catalog', 'products', 'tg'].includes(q.t) ? q.t : 'dash', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
+    let tab = ['statement', 'bought', 'catalog', 'products', 'tg'].includes(q.t) ? q.t : 'products', per = 'month', [from, to] = PER.month, st = '', cust = q.c ? +q.c : null;
     main.innerHTML = `<div class="chips" id="tabs"></div><div class="apad" id="body"></div>`;
     const body = $('#body', main);
     const dates = () => `<div class="chips" style="padding:0;border:0;background:none;flex-wrap:wrap">${[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['custom', 'Custom']].map(([k, l]) => `<button class="chip ${per === k ? 'on' : ''}" data-per="${k}">${l}</button>`).join('')}</div>
@@ -17536,10 +17547,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if ($('#rf', body)) { $('#rf', body).onchange = e => { from = e.target.value || from; draw(); }; $('#rt', body).onchange = e => { to = e.target.value || to; draw(); }; }
     };
     const draw = async () => {
-      $('#tabs', main).innerHTML = [['dash', 'Dashboard'], ['pnl', 'Profit & loss'], ['statement', 'Statement'], ['report', 'Sales report'], ['orders', 'Orders'], ['customers', 'Customers']].concat(canBuyView() ? [['bought', 'Bought by K-TRONiCS']] : []).concat([['catalog', 'Catalog'], ['products', 'Their products'], ['tg', 'Telegram group']]).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('')
-        + `<button class="chip" id="pstk">${icon('box', 14)} Stock</button>`;
+      // 19 Nov 2026 (Mr. Lee: the partner app is only for trade with K-TRONiCS): 4 tabs + Telegram group
+      $('#tabs', main).innerHTML = [['products', 'Products & stock'], ['catalog', 'Order'], ['bought', 'Purchases'], ['statement', 'Statement'], ['tg', 'Telegram group']].filter(x => x[0] !== 'bought' || canBuyView()).map(([k, l]) => `<button class="chip ${k === tab ? 'on' : ''}" data-t="${k}">${l}</button>`).join('');
       $$('[data-t]', main).forEach(b => b.onclick = () => { tab = b.dataset.t; if (tab !== 'orders') cust = null; draw(); });
-      $('#pstk', main).onclick = () => stockSheet(p);
       body.innerHTML = K.loading;
       if (tab === 'bought') { body.innerHTML = '<div id="papv" style="margin-bottom:12px"></div><div id="pbuy"></div>'; approvalsBox($('#papv', body), p.id, () => A.refreshCounts()); await buyingBox($('#pbuy', body), p.id, () => A.refreshCounts()); return; }
       if (tab === 'dash') {
@@ -17564,11 +17574,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!current() || tab !== 'catalog') return;
         const S = K.S.pCatA = K.S.pCatA || { langs: ['km', 'zh', 'en'], per: 6, stock: true, cat: '' }, want = new Map();   // product_id -> {qty, price}
         const canAsk = K.S.me.role === 'admin' || K.allow('partners.request');
-        const linked = canAsk ? (await api.listSuppliers().catch(() => [])).find(x => x.partner_id === p.id && x.linked_at) : null, myProds = linked ? (await api.listProducts().catch(() => [])).filter(x => !x.partner_id) : [];
+        const linked = canAsk ? (await api.listSuppliers().catch(() => [])).find(x => x.partner_id === p.id && x.linked_at) : null, myProds = canAsk ? (await api.listProducts().catch(() => [])).filter(x => !x.partner_id) : [];   // 19 Nov 2026: every partner gets purchase orders (linked or not)
         const keyOf = r => K.catalogCatOf(r) || 'raw:' + r.category, lbl = r => { const id = K.catalogCatOf(r); return id ? K.catalogCAT[id].en : r.category; };
         const cats = [...new Map(rows.map(r => [keyOf(r), lbl(r)]))];
         const shown = () => rows.filter(r => (!S.stock || r.qty > 0) && (!S.cat || keyOf(r) === S.cat));
-        body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)}'s products with ${esc(p.name)}'s selling price and stock. Tick what you want to buy → ${linked ? `purchase order (linked to your supplier ${esc(linked.name)}): the partner approves all or part → sends → you receive it in Purchasing (in parts too). Their own products become your products with the same name (or a new product).` : 'purchase order request (the partner approves, sends, you receive).'}</div>
+        body.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(p.name)}'s products with ${esc(p.name)}'s selling price and stock. Tick what you want to buy → ${true ? `purchase order${linked ? ' (supplier ' + esc(linked.name) + ')' : ''}: the partner approves all or part → sends → you receive it in Purchasing (in parts too). Their own products become your products with the same name (or a new product).` : 'purchase order request (the partner approves, sends, you receive).'}</div>
           <div class="filters"><select class="inp" id="kcat" style="width:auto;min-width:180px"><option value="">All categories (${rows.length})</option>${cats.map(([k, l]) => `<option value="${esc(k)}" ${S.cat === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
             <div class="seg" id="kst" style="width:auto">${[['1', 'In stock'], ['0', 'All']].map(([k, l]) => `<button data-ks="${k}" style="white-space:nowrap;padding:8px 12px" class="${(S.stock ? '1' : '0') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
             <div class="seg" id="klg" style="width:auto">${K.catalogLangs.map(k => `<button data-kl="${k}" style="white-space:nowrap;padding:8px 12px" class="${S.langs.includes(k) ? 'on' : ''}">${K.catalogLangName[k]}</button>`).join('')}</div>
@@ -17576,7 +17586,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
             <button class="btn out" id="kpdf">📄 Download catalog</button></div>
           <div id="kgrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:12px"></div>
           ${canAsk ? `<div class="card" id="kbar" style="position:sticky;bottom:10px;margin-top:14px;gap:8px;box-shadow:0 6px 24px rgba(0,0,0,.12)"><div class="row"><b class="grow" id="ksum">Nothing chosen yet</b></div>
-            <input class="inp" id="knote" placeholder="Note to the partner (optional)"><button class="btn" id="kgo">${icon('send', 18)}Send purchase order request</button></div>` : ''}`;
+            <input class="inp" id="knote" placeholder="Note to the partner (optional)"><button class="btn" id="kgo">${icon('send', 18)}Send purchase order</button></div>` : ''}`;
         const nm = r => (r.tr && r.tr.en && r.tr.en.name) || r.name;
         const drawGrid = () => {
           $('#kgrid', body).innerHTML = shown().map(r => { const w = want.get(r.product_id);
@@ -17607,11 +17617,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (K.$('#kgo', body)) K.$('#kgo', body).onclick = async e => {
           const items = [...want].map(([product_id, w]) => ({ product_id, qty: w.qty, price: w.price === '' ? null : +w.price }));
           if (!items.length) return toast('Type the pieces you want'); if (items.some(i => i.price == null || !(i.price >= 0))) return toast('Write the price per piece you pay');
-          if (linked) {   // 19 Nov 2026: a partner linked to a supplier → purchase order (the partner approves all or part → Sent → you receive in Purchasing)
+          if (true) {   // 19 Nov 2026: every partner (was: only a partner linked to a supplier → purchase order (the partner approves all or part → Sent → you receive in Purchasing)
             items.forEach(i => { const r = rows.find(x => x.product_id === i.product_id); if (!r.linked) { const m = myProds.find(x => x.name.trim().toLowerCase() === r.name.trim().toLowerCase() || (x.sku && r.sku && x.sku.toUpperCase() === r.sku.toUpperCase())); if (m) i.to_product_id = m.id; else i.name = r.name; } });
             await busy(e.currentTarget, () => api.partnerPoCreate(p.id, items, K.$('#knote', body).value.trim()));
           } else await busy(e.currentTarget, () => api.partnerRequestCreate(p.id, items, K.$('#knote', body).value.trim()));
-          want.clear(); toast('Purchase order request sent to ' + p.name); A.refreshCounts && A.refreshCounts(); draw();
+          want.clear(); toast('Purchase order sent to ' + p.name); A.refreshCounts && A.refreshCounts(); draw();
         };
         drawGrid(); sumUp();
         return;
