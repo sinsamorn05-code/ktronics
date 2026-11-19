@@ -1731,7 +1731,7 @@ window.makeSupabaseApi = function (cfg) {
       if (x.id) return q(sb.from('suppliers').update(row).eq('id', x.id).select().single());
       return q(sb.from('suppliers').insert(row).select().single());
     },
-    listPurchases: () => all(() => sb.from('purchases').select('*, suppliers(name, country, partner_id), warehouses(name)').order('id', { ascending: false }), 5000),
+    listPurchases: () => all(() => sb.from('purchases').select('*, suppliers(name, country, partner_id, linked_at), warehouses(name)').order('id', { ascending: false }), 5000),
     listPurchaseItems: () => all(() => sb.from('purchase_items').select('*, products(name, sku)').order('id', { ascending: false }), 20000),
     async getPurchase(id) {
       const [p, items, pays, returns, edits, arr] = await Promise.all([
@@ -4847,7 +4847,7 @@ window.makeDemoApi = function () {
     },
     async listPurchases() {
       if (!(allow('purchases.manage') || allow('purchases.receive'))) return [];
-      return wait(D.purchases.slice().sort((a, b) => b.id - a.id).map(p => Object.assign(clone(p), { suppliers: (({ name, country, partner_id }) => ({ name, country, partner_id: partner_id || null }))(D.suppliers.find(s => s.id === p.supplier_id)), warehouses: { name: D.warehouses.find(w => w.id === p.warehouse_id).name } })));
+      return wait(D.purchases.slice().sort((a, b) => b.id - a.id).map(p => Object.assign(clone(p), { suppliers: (({ name, country, partner_id, linked_at }) => ({ name, country, partner_id: partner_id || null, linked_at: linked_at || null }))(D.suppliers.find(s => s.id === p.supplier_id)), warehouses: { name: D.warehouses.find(w => w.id === p.warehouse_id).name } })));
     },
     async listPurchaseItems() { if (!(allow('purchases.manage') || allow('purchases.receive'))) return []; return wait(D.pitems.map(i => Object.assign(clone(i), { products: (({ name, sku }) => ({ name, sku }))(D.products.find(p => p.id === i.product_id)) }))); },
     async getPurchase(id) {
@@ -4936,7 +4936,6 @@ window.makeDemoApi = function () {
     },
     async createPurchase(x) {
       if (!allow('purchases.manage') && !D._lnk) fail('You are not allowed to make purchases');
-      { const ls = D.suppliers.find(s => s.id === x.supplier_id); if (ls && ls.linked_at && !D._lnk) fail(ls.name + ' is your partner: buy from it in Partners → Catalog (the partner approves)'); }
       if (!x.items || !x.items.length) fail('Add at least one product');
       const rate = x.currency === 'USD' || !x.currency ? 1 : Math.max(0.0001, +x.rate || 1), extra = Math.max(0, +x.extra_cost || 0);
       const id = Math.max(0, ...D.purchases.map(p => p.id)) + 1; let goods = 0;
@@ -5065,11 +5064,11 @@ window.makeDemoApi = function () {
       const g = {}; (D.pReturns || []).filter(x => x.order_id === o.id).forEach(x => { const k = (x.return_id || '') + '|' + (x.created_at || o.created_at); (g[k] = g[k] || []).push(x); });
       Object.values(g).forEach(xs => ev.push({ at: xs[0].created_at || o.created_at, kind: 'returned', ref: o.order_no, note: xs.map(x => api._pname(x.product_id) + ' × ' + x.qty).join(', '), amount: -xs.reduce((a, x) => a + x.qty * x.price, 0) }));
       pPays().filter(y => y.order_id === o.id && !y.voided_at).forEach(y => ev.push({ at: y.received_at, kind: 'paid', ref: o.order_no, note: [y.method, y.note].filter(Boolean).join(' · ') || null, amount: -y.amount_usd })); });
-    // 19 Nov 2026: the linked supplier's old purchases (history)
-    D.purchases.filter(pu => pu.partner_history && pu.status !== 'cancelled' && (D.suppliers.find(s => s.id === pu.supplier_id) || {}).partner_id === pid).forEach(pu => {
-      ev.push({ at: pu.ordered_on + 'T00:00:00', kind: 'goods', ref: pu.purchase_no, note: 'Before the partner account', amount: +pu.total });
-      (D.preturns || []).filter(x => x.purchase_id === pu.id && x.settle === 'money' && x.status === 'returned').forEach(x => ev.push({ at: x.created_at, kind: 'returned', ref: pu.purchase_no, note: 'Before the partner account · ' + x.return_no, amount: -x.amount }));
-      D.spays.filter(x => x.purchase_id === pu.id).forEach(x => ev.push({ at: x.paid_on + 'T00:00:00', kind: 'paid', ref: pu.purchase_no, note: 'Before the partner account · ' + x.method, amount: x.kind === 'refund' ? +x.amount : -x.amount })); });
+    // 19 Nov 2026: every Purchasing purchase of the linked supplier (not the ones made through partner offers / purchase orders)
+    D.purchases.filter(pu => pu.status !== 'cancelled' && (s => s && s.partner_id === pid && s.linked_at)(D.suppliers.find(s => s.id === pu.supplier_id)) && !pReqs().some(r => r.purchase_id === pu.id)).forEach(pu => {
+      ev.push({ at: pu.ordered_on + 'T00:00:00', kind: 'goods', ref: pu.purchase_no, note: 'K-TRONiCS purchase', amount: +pu.total });
+      (D.preturns || []).filter(x => x.purchase_id === pu.id && x.settle === 'money' && x.status === 'returned').forEach(x => ev.push({ at: x.created_at, kind: 'returned', ref: pu.purchase_no, note: 'K-TRONiCS purchase · ' + x.return_no, amount: -x.amount }));
+      D.spays.filter(x => x.purchase_id === pu.id).forEach(x => ev.push({ at: x.paid_on + 'T00:00:00', kind: 'paid', ref: pu.purchase_no, note: 'K-TRONiCS purchase · ' + x.method, amount: x.kind === 'refund' ? +x.amount : -x.amount })); });
     ev.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind < b.kind ? -1 : 1));
     const r2 = v => Math.round(v * 100) / 100, inP = e => localDay0(e.at) >= f && localDay0(e.at) <= t, sum = a => a.reduce((x, e) => x + e.amount, 0);
     const op = sum(ev.filter(e => localDay0(e.at) < f)); let run = op; const p = partnersOf().find(x => x.id === pid) || {};
@@ -5134,7 +5133,7 @@ window.makeDemoApi = function () {
     const ps = D.purchases.filter(pu => pu.supplier_id === s.id); ps.forEach(pu => { pu.partner_history = true; }); Object.assign(s, { partner_id: pid, linked_at: now() }); save(); return wait({ supplier: s.name, old_purchases: ps.length }); };
   api.partnerUnlinkSupplier = async pid => { if (!hasRole('admin')) fail('Only the admin can unlink partners'); pid = +pid;   // 19 Nov 2026: same rules as the database
     const s = D.suppliers.find(x => x.partner_id === pid && x.linked_at); if (!s) fail('This partner is not linked to a supplier');
-    const made = D.purchases.find(pu => pu.supplier_id === s.id && !pu.partner_history); if (made) fail('Cannot unlink: ' + made.purchase_no + ' was already bought through the partner after linking');
+    const made = D.purchases.find(pu => pu.supplier_id === s.id && pReqs().some(r => r.purchase_id === pu.id)); if (made) fail('Cannot unlink: ' + made.purchase_no + ' was bought through the partner (purchase order)');
     if (pReqs().some(r => r.partner_id === pid && r.flow === 'offer' && !r.from_partner && r.status === 'waiting')) fail('Cannot unlink: a purchase order to this partner is still waiting. Cancel it first.');
     const ps = D.purchases.filter(pu => pu.supplier_id === s.id && pu.partner_history); ps.forEach(pu => { pu.partner_history = false; }); s.partner_id = null; s.linked_at = null; save(); return wait({ supplier: s.name, purchases: ps.length }); };
   api.partnerPoCreate = async (pid, items, note) => { if (!(hasRole('admin') || allow('partners.request'))) fail('You do not have permission to buy from partners'); pid = +pid;
@@ -7113,9 +7112,9 @@ Object.assign(window.KT_KM, {"Make catalog": "បង្កើតកាតាឡ�
 Object.assign(window.KT_KM, {"$ Dollar":"$ ដុល្លារ","៛ Riel":"៛ រៀល"});
 
 Object.assign(window.KT_KM, {"🔗 Same company as one of your suppliers?": "🔗 ជាក្រុមហ៊ុនតែមួយជាមួយអ្នកផ្គត់ផ្គង់របស់អ្នក?", "— Not a supplier —": "— មិនមែនជាអ្នកផ្គត់ផ្គង់ —", "Link to this supplier": "ភ្ជាប់ទៅអ្នកផ្គត់ផ្គង់នេះ", "Your purchase order": "បញ្ជាទិញរបស់អ្នក", "Waiting for the partner": "កំពុងរង់ចាំដៃគូ", "Cancel purchase order": "បោះបង់បញ្ជាទិញ", "K-TRONiCS wants to buy · answer": "K-TRONiCS ចង់ទិញ · សូមឆ្លើយ", "🛒 Purchase order from K-TRONiCS · ": "🛒 បញ្ជាទិញពី K-TRONiCS · ", "Give at least one piece, or say no": "សូមផ្តល់យ៉ាងហោចណាស់មួយគ្រាប់ ឬបដិសេធ", "Approved · send the goods, then tap Sent": "បានអនុម័ត · ផ្ញើទំនិញ រួចចុច បានផ្ញើ"});
-// 19 Nov 2026: unlink a partner from a supplier
-Object.assign(window.KT_KM, {"Only for a wrong link: works while nothing was bought through the partner since linking.": "សម្រាប់តែការភ្ជាប់ខុស៖ ប្រើបានលុះត្រាតែមិនទាន់បានទិញអ្វីតាមដៃគូ ចាប់តាំងពីភ្ជាប់", "Unlink": "ផ្ដាច់"});
-window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+) is a normal supplier again$/, "បានផ្ដាច់ · $1 ជាអ្នកផ្គត់ផ្គង់ធម្មតាវិញ"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) becomes a normal supplier again\. Its old purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 ក្លាយជាអ្នកផ្គត់ផ្គង់ធម្មតាវិញ។ ការទិញចាស់ៗរបស់វានឹងចេញពីរបាយការណ៍របស់ដៃគូ។ ស្តុក និងលុយមិនផ្លាស់ប្ដូរទេ។"]);
+// 19 Nov 2026: unlink a partner from a supplier · link = see the record only
+Object.assign(window.KT_KM, {"Unlink: the partner no longer sees these purchases. Nothing in Purchasing changes.": "ផ្ដាច់៖ ដៃគូលែងឃើញការទិញទាំងនេះ។ គ្មានអ្វីប្រែប្រួលក្នុងការទិញចូលទេ។", "Unlink": "ផ្ដាច់", "K-TRONiCS purchase": "ការទិញរបស់ K-TRONiCS", "Linking only lets the partner SEE its record: every purchase, return and payment of that supplier shows in the partner's Statement. The supplier stays normal in Purchasing (buy, edit, receive, pay as now). Stock does not change. You can unlink later.": "ការភ្ជាប់គ្រាន់តែឱ្យដៃគូ ឃើញ កំណត់ត្រារបស់ខ្លួន៖ រាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់របស់អ្នកផ្គត់ផ្គង់នោះ បង្ហាញក្នុងរបាយការណ៍របស់ដៃគូ។ អ្នកផ្គត់ផ្គង់នៅធម្មតាក្នុងការទិញចូល (ទិញ កែ ទទួល បង់ ដូចសព្វថ្ងៃ)។ ស្តុកមិនប្រែប្រួល។ អាចផ្ដាច់ពេលក្រោយបាន។"});
+window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+)$/, "បានផ្ដាច់ · $1"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 នៅក្នុងការទិញចូលដដែល។ ការទិញរបស់វាចេញពីរបាយការណ៍ដៃគូ។ ស្តុក និងលុយមិនប្រែប្រួល។"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 នៅជាអ្នកផ្គត់ផ្គង់ធម្មតាក្នុងការទិញចូល។ $2 ឃើញរាល់ការទិញ ការប្រគល់ត្រឡប់ និងការបង់ប្រាក់ក្នុងរបាយការណ៍របស់ខ្លួន។"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "បានភ្ជាប់ · ការទិញ $1 បង្ហាញក្នុងរបាយការណ៍ដៃគូ"]);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9164,9 +9163,9 @@ Object.assign(window.KT_ZH, {"Make catalog": "制作目录", "PDF or pictures to
 Object.assign(window.KT_ZH, {"$ Dollar":"$ 美元","៛ Riel":"៛ 瑞尔"});
 
 Object.assign(window.KT_ZH, {"🔗 Same company as one of your suppliers?": "🔗 与您的某个供应商是同一家公司？", "— Not a supplier —": "— 不是供应商 —", "Link to this supplier": "关联到此供应商", "Your purchase order": "您的采购单", "Waiting for the partner": "等待合作伙伴", "Cancel purchase order": "取消采购单", "K-TRONiCS wants to buy · answer": "K-TRONiCS 想购买 · 请回复", "🛒 Purchase order from K-TRONiCS · ": "🛒 来自 K-TRONiCS 的采购单 · ", "Give at least one piece, or say no": "请至少提供一件，或拒绝", "Approved · send the goods, then tap Sent": "已批准 · 请发货，然后点“已发货”"});
-// 19 Nov 2026: unlink a partner from a supplier
-Object.assign(window.KT_ZH, {"Only for a wrong link: works while nothing was bought through the partner since linking.": "仅用于关联错误：关联后尚未通过合作伙伴采购时才可使用。", "Unlink": "取消关联"});
-window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+) is a normal supplier again$/, "已取消关联 · $1 恢复为普通供应商"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) becomes a normal supplier again\. Its old purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 恢复为普通供应商。其旧采购将从合作伙伴对账单中移除。库存和金额不变。"]);
+// 19 Nov 2026: unlink a partner from a supplier · link = see the record only
+Object.assign(window.KT_ZH, {"Unlink: the partner no longer sees these purchases. Nothing in Purchasing changes.": "取消关联：合作伙伴将不再看到这些采购。采购中的内容不变。", "Unlink": "取消关联", "K-TRONiCS purchase": "K-TRONiCS 采购", "Linking only lets the partner SEE its record: every purchase, return and payment of that supplier shows in the partner's Statement. The supplier stays normal in Purchasing (buy, edit, receive, pay as now). Stock does not change. You can unlink later.": "关联只让合作伙伴查看记录：该供应商的每笔采购、退货和付款都显示在合作伙伴的对账单中。供应商在采购中保持正常（照常购买、编辑、收货、付款）。库存不变。之后可以取消关联。"});
+window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+)$/, "已取消关联 · $1"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) stays in Purchasing as it is\. Its purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 在采购中保持不变。其采购将从合作伙伴对账单中移除。库存和金额不变。"], [/^(.+) stays a normal supplier in Purchasing\. (.+) sees all its purchases, returns and payments in its Statement\.$/, "$1 在采购中仍是普通供应商。$2 可在对账单中看到其所有采购、退货和付款。"], [/^Linked · (\d+) purchase\(s\) show in the partner's statement$/, "已关联 · $1 笔采购显示在合作伙伴对账单中"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -11935,7 +11934,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const owed = p => Math.max(0, bal(p));
   K.poOwed = owed;
   // goods bought from a partner: shown and handled only in the Partners tab (24 Oct 2026)
-  K.poPartner = p => !!(p && p.suppliers && p.suppliers.partner_id) && !p.from_offer && !p.partner_history;   // 19 Nov 2026: purchases from a linked supplier before the link stay in Purchasing   // 14 Nov 2026: goods a partner sold you (offer) are in Purchasing
+  K.poPartner = p => !!(p && p.suppliers && p.suppliers.partner_id) && !p.suppliers.linked_at && !p.from_offer && !p.partner_history;   // 19 Nov 2026: a linked supplier = a normal supplier   // 19 Nov 2026: purchases from a linked supplier before the link stay in Purchasing   // 14 Nov 2026: goods a partner sold you (offer) are in Purchasing
   K.poCredit = p => Math.max(0, -bal(p));
   K.poOwedPill = p => p.status === 'cancelled' || (K.poAllReturned(p) && bal(p) === 0 && !+p.paid_amount) ? '' : bal(p) < 0 ? `<span class="pill bl">Supplier owes ${money(-bal(p))}</span>` : owed(p) <= 0 ? '<span class="pill gr">Paid</span>' : +p.paid_amount > 0 ? `<span class="pill or">${money(owed(p))} to pay</span>` : `<span class="pill rd">${money(owed(p))} to pay</span>`;
   const dstr = d => new Date(d + (String(d).length === 10 ? 'T12:00:00' : '')).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
@@ -12138,7 +12137,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // ---- new purchase ----
   K.newPurchaseSheet = async function (onDone, presetSupplier, edit) {
     let [sups, products, whs] = await Promise.all([K.api.listSuppliers(), K.data.products(true), K.data.warehouses()]);
-    sups = sups.filter(x => !x.partner_id || (edit && edit.supplier_id === x.id));   // partners: only in the Partners tab
+    sups = sups.filter(x => !x.partner_id || x.linked_at || (edit && edit.supplier_id === x.id));   // partners: only in the Partners tab (a supplier linked to a partner stays normal, 19 Nov 2026)
     const mains = whs.filter(w => !w.rep_id);
     const act = sups.filter(x => x.active !== false || (edit && x.id === edit.supplier_id));
     const d = { sup: presetSupplier || (act[0] || {}).id, wh: mains[0].id, cur: 'USD', rate: 1, extra: 0, lines: {}, cost: {} };
@@ -14210,8 +14209,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!current()) return;
     // partners are handled only in the Partners tab: leave out their purchases, suppliers and payments
     if (q.o && pos.some(p => p.id === +q.o && K.poPartner(p))) return go('#/partners?o=' + q.o);
-    { const ps = new Set(sups.filter(x => x.partner_id).map(x => x.id)); pos = pos.filter(p => p.from_offer || (!K.poPartner(p) && !ps.has(p.supplier_id))); const ids = new Set(pos.map(p => p.id));
-      sups = sups.filter(x => !x.partner_id); items = items.filter(i => ids.has(i.purchase_id)); spays = spays.filter(x => !ps.has(x.supplier_id)); }
+    { const ps = new Set(sups.filter(x => x.partner_id && !x.linked_at).map(x => x.id));   // 19 Nov 2026 fix: a supplier linked to a partner stays in Purchasing (old purchases, payments)
+      pos = pos.filter(p => p.from_offer || (!K.poPartner(p) && !ps.has(p.supplier_id))); const ids = new Set(pos.map(p => p.id));
+      sups = sups.filter(x => !x.partner_id || x.linked_at); items = items.filter(i => ids.has(i.purchase_id)); spays = spays.filter(x => !ps.has(x.supplier_id)); }
     const tabs = [['po', 'Purchases'], mgr && ['suppliers', 'Suppliers'], mgr && ['prices', 'Price history'], mgr && ['spend', 'Spending']].filter(Boolean);
     let tab = tabs.some(t => t[0] === q.t) ? q.t : 'po', stF = q.s || 'all', supF = '', search = '', prodF = '';
     const pst = K.period.fresh(q.s === 'ordered' ? 'custom' : 'month');
@@ -17049,22 +17049,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       ${p.id ? `<button class="btn red out block" id="pdel">${icon('x', 18)}Delete partner completely</button>` : ''}`);
     // 19 Nov 2026 (Part B): same company as one of my suppliers → old purchases become history in its statement; new purchases go through the partner
     if ($('#plink', s.el)) (async () => { const sups = await api.listSuppliers().catch(() => []), mine = sups.find(x => x.partner_id === p.id && x.linked_at), el = $('#plink', s.el);
-      if (mine) { el.innerHTML = `<div class="card" style="gap:4px;background:var(--grs)"><b>🔗 Same company as supplier: ${esc(mine.name)}</b><div class="small muted">Its old purchases show in ${esc(p.name)}'s statement as history. New purchases: Partners → ${esc(p.name)} → Catalog (the partner approves).</div>
+      if (mine) { el.innerHTML = `<div class="card" style="gap:4px;background:var(--grs)"><b>🔗 Same company as supplier: ${esc(mine.name)}</b><div class="small muted">${esc(mine.name)} stays a normal supplier in Purchasing. ${esc(p.name)} sees all its purchases, returns and payments in its Statement.</div>
           <button class="btn red out" id="plun" style="margin-top:6px">Unlink from ${esc(mine.name)}</button>
-          <div class="small muted">Only for a wrong link: works while nothing was bought through the partner since linking.</div></div>`;
+          <div class="small muted">Unlink: the partner no longer sees these purchases. Nothing in Purchasing changes.</div></div>`;
         $('#plun', el).onclick = async e => {   // 19 Nov 2026, Mr. Lee: "Build unlink button"
-          if (!(await K.confirmSheet('Unlink ' + p.name + ' from ' + mine.name + '?', mine.name + ' becomes a normal supplier again. Its old purchases leave the partner\'s statement. Stock and money do not change.', 'Unlink'))) return;
-          const r = await busy(e.currentTarget, () => api.partnerUnlinkSupplier(p.id)); toast('Unlinked · ' + mine.name + ' is a normal supplier again'); K.forget('purchases'); s.close(); onSaved && onSaved(); };
+          if (!(await K.confirmSheet('Unlink ' + p.name + ' from ' + mine.name + '?', mine.name + ' stays in Purchasing as it is. Its purchases leave the partner\'s statement. Stock and money do not change.', 'Unlink'))) return;
+          const r = await busy(e.currentTarget, () => api.partnerUnlinkSupplier(p.id)); toast('Unlinked · ' + mine.name); K.forget('purchases'); s.close(); onSaved && onSaved(); };
         return; }
       const free = sups.filter(x => !x.partner_id).sort((a, b) => a.name.localeCompare(b.name)), guess = (free.find(x => x.name.trim().toLowerCase() === String(p.name || '').trim().toLowerCase()) || {}).id;
       if (!free.length) return;
       el.innerHTML = `<div class="card" style="gap:8px;background:var(--bg)"><b>🔗 Same company as one of your suppliers?</b>
         <select class="inp" id="plsup"><option value="">— Not a supplier —</option>${free.map(x => `<option value="${x.id}" ${x.id === guess ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-        <div class="small muted">Linking: that supplier's old purchases and payments show in the partner's statement as history (stock does not change). New purchases from it go to the partner to approve, send and you receive. Unlink is possible only while nothing was bought through the partner.</div>
+        <div class="small muted">Linking only lets the partner SEE its record: every purchase, return and payment of that supplier shows in the partner's Statement. The supplier stays normal in Purchasing (buy, edit, receive, pay as now). Stock does not change. You can unlink later.</div>
         <button class="btn out" id="plgo">Link to this supplier</button></div>`;
       $('#plgo', el).onclick = async e => { const sid = +$('#plsup', el).value; if (!sid) return toast('Choose the supplier'); const sn = free.find(x => x.id === sid).name;
-        if (!(await K.confirmSheet('Link ' + p.name + ' to ' + sn + '?', 'Old purchases of ' + sn + ' show in the partner\'s statement. New purchases go through the partner.', 'Link'))) return;
-        const r = await busy(e.currentTarget, () => api.partnerLinkSupplier(p.id, sid)); toast('Linked · ' + (r ? r.old_purchases : 0) + ' old purchase(s) are history'); K.forget('purchases'); s.close(); onSaved && onSaved(); };
+        if (!(await K.confirmSheet('Link ' + p.name + ' to ' + sn + '?', sn + ' stays normal in Purchasing. The partner sees all its purchases, returns and payments in its Statement.', 'Link'))) return;
+        const r = await busy(e.currentTarget, () => api.partnerLinkSupplier(p.id, sid)); toast('Linked · ' + (r ? r.old_purchases : 0) + ' purchase(s) show in the partner\'s statement'); K.forget('purchases'); s.close(); onSaved && onSaved(); };
     })();
     // delete a partner completely (14 Nov 2026, Mr. Lee): type the name to confirm; cannot be undone
     if ($('#pdel', s.el)) $('#pdel', s.el).onclick = () => {
