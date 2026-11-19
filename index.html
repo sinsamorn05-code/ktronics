@@ -5277,7 +5277,6 @@ window.makeDemoApi = function () {
   api.partnerPurchaseEdit = async (id, sup, cur, rate, note, items, on) => { const [pid, pu] = ppMine(id); if (pu.status === 'cancelled') fail('This purchase was cancelled');
     cur = String(cur || 'USD').toUpperCase(); const rt = cur === 'USD' ? 1 : +rate || 0, pn = x => (D.products.find(p => p.id === x) || {}).name;
     if (!ppS().some(s => s.id === +sup && s.partner_id === pid)) fail('Choose one of your suppliers'); if (rt <= 0) fail('Write how much 1 USD is in ' + cur);
-    if (pu.arrivals && (cur !== pu.currency || rt !== +pu.rate)) fail('Goods already arrived: the currency and rate cannot change');
     if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
     const L = items.map(i => { if (!pu.items.some(x => x.product_id === +i.product_id) && !pHas(pid, i.product_id)) fail('Product not found'); if (seen.has(+i.product_id)) fail('Each product only once, please'); seen.add(+i.product_id);
       if (!(+i.qty > 0)) fail('Pieces must be more than 0'); return { product_id: +i.product_id, qty: +i.qty, unit_cost: +(+i.unit_cost || 0).toFixed(4) }; });
@@ -5285,8 +5284,8 @@ window.makeDemoApi = function () {
     pu.items.forEach(o => { const n = L.find(l => l.product_id === o.product_id), q = n ? n.qty : 0;
       if (pu.status === 'ordered' && q < arrOf(o.product_id)) fail(pn(o.product_id) + ': ' + arrOf(o.product_id) + ' pcs already arrived, so it cannot be less');
       if (!q) ch.push('removed ' + pn(o.product_id)); else if (q !== o.qty) ch.push(pn(o.product_id) + ' ' + o.qty + ' → ' + q + ' pcs');
-      if (n && n.unit_cost !== o.unit_cost) { ch.push(pn(o.product_id) + ' price ' + o.unit_cost + ' → ' + n.unit_cost + ' ' + cur); const arr = arrOf(o.product_id);
-        if (arr) { const d = (n.unit_cost - o.unit_cost) / rt; pu.arr.forEach(r => r.items.forEach(i => { if (i.product_id === o.product_id) i.unit_cost = Math.max(0, +(i.unit_cost + d).toFixed(4)); }));
+      if (n && (n.unit_cost !== o.unit_cost || cur !== pu.currency || rt !== +pu.rate)) { if (n.unit_cost !== o.unit_cost) ch.push(pn(o.product_id) + ' price ' + o.unit_cost + ' ' + pu.currency + ' → ' + n.unit_cost + ' ' + cur); const arr = arrOf(o.product_id);
+        const d = n.unit_cost / rt - o.unit_cost / +pu.rate; if (arr && Math.abs(d) > 1e-6) { pu.arr.forEach(r => r.items.forEach(i => { if (i.product_id === o.product_id) i.unit_cost = Math.max(0, +(i.unit_cost + d).toFixed(4)); }));
           const have = Math.max(0, pStock(pid, o.product_id)), c = D.pCosts && D.pCosts.find(x => x.partner_id === pid && x.product_id === o.product_id); if (have && c) c.cost = Math.max(0, Math.round((c.cost + d * Math.min(arr, have) / have) * 100) / 100); } } });
     L.filter(l => !pu.items.some(o => o.product_id === l.product_id)).forEach(l => ch.push('added ' + pn(l.product_id) + ' ' + l.qty + ' pcs'));
     const goods = +L.reduce((a, l) => a + l.qty * l.unit_cost / rt, 0).toFixed(2), paid = pu.pays.reduce((a, y) => a + y.amount, 0);
@@ -5297,7 +5296,7 @@ window.makeDemoApi = function () {
         if (diff > 0) { const last = pu.arr[pu.arr.length - 1], it = last.items.find(i => i.product_id === x); if (it) it.qty += diff; else last.items.push({ product_id: x, qty: diff, unit_cost: +(n.unit_cost / rt).toFixed(4) }); }
         else { let left = -diff; for (let k = pu.arr.length - 1; k >= 0 && left > 0; k--) { const r = pu.arr[k]; r.items.forEach(i => { if (i.product_id === x && left > 0) { const t = Math.min(i.qty, left); i.qty -= t; left -= t; } }); r.items = r.items.filter(i => i.qty > 0); } } }); }
     if (+sup !== pu.supplier_id) ch.push('supplier ' + (ppS().find(x => x.id === pu.supplier_id) || {}).name + ' → ' + (ppS().find(x => x.id === +sup) || {}).name);
-    if (on && on !== pu.ordered_on) ch.push('date ' + pu.ordered_on + ' → ' + on); if (cur !== pu.currency || rt !== +pu.rate) ch.push('currency ' + pu.currency + ' → ' + cur);
+    if (on && on !== pu.ordered_on) ch.push('date ' + pu.ordered_on + ' → ' + on); if (cur !== pu.currency) ch.push('currency ' + pu.currency + ' → ' + cur + (cur !== 'USD' ? ' (1 USD = ' + rt + ')' : '')); else if (rt !== +pu.rate) ch.push('rate 1 USD = ' + pu.rate + ' → ' + rt + ' ' + cur);
     if (((note || '').trim() || null) !== pu.note) ch.push('note');
     Object.assign(pu, { supplier_id: +sup, ordered_on: on || pu.ordered_on, currency: cur, rate: rt, note: (note || '').trim() || null, items: L, goods, total: +(goods + pu.shipping).toFixed(2) });
     if (pu.status === 'ordered' && pu.arrivals && L.every(l => arrOf(l.product_id) >= l.qty)) { pu.status = 'received'; pu.received_at = now(); }
@@ -7584,6 +7583,7 @@ Object.assign(window.KT_KM, {"Edit purchase": "កែការទិញ", "Delet
 Object.assign(window.KT_KM, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "ចែកតាមប្រភេទដោយស្វ័យប្រវត្តិ។ មានតែតម្លៃលក់ (រួមតម្លៃ 50+ / 100+ បើផលិតផលមាន) មិនបង្ហាញថ្លៃដើមទេ។ ឈ្មោះ ឡូហ្គោ និងទំនាក់ទំនង ពីការកំណត់ → ក្រុមហ៊ុន។"});
 Object.assign(window.KT_KM, {"new": "ថ្មី", "Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”).": "ផលិតផលគ្រប់មុខទទួលបានតម្លៃ 50+ និង 100+ នៅពេល % របស់វាធ្វើឱ្យថោកជាងតម្លៃ 1–49 (តម្លៃថ្មីមានសញ្ញា “ថ្មី”)។"});
 Object.assign(window.KT_KM, {"Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, to the nearest cent. Example: $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22. Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”). Prices change only when you tap": "ថ្លៃដើម = ថ្លៃដើមផលិតផល រួមដឹកជញ្ជូន និងចំណាយផ្សេង (មធ្យមក្រោយទំនិញមកដល់)។ តម្លៃនីមួយៗ = ថ្លៃដើម + % របស់វា គិតដល់សេនជិតបំផុត។ ឧ. $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22។ ផលិតផលគ្រប់មុខទទួលបានតម្លៃ 50+ និង 100+ នៅពេល % ធ្វើឱ្យថោកជាងតម្លៃ 1–49 (តម្លៃថ្មីមានសញ្ញា “ថ្មី”)។ តម្លៃប្តូរតែពេលអ្នកចុច"});
+Object.assign(window.KT_KM, {"Changing the currency, rate or a price also corrects the USD cost of the pieces that arrived (shipping stays).": "ការប្តូររូបិយប័ណ្ណ អត្រា ឬតម្លៃ ក៏កែថ្លៃដើមជាដុល្លារនៃទំនិញដែលបានមកដល់ដែរ (ថ្លៃដឹកនៅដដែល)។"});
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9663,6 +9663,7 @@ Object.assign(window.KT_ZH, {"Edit purchase": "修改采购", "Delete purchase":
 Object.assign(window.KT_ZH, {"Grouped by category automatically. Selling prices only (with the 50+ / 100+ prices when a product has them), never the cost. Name, logo and contact from Settings → Company.": "自动按分类排列。只显示售价（产品有 50+ / 100+ 价格时一起显示），从不显示成本。名称、标志和联系方式来自 设置 → 公司。"});
 Object.assign(window.KT_ZH, {"new": "新", "Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”).": "当 % 让价格比 1–49 价便宜时，每个产品都会有 50+ 和 100+ 价格（新的标为“新”）。"});
 Object.assign(window.KT_ZH, {"Cost = product cost with shipping and other costs (average after goods arrive). Each price line = cost + its markup %, to the nearest cent. Example: $0.45 + 70% = $0.77 · $2.90 + 80% = $5.22. Every product gets a 50+ and 100+ price when its % makes it cheaper than the 1–49 price (new ones are marked “new”). Prices change only when you tap": "成本 = 产品成本加运费和其他费用（到货后的平均）。每个价格 = 成本 + 它的加价 %，四舍五入到分。例：$0.45 + 70% = $0.77 · $2.90 + 80% = $5.22。当 % 让价格比 1–49 价便宜时，每个产品都会有 50+ 和 100+ 价格（新的标为“新”）。只有点"});
+Object.assign(window.KT_ZH, {"Changing the currency, rate or a price also corrects the USD cost of the pieces that arrived (shipping stays).": "修改币种、汇率或价格，也会修正已到货的美元成本（运费不变）。"});
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -17385,12 +17386,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (ed) ed.items.forEach(i => { if (!prods.some(p => p.product_id === i.product_id)) prods.push({ product_id: i.product_id, name: i.name, sku: i.sku, qty: 0 }); });
     const act = sups.filter(x => x.active || (ed && x.id === ed.supplier_id));
     const st = { sup: ed ? ed.supplier_id : (act[0] || {}).id || '', cur: ed ? ed.currency : 'USD', rate: ed && ed.currency !== 'USD' ? String(+ed.rate) : '', lines: new Map() };   // product_id -> {qty, cost}
-    const arrOf = id => ed ? ((ed.items.find(i => i.product_id === id) || {}).arrived || 0) : 0, lockCur = !!(ed && ed.arrivals > 0);
+    const arrOf = id => ed ? ((ed.items.find(i => i.product_id === id) || {}).arrived || 0) : 0, lockCur = false;   // 19 Nov 2026: currency / rate can change after goods arrived too
     if (ed) ed.items.forEach(i => st.lines.set(i.product_id, { qty: i.qty, cost: String(+i.unit_cost) }));
     const s = K.sheet(ed ? 'Edit ' + ed.purchase_no : 'New purchase', `${ed ? `<div class="small muted">${ed.status === 'received' ? 'All goods arrived: changing pieces changes your stock now. A new price also corrects the cost of the pieces that arrived.' : ed.arrivals ? 'Some goods arrived: a product cannot go below the pieces already arrived. A new price also corrects the cost of the pieces that arrived.' : 'Nothing arrived yet: you can change everything.'}</div>` : ''}<div class="f"><span>Supplier</span><div class="row" style="gap:8px"><select class="inp grow" id="nps"></select><button class="btn sm out" id="npsn">${icon('plus', 16)}New</button></div></div>
       <div class="btns"><label class="f">Currency<select class="inp" id="npc" ${lockCur ? 'disabled' : ''}>${[...new Set(['USD', 'CNY', 'KHR', 'THB', 'VND', st.cur])].map(c => `<option ${c === st.cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
         <label class="f" id="nprw" style="${st.cur === 'USD' ? 'display:none' : ''}">1 USD = <input class="inp" id="npr" type="number" min="0" step="any" inputmode="decimal" value="${esc(st.rate)}" ${lockCur ? 'disabled' : ''}></label></div>
-      ${lockCur ? '<div class="small muted" style="margin-top:-6px">Goods already arrived: the currency and rate stay.</div>' : ''}
+      ${ed && ed.arrivals > 0 ? '<div class="small muted" style="margin-top:-6px">Changing the currency, rate or a price also corrects the USD cost of the pieces that arrived (shipping stays).</div>' : ''}
       <label class="f">Date bought<input class="inp" id="npd" type="date" value="${ed ? esc(ed.ordered_on) : today()}" max="${today()}"></label>
       <div class="search">${icon('search', 18)}<input id="npq" placeholder="Search your products to add"></div>
       <div class="card flush" id="npres" style="max-height:220px;overflow:auto"></div>
