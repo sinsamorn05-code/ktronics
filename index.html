@@ -1317,6 +1317,7 @@ window.makeSupabaseApi = function (cfg) {
     partnerProducts: () => q(sb.rpc('partner_products')),
     partnerKtrProducts: () => q(sb.rpc('partner_ktr_products')),
     partnerLinkSupplier: (pid, sid) => q(sb.rpc('partner_link_supplier', { p_partner: pid, p_supplier: sid })),
+    partnerUnlinkSupplier: pid => q(sb.rpc('partner_unlink_supplier', { p_partner: pid })),
     partnerPoCreate: (pid, items, note) => q(sb.rpc('partner_po_create', { p_partner: pid, p_items: items, p_note: note || null })),
     partnerPoAnswer: (id, ok, reason, lines) => q(sb.rpc('partner_po_answer', { p_id: id, p_ok: ok, p_reason: reason || null, p_lines: lines || [] })),
     partnerPoCancel: (id, reason) => q(sb.rpc('partner_po_cancel', { p_id: id, p_reason: reason || null })),
@@ -5131,6 +5132,11 @@ window.makeDemoApi = function () {
     const s = D.suppliers.find(x => x.id === +sid); if (!s) fail('Supplier not found'); if (s.partner_id === pid) fail('Already linked'); if (s.partner_id) fail(s.name + ' is already linked to another partner');
     const old = D.suppliers.find(x => x.partner_id === pid); if (old) { if (D.purchases.some(pu => pu.supplier_id === old.id) || D.spays.some(y => y.supplier_id === old.id)) fail('This partner already has its own supplier "' + old.name + '" with purchases'); D.suppliers = D.suppliers.filter(x => x !== old); }
     const ps = D.purchases.filter(pu => pu.supplier_id === s.id); ps.forEach(pu => { pu.partner_history = true; }); Object.assign(s, { partner_id: pid, linked_at: now() }); save(); return wait({ supplier: s.name, old_purchases: ps.length }); };
+  api.partnerUnlinkSupplier = async pid => { if (!hasRole('admin')) fail('Only the admin can unlink partners'); pid = +pid;   // 19 Nov 2026: same rules as the database
+    const s = D.suppliers.find(x => x.partner_id === pid && x.linked_at); if (!s) fail('This partner is not linked to a supplier');
+    const made = D.purchases.find(pu => pu.supplier_id === s.id && !pu.partner_history); if (made) fail('Cannot unlink: ' + made.purchase_no + ' was already bought through the partner after linking');
+    if (pReqs().some(r => r.partner_id === pid && r.flow === 'offer' && !r.from_partner && r.status === 'waiting')) fail('Cannot unlink: a purchase order to this partner is still waiting. Cancel it first.');
+    const ps = D.purchases.filter(pu => pu.supplier_id === s.id && pu.partner_history); ps.forEach(pu => { pu.partner_history = false; }); s.partner_id = null; s.linked_at = null; save(); return wait({ supplier: s.name, purchases: ps.length }); };
   api.partnerPoCreate = async (pid, items, note) => { if (!(hasRole('admin') || allow('partners.request'))) fail('You do not have permission to buy from partners'); pid = +pid;
     if (!Array.isArray(items) || !items.length) fail('Add at least one product'); const seen = new Set();
     const lines = items.map(it => { const prod = pHas(pid, it.product_id) ? D.products.find(p => p.id === +it.product_id) : null; if (!prod) fail('Product not found'); if (seen.has(prod.id)) fail('Each product only once, please'); seen.add(prod.id);
@@ -7365,6 +7371,9 @@ Object.assign(window.KT_KM, {"Make catalog": "បង្កើតកាតាឡ�
 Object.assign(window.KT_KM, {"$ Dollar":"$ ដុល្លារ","៛ Riel":"៛ រៀល"});
 
 Object.assign(window.KT_KM, {"🔗 Same company as one of your suppliers?": "🔗 ជាក្រុមហ៊ុនតែមួយជាមួយអ្នកផ្គត់ផ្គង់របស់អ្នក?", "— Not a supplier —": "— មិនមែនជាអ្នកផ្គត់ផ្គង់ —", "Link to this supplier": "ភ្ជាប់ទៅអ្នកផ្គត់ផ្គង់នេះ", "Your purchase order": "បញ្ជាទិញរបស់អ្នក", "Waiting for the partner": "កំពុងរង់ចាំដៃគូ", "Cancel purchase order": "បោះបង់បញ្ជាទិញ", "K-TRONiCS wants to buy · answer": "K-TRONiCS ចង់ទិញ · សូមឆ្លើយ", "🛒 Purchase order from K-TRONiCS · ": "🛒 បញ្ជាទិញពី K-TRONiCS · ", "Give at least one piece, or say no": "សូមផ្តល់យ៉ាងហោចណាស់មួយគ្រាប់ ឬបដិសេធ", "Approved · send the goods, then tap Sent": "បានអនុម័ត · ផ្ញើទំនិញ រួចចុច បានផ្ញើ"});
+// 19 Nov 2026: unlink a partner from a supplier
+Object.assign(window.KT_KM, {"Only for a wrong link: works while nothing was bought through the partner since linking.": "សម្រាប់តែការភ្ជាប់ខុស៖ ប្រើបានលុះត្រាតែមិនទាន់បានទិញអ្វីតាមដៃគូ ចាប់តាំងពីភ្ជាប់", "Unlink": "ផ្ដាច់"});
+window.KT_KM_PATTERNS.push([/^Unlink from (.+)$/, "ផ្ដាច់ពី $1"], [/^Unlinked · (.+) is a normal supplier again$/, "បានផ្ដាច់ · $1 ជាអ្នកផ្គត់ផ្គង់ធម្មតាវិញ"], [/^Unlink (.+) from (.+)\?$/, "ផ្ដាច់ $1 ពី $2?"], [/^(.+) becomes a normal supplier again\. Its old purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 ក្លាយជាអ្នកផ្គត់ផ្គង់ធម្មតាវិញ។ ការទិញចាស់ៗរបស់វានឹងចេញពីរបាយការណ៍របស់ដៃគូ។ ស្តុក និងលុយមិនផ្លាស់ប្ដូរទេ។"]);
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9413,6 +9422,9 @@ Object.assign(window.KT_ZH, {"Make catalog": "制作目录", "PDF or pictures to
 Object.assign(window.KT_ZH, {"$ Dollar":"$ 美元","៛ Riel":"៛ 瑞尔"});
 
 Object.assign(window.KT_ZH, {"🔗 Same company as one of your suppliers?": "🔗 与您的某个供应商是同一家公司？", "— Not a supplier —": "— 不是供应商 —", "Link to this supplier": "关联到此供应商", "Your purchase order": "您的采购单", "Waiting for the partner": "等待合作伙伴", "Cancel purchase order": "取消采购单", "K-TRONiCS wants to buy · answer": "K-TRONiCS 想购买 · 请回复", "🛒 Purchase order from K-TRONiCS · ": "🛒 来自 K-TRONiCS 的采购单 · ", "Give at least one piece, or say no": "请至少提供一件，或拒绝", "Approved · send the goods, then tap Sent": "已批准 · 请发货，然后点“已发货”"});
+// 19 Nov 2026: unlink a partner from a supplier
+Object.assign(window.KT_ZH, {"Only for a wrong link: works while nothing was bought through the partner since linking.": "仅用于关联错误：关联后尚未通过合作伙伴采购时才可使用。", "Unlink": "取消关联"});
+window.KT_ZH_PATTERNS.push([/^Unlink from (.+)$/, "取消与 $1 的关联"], [/^Unlinked · (.+) is a normal supplier again$/, "已取消关联 · $1 恢复为普通供应商"], [/^Unlink (.+) from (.+)\?$/, "取消 $1 与 $2 的关联？"], [/^(.+) becomes a normal supplier again\. Its old purchases leave the partner's statement\. Stock and money do not change\.$/, "$1 恢复为普通供应商。其旧采购将从合作伙伴对账单中移除。库存和金额不变。"]);
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
