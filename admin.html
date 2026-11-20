@@ -1607,6 +1607,20 @@ window.makeSupabaseApi = function (cfg) {
     staffTgGroupSave: x => q(sb.rpc('staff_tg_group_save', { p: x })),
     staffTgGroupDelete: id => q(sb.rpc('staff_tg_group_delete', { p_staff: id })),
     staffTgGroupTest: id => q(sb.rpc('staff_tg_group_test', { p_staff: id })),
+    // My own money (20 Nov 2026): owner only, not linked to the business
+    pmOverview: () => q(sb.rpc('pm_overview')),
+    pmBillDetail: id => q(sb.rpc('pm_bill_detail', { p_id: id })),
+    pmHistory: y => q(sb.rpc('pm_history', { p_year: y || null })),
+    pmCategorySave: x => q(sb.rpc('pm_category_save', { p: x })),
+    pmCategoryDelete: id => q(sb.rpc('pm_category_delete', { p_id: id })),
+    pmBillSave: x => q(sb.rpc('pm_bill_save', { p: x })),
+    pmBillDelete: id => q(sb.rpc('pm_bill_delete', { p_id: id })),
+    pmMark: (id, until, paid) => q(sb.rpc('pm_mark', { p_bill: id, p_until: until, p_paid: paid !== false })),
+    pmPay: (id, amount, on, method, note) => q(sb.rpc('pm_pay', { p_bill: id, p_amount: amount, p_paid_on: on || null, p_method: method, p_note: note || null })),
+    pmPayDelete: id => q(sb.rpc('pm_pay_delete', { p_id: id })),
+    pmPayPhoto: (id, url) => q(sb.rpc('pm_pay_photo', { p_id: id, p_url: url || null })),
+    pmAlertSave: x => q(sb.rpc('pm_alert_save', { p: x })),
+    pmAlertTest: () => q(sb.rpc('pm_alert_test')),
     // AI assistant in Telegram (19 Nov 2026)
     aiMyLink: (fresh) => q(sb.rpc('ai_my_link', { p_new: !!fresh })),
     aiUnlink: (user) => q(sb.rpc('ai_unlink', { p_user: user || null })),
@@ -1650,6 +1664,20 @@ window.makeSupabaseApi = function (cfg) {
     deliveryGet: id => q(sb.rpc('delivery_get', { p_order: id })),
     deliveryDrivers: () => q(sb.rpc('delivery_drivers')),
     setSellsOnline: (id, on) => q(sb.rpc('set_sells_online', { p_user: id, p_on: !!on })),
+    // Visit without shop (20 Nov 2026): the selfie goes straight to Telegram through the Edge Function, never into storage
+    setFreeVisit: (id, on) => q(sb.rpc('set_free_visit', { p_user: id, p_on: !!on })),
+    freeVisitsList: (from, to) => q(sb.rpc('free_visits_list', { p_from: from || null, p_to: to || null })),
+    async freeVisitSend(file, pos, note) {
+      const blob = await compressImage(file, 1280, false);
+      const f = new FormData(); f.append('photo', blob, 'selfie.jpg'); f.append('lat', pos.lat); f.append('lng', pos.lng); f.append('acc', pos.acc); f.append('note', note || '');
+      const tok = ((await sb.auth.getSession()).data.session || {}).access_token;
+      if (!tok) throw new Error('Please log in again');
+      let r; try { r = await fetch(cfg.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/free-visit', { method: 'POST', body: f, headers: { Authorization: 'Bearer ' + tok, apikey: cfg.SUPABASE_ANON_KEY } }); }
+      catch (e) { throw new Error('No internet. Try again when you have signal.'); }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error && !j.ok) throw new Error(j.error || ('Could not send (' + r.status + ')'));
+      return j;
+    },
     assignDriver: (id, driver) => q(sb.rpc('order_assign_driver', { p_order: id, p_driver: driver || null })),
     orderDeliver: (id, x) => q(sb.rpc('order_deliver', { p_order: id, p_photo: x.photo, p_sign: x.sign, p_receiver: x.receiver, p_lat: x.lat, p_lng: x.lng, p_acc: x.acc || null, p_cash: x.cash || null })),
     reportDeliveries: (from, to) => q(sb.rpc('report_deliveries', { p_from: from, p_to: to })),
@@ -1945,7 +1973,7 @@ window.makeDemoApi = function () {
       below_price: ['🏷', 'Sold below price / free items'], over_credit_limit: ['🚨', 'Shop over its credit limit'], stock_moved: ['🔀', 'Stock moved between stocks'],
       stock_adjusted: ['✏️', 'Stock count changed by hand'], goods_returned: ['↩️', 'Returned to supplier'], data_cleared: ['🧹', 'Clear data was used'], staff_account: ['👤', 'Staff account or permissions changed'],
       price_changed: ['💲', 'Product price changed'], order_changed: ['✏️', 'Order changed after approval'], credit_overdue: ['⏰', 'Credit overdue'],
-      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'], field_behind: ['📉', 'Rep behind daily target'] },
+      shop_not_visited: ['📍', 'Shop not visited'], shop_sleeping: ['😴', 'Sleeping shop (no order)'], shop_new_unvisited: ['🆕', 'New shop never visited'], shop_week_list: ['🗓', 'Monday: shops to visit this week'], staff_absent: ['🚫', 'Staff not at work'], staff_idle: ['⏳', 'Rep with no shop visit'], field_behind: ['📉', 'Rep behind daily target'], free_visit: ['📸', 'Visit without shop'] },
     FIELDS: ['order_no', 'shop', 'owner', 'phone', 'shop_tg', 'area', 'map', 'rep', 'staff', 'amount', 'items', 'payment', 'detail', 'note', 'time', 'link', 'photo'],
     ITEMS: ['sales', 'sales_by_rep', 'top_products', 'visits_by_rep', 'new_shops', 'collected', 'owed', 'low_stock', 'attendance', 'expenses', 'online_sales', 'shops_not_visited', 'silent_customers', 'price_issues', 'stock_moves', 'idle_gaps', 'field_targets'],
     check(p) { p = p || {}; const tp = p.rule_type || 'event', name = String(p.name || '').trim().slice(0, 60), chat = String(p.chat_id || '').trim();
@@ -2389,7 +2417,7 @@ window.makeDemoApi = function () {
   const canAccessConv = c => !!c && !!role() && (isMember(c.id, me.id) || (c.kind === 'order' && canSeeOrder(D.orders.find(o => o.id === c.order_id))));
   const ALERT_TYPES = ['stock', 'orders', 'payments', 'visits', 'attendance', 'shops', 'expenses', 'leave', 'below_price', 'over_credit_limit',
     'stock_moved', 'stock_adjusted', 'goods_returned', 'data_cleared', 'staff_account', 'price_changed', 'order_changed', 'credit_overdue',
-    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle', 'field_behind'];   // same as alert_kinds in the database
+    'shop_not_visited', 'shop_sleeping', 'shop_new_unvisited', 'shop_week_list', 'staff_absent', 'staff_idle', 'field_behind', 'free_visit'];   // same as alert_kinds in the database
   if (D && D.convs && !D.alertsMore) {   // like the database: the new alerts start ticked in the built-in channel that fits
     D.convs.forEach(c => { if (c.slug === 'alerts') c.alert_types = ['below_price', 'over_credit_limit', 'data_cleared', 'staff_account', 'price_changed', 'order_changed'];
       if (c.slug === 'stock_alerts') c.alert_types = ['stock_moved', 'stock_adjusted']; });
@@ -3678,6 +3706,25 @@ window.makeDemoApi = function () {
       if (!o || !['approved', 'packed', 'delivering'].includes(o.status) || !canSeeOrder(o) || !(allow('orders.assign') || o.driver_id === me.id)) fail('Order not found or already delivered');
       return wait(deliveryJson(o));
     },
+    async setFreeVisit(id, on) {   // Visit without shop (20 Nov 2026)
+      if (!(role() === 'admin' || allow('hr.manage'))) fail('Only the admin or HR can change this');
+      const u = user(id); if (!u) fail('Staff not found'); u.free_visit = !!on; save(); return wait(null);
+    },
+    async freeVisitSend(file, pos, note) {
+      const u = user(me.id); if (!u || !u.free_visit) fail('Visit without shop is not turned on for you. Ask the admin.');
+      if (!pos || pos.lat == null) fail('No GPS location. Tap Retry.');
+      if (!(pos.acc <= 100)) fail('GPS is not good enough (±' + Math.round(pos.acc || 0) + ' m). Go outside and tap Retry.');
+      D.freeVisits = D.freeVisits || [];
+      if (D.freeVisits.some(f => f.staff_id === me.id && Date.now() - new Date(f.at) < 120000)) fail('You just sent one. Wait 2 minutes.');
+      const id = (D.freeVisits.reduce((m, f) => Math.max(m, f.id), 0)) + 1;
+      D.freeVisits.push({ id, staff_id: me.id, at: new Date().toISOString(), lat: pos.lat, lng: pos.lng, acc: Math.round(pos.acc), note: (note || '').trim().slice(0, 300) || null, tg_sent: 1 });
+      save(); return wait({ ok: true, id, sent: 1, error: null });
+    },
+    async freeVisitsList(from, to) {
+      const f0 = from || localDay0(new Date(Date.now() - 30 * 864e5)), t0 = to || localDay0(new Date());
+      return wait((D.freeVisits || []).filter(f => (f.staff_id === me.id || allow('visits.view_all')) && localDay0(f.at) >= f0 && localDay0(f.at) <= t0)
+        .sort((a, b) => b.at.localeCompare(a.at)).map(f => ({ ...f, staff: (user(f.staff_id) || {}).full_name, telegram: f.tg_sent > 0 })));
+    },
     async setSellsOnline(id, on) {
       if (!(role() === 'admin' || allow('hr.manage'))) fail('Only the admin or HR can change this');
       const u = user(id); if (!u) fail('Staff not found'); u.sells_online = !!on; save(); return wait(null);
@@ -3909,6 +3956,50 @@ window.makeDemoApi = function () {
     async staffTgGroupDelete(id) { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); D.staffTg = (D.staffTg || []).filter(g => g.staff_id !== id); save(); return wait(null); },
     async staffTgGroupTest(id) { if (!hasRole('admin')) fail('Only the admin can change Telegram settings'); if (!(D.tg || {}).token) fail('Save the bot token first');
       if (!(D.staffTg || []).some(g => g.staff_id === id)) fail('Save the group first'); D.tg.last = { ok: true }; save(); return wait(1); },
+    // My own money (20 Nov 2026): same rules as pm_* in the database, kept on this phone
+    ...(() => { const own = () => { if (!me || me.role !== 'admin') fail('Only the owner can open My own money'); const P = D.pm = D.pm || { cats: [], bills: [], dues: [], pays: [], alerts: { chat: '', title: '', times: '08:00,13:00,17:00,22:00', langs: 'km,en' } }; return P; };
+      const today = () => localDay0(new Date()), rate = () => +(D.settings && D.settings.khr_per_usd) || 4100, usd = (a, c) => c === 'KHR' ? a / rate() : a, r2 = v => Math.round(v * 100) / 100;
+      const lastDay = (y, m) => new Date(y, m + 1, 0).getDate(), iso = (y, m, d) => y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const fill = P => { const t = today(); P.bills.filter(b => b.active).forEach(b => { const lim = b.end_date && b.end_date < t ? b.end_date : t, has = new Set(P.dues.filter(d => d.bill_id === b.id).map(d => d.due_date));
+        const add = d => { if (d >= b.start_date && d <= lim && !has.has(d)) { P.dues.push({ id: Date.now() + Math.random(), bill_id: b.id, due_date: d, amount: b.amount, paid: 0, marked: false }); has.add(d); } };
+        if (b.freq === 'daily') { for (let x = new Date(b.start_date + 'T12:00:00'); localDay0(x) <= lim; x.setDate(x.getDate() + 1)) add(localDay0(x)); }
+        else { const s = new Date(b.start_date + 'T12:00:00'); for (let y = s.getFullYear(), m = s.getMonth(); iso(y, m, 1) <= lim; m++) { if (m > 11) { m = 0; y++; } add(iso(y, m, Math.min(b.day, lastDay(y, m)))); } } }); };
+      const alloc = (P, id) => { let pool = P.pays.filter(y => y.bill_id === id).reduce((a, y) => a + y.amount, 0); P.dues.filter(d => d.bill_id === id).sort((a, b) => a.due_date < b.due_date ? -1 : 1).forEach(d => { if (d.marked) d.paid = d.amount; else { d.paid = Math.min(pool, d.amount); pool -= d.paid; } }); };
+      const bj = (P, b) => { const t = today(), ds = P.dues.filter(d => d.bill_id === b.id), before = ds.filter(d => d.due_date < t), un = before.filter(d => d.paid < d.amount).sort((a, c) => a.due_date < c.due_date ? -1 : 1), m0 = t.slice(0, 8) + '01';
+        let next = null; if (b.freq === 'monthly') { const x = new Date(t + 'T12:00:00'); for (let k = 0; k < 2 && !next; k++) { const y = x.getFullYear(), m = x.getMonth() + k, d = iso(new Date(y, m, 1).getFullYear(), new Date(y, m, 1).getMonth(), Math.min(b.day, lastDay(y, m))); if (d > t && d >= b.start_date && (!b.end_date || d <= b.end_date)) next = d; } }
+        const ps = P.pays.filter(y => y.bill_id === b.id);
+        return Object.assign(clone(b), { owed_before: r2(before.reduce((a, d) => a + d.amount - d.paid, 0)), owed_since: un[0] ? un[0].due_date : null, owed_lines: un.length, due_today: r2(ds.filter(d => d.due_date === t).reduce((a, d) => a + d.amount - d.paid, 0)), next_date: next,
+          ahead: r2(Math.max(0, ps.reduce((a, y) => a + y.amount, 0) - ds.filter(d => !d.marked).reduce((a, d) => a + d.paid, 0))), paid_month: r2(ps.filter(y => y.paid_on >= m0).reduce((a, y) => a + y.amount, 0)), paid_today: r2(ps.filter(y => y.paid_on === t).reduce((a, y) => a + y.amount, 0)), last_paid: ps.map(y => y.paid_on).sort().pop() || null }); };
+      return {
+        async pmOverview() { const P = own(); fill(P); save(); const t = today(), bills = P.bills.map(b => bj(P, b)).sort((a, b) => a.name.localeCompare(b.name));
+          return wait({ today: t, rate: rate(), categories: clone(P.cats).sort((a, b) => a.sort - b.sort), bills, owed_usd: r2(bills.reduce((a, b) => a + usd(b.owed_before, b.currency), 0)), today_usd: r2(bills.reduce((a, b) => a + usd(b.due_today, b.currency), 0)),
+            paid_month_usd: r2(P.pays.filter(y => y.paid_on >= t.slice(0, 8) + '01').reduce((a, y) => a + usd(y.amount, (P.bills.find(b => b.id === y.bill_id) || {}).currency), 0)), alerts: clone(P.alerts) }); },
+        async pmBillDetail(id) { const P = own(); fill(P); const b = P.bills.find(x => x.id === +id); if (!b) fail('Payment not found');
+          return wait(Object.assign(bj(P, b), { dues: P.dues.filter(d => d.bill_id === b.id).sort((a, c) => a.due_date < c.due_date ? 1 : -1).slice(0, 400).map(d => ({ due_date: d.due_date, amount: d.amount, paid: d.paid, marked: d.marked })),
+            payments: P.pays.filter(y => y.bill_id === b.id).sort((a, c) => a.paid_on < c.paid_on ? 1 : -1).map(y => clone(y)) })); },
+        async pmHistory(y) { const P = own(); fill(P); y = y || +today().slice(0, 4); const by = {};
+          P.dues.filter(d => d.due_date.slice(0, 4) === String(y)).forEach(d => { const b = P.bills.find(x => x.id === d.bill_id) || {}, m = d.due_date.slice(0, 7), c = (P.cats.find(x => x.id === b.category_id) || { name: 'Other', icon: '📌' });
+            const M = by[m] = by[m] || { month: m, to_pay: 0, paid: 0, cats: {} }; M.to_pay += usd(d.amount, b.currency); M.paid += usd(d.paid, b.currency); const C = M.cats[c.name] = M.cats[c.name] || { category: c.name, icon: c.icon, to_pay: 0, paid: 0 }; C.to_pay += usd(d.amount, b.currency); C.paid += usd(d.paid, b.currency); });
+          return wait({ year: y, months: Object.values(by).sort((a, b) => a.month < b.month ? 1 : -1).map(M => ({ month: M.month, to_pay: r2(M.to_pay), paid: r2(M.paid), owed: r2(M.to_pay - M.paid), by_category: Object.values(M.cats).map(C => ({ category: C.category, icon: C.icon, to_pay: r2(C.to_pay), paid: r2(C.paid), owed: r2(C.to_pay - C.paid) })) })) }); },
+        async pmCategorySave(x) { const P = own(), nm = String(x.name || '').trim().slice(0, 60); if (!nm) fail('Write the category name'); if (P.cats.some(c => c.name.toLowerCase() === nm.toLowerCase() && c.id !== +x.id)) fail('You already have a category "' + nm + '"');
+          let c = x.id ? P.cats.find(y => y.id === +x.id) : null; if (!c) { c = { id: Date.now(), sort: P.cats.length + 1 }; P.cats.push(c); } Object.assign(c, { name: nm, icon: (x.icon || '').trim().slice(0, 8) || null }); save(); return wait(c.id); },
+        async pmCategoryDelete(id) { const P = own(); if (P.bills.some(b => b.category_id === +id)) fail('This category has payments. Move them to another category first.'); P.cats = P.cats.filter(c => c.id !== +id); save(); return wait(null); },
+        async pmBillSave(x) { const P = own(), nm = String(x.name || '').trim(); if (!nm) fail('Write the name of the payment'); if (!(+x.amount > 0)) fail('Write the amount');
+          if (x.freq !== 'daily' && !(+x.day >= 1 && +x.day <= 31)) fail('Choose the day of the month (1 to 31)'); if (!x.start_date) fail('Choose the start date'); if (x.end_date && x.end_date < x.start_date) fail('The end date is before the start date');
+          let b = x.id ? P.bills.find(y => y.id === +x.id) : null; if (x.id && !b) fail('Payment not found'); if (!b) { b = { id: Date.now(), active: true }; P.bills.push(b); }
+          Object.assign(b, { category_id: x.category_id ? +x.category_id : null, name: nm.slice(0, 80), bank: (x.bank || '').trim() || null, amount: r2(+x.amount), currency: x.currency === 'KHR' ? 'KHR' : 'USD', freq: x.freq === 'daily' ? 'daily' : 'monthly', day: x.freq === 'daily' ? null : +x.day,
+            start_date: x.start_date, end_date: x.end_date || null, note: (x.note || '').trim() || null, active: x.active !== false });
+          P.dues = P.dues.filter(d => d.bill_id !== b.id || (d.due_date >= b.start_date && (!b.end_date || d.due_date <= b.end_date)));
+          fill(P); if (x.paid_until) P.dues.filter(d => d.bill_id === b.id && d.due_date <= x.paid_until).forEach(d => { d.marked = true; }); alloc(P, b.id); save(); return wait(b.id); },
+        async pmBillDelete(id) { const P = own(); P.bills = P.bills.filter(b => b.id !== +id); P.dues = P.dues.filter(d => d.bill_id !== +id); P.pays = P.pays.filter(y => y.bill_id !== +id); save(); return wait(null); },
+        async pmMark(id, until, paid) { const P = own(); P.dues.filter(d => d.bill_id === +id && d.due_date <= until).forEach(d => { d.marked = paid !== false; }); alloc(P, +id); save(); return wait(null); },
+        async pmPay(id, amount, on, method, note) { const P = own(); if (!P.bills.some(b => b.id === +id)) fail('Payment not found'); if (!(+amount > 0)) fail('Write the amount'); if (on && on > today()) fail('The date cannot be in the future');
+          const y = { id: Date.now(), bill_id: +id, amount: r2(+amount), paid_on: on || today(), method: method || 'cash', note: (note || '').trim() || null, photo_url: null }; P.pays.push(y); alloc(P, +id); save(); return wait(y.id); },
+        async pmPayDelete(id) { const P = own(), y = P.pays.find(z => z.id === +id); if (!y) fail('Payment not found'); P.pays = P.pays.filter(z => z !== y); alloc(P, y.bill_id); save(); return wait(null); },
+        async pmPayPhoto(id, url) { const P = own(), y = P.pays.find(z => z.id === +id); if (!y) fail('Payment not found'); y.photo_url = url || null; save(); return wait(null); },
+        async pmAlertSave(x) { const P = own(); if (x.chat && !/^-[0-9]{5,20}$/.test(x.chat)) fail('Choose a GROUP (its number starts with -)');
+          P.alerts = { chat: x.chat || '', title: x.title || '', times: [...new Set((x.times || []).filter(t => /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(t)))].sort().join(','), langs: ['km', 'en', 'zh'].filter(k => (x.langs || (P.alerts.langs || 'km,en').split(',')).includes(k)).join(',') || 'en' }; save(); return wait(null); },
+        async pmAlertTest() { const P = own(); if (!P.alerts.chat) fail('Choose the Telegram group first'); return wait(1); } }; })(),
     // AI assistant in Telegram (19 Nov 2026): in the demo nobody is really linked; the code and settings are kept on this phone
     async aiMyLink(fresh) { if (!me || ['guest', 'partner'].includes(me.role)) fail('Only K-TRONiCS staff can use the AI assistant'); const A = D.ai = D.ai || { on: false, groups: [], roles: [], daily: 40, links: [], codes: {} };
       if (fresh) { A.codes[me.id] = { code: String(Math.floor(Math.random() * 1e6)).padStart(6, '0'), expires_at: new Date(Date.now() + 6e5).toISOString() }; save(); }
@@ -5557,7 +5648,9 @@ window.makeDemoApi = function () {
     return wait({ customer: D.customers.find(x => x.id === saved.id), visit_id: vr && vr.id }); };
   // field targets and the admin's place in the staff ranking (24 Oct 2026) — like the database
   const fieldCounts = (uid, day) => { const t = (D.fieldT || {})[uid] || {}, st = D.settings || {};
-    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length + new Set((D.followups || []).filter(f => f.staff_id === uid && localDay0(f.created_at) === day).map(f => f.customer_id)).size,
+    return { visits: D.visits.filter(v => v.staff_id === uid && localDay0(v.check_in_at) === day).length + new Set((D.followups || []).filter(f => f.staff_id === uid && localDay0(f.created_at) === day).map(f => f.customer_id)).size
+        + (D.freeVisits || []).filter(f => f.staff_id === uid && localDay0(f.at) === day).length,   // 20 Nov 2026: visits without shop count too
+      free_visits: (D.freeVisits || []).filter(f => f.staff_id === uid && localDay0(f.at) === day).length,
       new_shops: D.customers.filter(c => c.created_by === uid && c.created_at && localDay0(c.created_at) === day).length,
       target_visits: t.visits_per_day ?? +(st.field_visits_per_day ?? 8), target_new: t.new_shops_per_day ?? +(st.field_new_shops_per_day ?? 1),
       ...(() => { const m0 = day.slice(0, 7), y = +day.slice(0, 4), mo = +day.slice(5, 7), last = new Date(y, mo, 0).getDate(); let wd = 0;   // 14 Nov 2026: daily sales target
@@ -7432,6 +7525,11 @@ Object.assign(window.KT_KM, { 'AI assistant': 'ជំនួយការ AI', 'As
   'Get my link code': 'យកលេខកូដភ្ជាប់', 'New code': 'លេខកូដថ្មី', 'I sent it': 'ខ្ញុំបានផ្ញើហើយ', 'What you can ask': 'អ្វីដែលអ្នកអាចសួរ', 'Your Telegram is linked': 'Telegram របស់អ្នកបានភ្ជាប់ហើយ',
   'Unlink': 'ផ្តាច់', 'Your code (10 minutes)': 'លេខកូដរបស់អ្នក (10 នាទី)', 'The admin has not turned the AI assistant on yet.': 'អ្នកគ្រប់គ្រងមិនទាន់បើកជំនួយការ AI នៅឡើយទេ។',
   'For now the bot only answers. To make or change orders, stock or payments, use the app.': 'ពេលនេះ bot គ្រាន់តែឆ្លើយ។ ដើម្បីបង្កើត ឬកែការបញ្ជាទិញ ស្តុក ឬការទូទាត់ សូមប្រើកម្មវិធី។' });
+// Visit without shop (20 Nov 2026)
+Object.assign(window.KT_KM, { 'Visit without shop': 'ចុះមើលដោយគ្មានហាង', '📸 Visit without shop': '📸 ចុះមើលដោយគ្មានហាង', 'Selfie + GPS, sent to the Telegram group': 'ថតខ្លួនឯង + GPS ផ្ញើទៅក្រុម Telegram',
+  '1. Selfie': '1. ថតខ្លួនឯង', 'Tap to take a selfie': 'ចុចដើម្បីថតខ្លួនឯង', '2. GPS': '2. GPS', '3. Note (optional)': '3. កំណត់ចំណាំ (មិនចាំបាច់)', '📸 Send': '📸 ផ្ញើ',
+  'The selfie goes only to the Telegram group. It is not kept in the app. This counts as 1 visit in your daily target.': 'រូបថតផ្ញើទៅក្រុម Telegram តែប៉ុណ្ណោះ មិនរក្សាទុកក្នុងកម្មវិធីទេ។ វារាប់ជាការចុះមើល 1 ក្នុងគោលដៅប្រចាំថ្ងៃរបស់អ្នក។',
+  '📸 Can visit without a shop': '📸 អាចចុះមើលដោយគ្មានហាង', '📸 Visits without shop (30 days)': '📸 ការចុះមើលដោយគ្មានហាង (30 ថ្ងៃ)', 'Sent to Telegram ✅': 'បានផ្ញើទៅ Telegram ✅' });
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9520,6 +9618,11 @@ Object.assign(window.KT_ZH, { 'AI assistant': 'AI 助手', 'Ask the K-TRONiCS bo
   'Get my link code': '获取绑定码', 'New code': '新的码', 'I sent it': '我已发送', 'What you can ask': '可以问什么', 'Your Telegram is linked': '你的 Telegram 已绑定',
   'Unlink': '解除绑定', 'Your code (10 minutes)': '你的码（10 分钟）', 'The admin has not turned the AI assistant on yet.': '管理员还没有开启 AI 助手。',
   'For now the bot only answers. To make or change orders, stock or payments, use the app.': '目前机器人只回答问题。下单或修改订单、库存、付款，请用 App。' });
+// Visit without shop (20 Nov 2026)
+Object.assign(window.KT_ZH, { 'Visit without shop': '无店铺拜访', '📸 Visit without shop': '📸 无店铺拜访', 'Selfie + GPS, sent to the Telegram group': '自拍 + GPS，发送到 Telegram 群',
+  '1. Selfie': '1. 自拍', 'Tap to take a selfie': '点击自拍', '2. GPS': '2. GPS', '3. Note (optional)': '3. 备注（可不填）', '📸 Send': '📸 发送',
+  'The selfie goes only to the Telegram group. It is not kept in the app. This counts as 1 visit in your daily target.': '自拍只发到 Telegram 群，不保存在 App 里。算作每日目标里的 1 次拜访。',
+  '📸 Can visit without a shop': '📸 可以无店铺拜访', '📸 Visits without shop (30 days)': '📸 无店铺拜访（30 天）', 'Sent to Telegram ✅': '已发送到 Telegram ✅' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -12853,8 +12956,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   const NAV = [['dashboard', 'chart', 'Main Dashboard'], ['orders', 'order', 'Sales / POS'], ['payments', 'cash', 'Accounting & Finance'], ['products', 'box', 'Inventory'],
     ['customers', 'store', 'CRM / Customers'], ['custchats', 'chat', 'Customer Chats'], ['purchases', 'truck', 'Purchasing'], ['partners', 'swap', 'Partners'], ['hr', 'users', 'HR & Payroll'],
     ['expenses', 'receipt', 'Expense Management'], ['announce', 'mega', 'Announcements'],
-    ['chats', 'chat', 'Chats Control'], ['reports', 'list', 'Reports'], ['permissions', 'shield', 'User Login & Permissions'], ['settings', 'pen', 'Settings']];
-  const NAV_OK = { partners: () => S.me.role === 'admin' || K.allow('partners.stock') || K.allow('partners.request'), dashboard: () => K.allow('dashboard.view'), orders: () => ['orders.view_all', 'orders.create', 'orders.approve', 'orders.deliver', 'orders.paid'].some(K.allow), products: () => ['stock.manage', 'stock.view_main', 'stock.move', 'stock.warehouses', 'stock.access', 'purchases.manage', 'purchases.receive'].some(K.allow), customers: () => ['customers.view_all', 'customers.create', 'customers.manage', 'visits.view_all'].some(K.allow), banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', custchats: () => K.canCustChats && K.canCustChats(), permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
+    ['chats', 'chat', 'Chats Control'], ['reports', 'list', 'Reports'], ['permissions', 'shield', 'User Login & Permissions'], ['settings', 'pen', 'Settings'], ['mymoney', 'cash', '💰 My own money']];   // 20 Nov 2026: last item, owner only
+  const NAV_OK = { mymoney: () => S.me.role === 'admin', partners: () => S.me.role === 'admin' || K.allow('partners.stock') || K.allow('partners.request'), dashboard: () => K.allow('dashboard.view'), orders: () => ['orders.view_all', 'orders.create', 'orders.approve', 'orders.deliver', 'orders.paid'].some(K.allow), products: () => ['stock.manage', 'stock.view_main', 'stock.move', 'stock.warehouses', 'stock.access', 'purchases.manage', 'purchases.receive'].some(K.allow), customers: () => ['customers.view_all', 'customers.create', 'customers.manage', 'visits.view_all'].some(K.allow), banners: () => K.isBoss(), staff: () => S.me.role === 'admin', chats: () => S.me.role === 'admin', custchats: () => K.canCustChats && K.canCustChats(), permissions: () => S.me.role === 'admin', reports: () => K.allow('reports.view'),
     expenses: () => K.allow('expenses.approve') || K.allow('expenses.record_others'), payments: () => K.canCollect() || S.me.role === 'admin', purchases: () => K.allow('purchases.manage') || K.allow('purchases.receive'), hr: () => S.me.role === 'admin' || K.allow('hr.manage') || K.allow('attendance.view') || K.isDeptHead(), settings: () => S.me.role === 'admin', announce: () => K.allow('chat.announce') || K.isBoss() };
   const NEXT_PERM = { approved: 'orders.approve', delivered: 'orders.deliver', paid: 'orders.paid' };
   const nextFor = o => { const n = NEXT[o.status]; return n && K.allow(NEXT_PERM[n[0]]) ? n : null; };
@@ -14902,6 +15005,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         <div class="small muted" id="rh">${hints[role]}</div>
         <label class="row" id="sonlw" style="gap:10px;align-items:flex-start;cursor:pointer;${['sales', 'supervisor', 'agent', 'online_sales'].includes(role) ? '' : 'display:none'}"><input type="checkbox" id="sonl" ${K.sellsOnline(u) ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>Sells online</b><div class="small muted">Adds follow-ups, "where the customer came from" and online targets. All sales rules stay.</div></span></label>
         <label class="f" id="spw">Which partner<select class="inp" id="spart"><option value="">Loading…</option></select></label>` : ''}
+        ${(boss || hr) && u.active && !['partner', 'guest'].includes(u.role) ? `<label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="sfv" ${u.free_visit ? 'checked' : ''} style="width:20px;height:20px;margin-top:2px"><span><b>📸 Can visit without a shop</b><div class="small muted">For new staff: Shop visits → "Visit without shop" = selfie + GPS + note. Goes to the Telegram groups that tick "Visit without shop" and counts as a visit in the daily target. The selfie is not kept in the app.</div></span></label>` : ''}
         ${boss && u.active && ['sales', 'supervisor', 'agent', 'online_sales'].includes(u.role) ? '<div id="stgx"></div>' : ''}
         ${K.allow('stock.access') && u.active ? `<div id="stx" class="card" style="background:var(--bg);gap:6px"><b style="font-size:14px">Can order from these stocks</b><div class="small muted">Loading…</div></div>` : ''}
         ${boss || hr ? `<div id="orgx"><div class="btns"><label class="f">Department<select class="inp" id="dep"><option value="">No department</option>${deps.map(d => `<option value="${d.id}" ${d.id === u.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></label>
@@ -14945,6 +15049,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       // "Sells online" is saved at once (26 Oct 2026: one Sales role, online tools by this tick)
       if (K.$('#sonl', s.el)) K.$('#sonl', s.el).onchange = async e => { const on = e.target.checked;
         try { await api.setSellsOnline(u.id, on); u.sells_online = on; K.forget('staff'); toast(on ? 'Sells online: on' : 'Sells online: off'); } catch (er) { e.target.checked = !on; toast(er.message); } };
+      if (K.$('#sfv', s.el)) K.$('#sfv', s.el).onchange = async e => { const on = e.target.checked;   // 20 Nov 2026: Visit without shop
+        try { await api.setFreeVisit(u.id, on); u.free_visit = on; K.forget('staff'); toast(on ? 'Visit without shop: on' : 'Visit without shop: off'); } catch (er) { e.target.checked = !on; toast(er.message); } };
       K.$$('[data-g]', s.el).forEach(b => b.onclick = () => { gender = gender === b.dataset.g ? '' : b.dataset.g; K.$$('[data-g]', s.el).forEach(x => x.classList.toggle('on', x.dataset.g === gender)); });
       const v = id => K.$('#' + id, s.el).value.trim();
       const saveIt = async (btn, active) => {
@@ -16152,7 +16258,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     ['Payments & debt', [['payment_new', '💵', 'Payment collected'], ['payment_confirmed', '✔️', 'Payment checked'], ['payment_rejected', '❌', 'Payment rejected']]],
     ['Shops', [['shop_new', '🏪', 'New shop added'], ['shop_approved', '✅', 'Shop approved'], ['shop_rejected', '❌', 'Shop rejected'],
       ['shop_not_visited', '📍', 'Shop not visited (every morning)'], ['shop_sleeping', '😴', 'Sleeping shop: no order (every morning)'], ['shop_new_unvisited', '🆕', 'New shop never visited'], ['shop_week_list', '🗓', 'Monday: shops to visit this week']]],
-    ['Shop visits', [['visit_checkin', '📍', 'Visit started (check-in)'], ['visit_finish', '🏁', 'Visit finished']]],
+    ['Shop visits', [['visit_checkin', '📍', 'Visit started (check-in)'], ['visit_finish', '🏁', 'Visit finished'], ['free_visit', '📸', 'Visit without shop (selfie + GPS)']]],
     ['Money', [['below_price', '🏷', 'Sold below price / free items'], ['over_credit_limit', '🚨', 'Shop over its credit limit'], ['credit_overdue', '⏰', 'Credit overdue (the day after the due date)']]],
     ['Products & stock', [['stock_low', '📦', 'Low stock'], ['goods_received', '🚛', 'Goods received from supplier'], ['stock_moved', '🔀', 'Stock moved between stocks'], ['stock_adjusted', '✏️', 'Stock count changed by hand'], ['goods_returned', '↩️', 'Returned to supplier']]],
     ['Expenses', [['expense_new', '🧾', 'New expense'], ['expense_approved', '✅', 'Expense approved'], ['expense_rejected', '❌', 'Expense rejected']]],
@@ -16606,6 +16712,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           ? item('#/attendance', 'clock', 'My attendance & leave', 'Start / finish work, my days off', 'var(--bls)', 'var(--bl)') + (can('admin') || K.allow('hr.manage') || K.allow('attendance.view') ? item('#/hr', 'users', 'HR & Payroll', 'Staff, attendance, leave, payroll', 'var(--ors)', 'var(--or)') : item('#/hr', 'users', 'My department', 'My people\'s attendance and leave', 'var(--ors)', 'var(--or)'))
           : item('#/attendance', 'clock', 'Attendance & leave', 'Start / finish work, days off', 'var(--bls)', 'var(--bl)')}
         ${K.allow('dashboard.view') ? item('#/dashboard', 'chart', 'Dashboard', 'Sales, orders, money owed') : item('#/mydash', 'chart', 'My dashboard', 'My sales, target, ranking, shops')}
+        ${K.myMoneyItem ? K.myMoneyItem(item) : ''}
         ${can('admin') ? item('#/chats', 'chat', 'Chats Control', 'Friends & family chat accounts', 'var(--grs)', 'var(--gr)') : ''}
         ${K.allow('dashboard.view') && K.live ? item('admin.html', 'shield', 'Open admin panel', 'Full reports and management') : ''}
       </div>
@@ -18651,6 +18758,194 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         : '<div class="small muted">Nothing in the last 3 days.</div>';
     };
   };
+})();
+
+// My own money (20 Nov 2026, Mr. Lee: "a function for me to control my own financial … 0% relate" to the app). Owner (admin) only.
+// Payments in his own categories, every month on a day or every day, USD or riel, start dates in the past + "paid until";
+// paid all or part (oldest first); not paid = "I owe" and added to the next one; Telegram message at the times he sets; history by month.
+// Admin web: last item of the sidebar. Phone app: More → My own money.
+(function () {
+  const K = window.KT;
+  const { api, esc, icon, toast, busy } = K;
+  const $ = (s, el) => (el || document).querySelector(s), $$ = (s, el) => [...(el || document).querySelectorAll(s)];
+  const isOwner = () => !!(K.S.me && K.S.me.role === 'admin');
+  const r2 = v => Math.round((+v || 0) * 100) / 100;
+  const amt = (v, cur) => cur === 'KHR' ? Math.round(+v || 0).toLocaleString('en-US') + ' ៛' : K.money(v);
+  const fmtD = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const fmtM = m => new Date(m + '-01T12:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const sched = b => (b.freq === 'daily' ? 'every day' : 'every month on day ' + b.day) + (b.end_date ? ' · until ' + fmtD(b.end_date) : '');
+  const METHODS = [['cash', 'Cash'], ['aba', 'ABA'], ['bank', 'Bank'], ['wing', 'Wing'], ['other', 'Other']];
+  const pickFile = () => new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.onchange = () => res(i.files && i.files[0]); i.click(); });
+  const today = () => (K.today ? K.today() : new Date().toISOString().slice(0, 10));
+
+  K.myMoneyItem = item => isOwner() ? item('#/mymoney', 'cash', '💰 My own money', 'Only you · not in the business', 'var(--grs)', 'var(--gr)') : '';
+
+  async function page(main) {
+    if (!isOwner()) { main.innerHTML = '<div class="pad"><div class="card">Only the owner can open this page.</div></div>'; return; }
+    main.innerHTML = K.loading;
+    const d = await api.pmOverview().catch(e => { toast(e.message); return null; });
+    if (!d || !main.isConnected) return;
+    const again = () => page(main);
+    const usd = (v, c) => c === 'KHR' ? v / (+d.rate || 4100) : +v;
+    const now = b => r2(+b.owed_before + +b.due_today);
+    const cats = [...d.categories, { id: null, name: 'Other', icon: '📌' }];
+    const group = c => d.bills.filter(b => (b.category_id || null) === c.id);
+    const row = b => { const n = now(b);
+      return `<div class="list-item" style="gap:10px;align-items:flex-start;${b.active ? '' : 'opacity:.55'}"><button data-mb="${b.id}" class="grow" style="text-align:left;border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer">
+        <div class="tt">${esc(b.name)}${b.bank ? ' <span class="muted small">· ' + esc(b.bank) + '</span>' : ''}${b.active ? '' : ' <span class="pill gy">off</span>'}</div>
+        <div class="st">${sched(b)} · ${amt(b.amount, b.currency)}</div>
+        ${+b.owed_before > 0 ? `<div class="st" style="color:var(--rd);font-weight:700">+ ${amt(b.owed_before, b.currency)} I owe since ${esc(fmtD(b.owed_since))}</div>` : ''}
+        ${n <= 0 && b.next_date ? `<div class="st">next: ${esc(fmtD(b.next_date))}</div>` : ''}${+b.ahead > 0 ? `<div class="st" style="color:var(--gr)">paid ahead ${amt(b.ahead, b.currency)}</div>` : ''}</button>
+        <div style="text-align:right">${n > 0 ? `<b style="font-size:17px">${amt(n, b.currency)}</b><br><button class="btn sm" data-mp="${b.id}" style="margin-top:4px">Paid</button>` : '<span class="pill gr">nothing to pay</span>'}</div></div>`; };
+    const toPayNow = r2(+d.owed_usd + +d.today_usd);
+    main.innerHTML = `<div class="pad">
+      <div class="kpis"><div class="stat"><b style="color:${toPayNow > 0 ? 'var(--rd)' : 'var(--gr)'}">${K.money(toPayNow)}</b><span>To pay now (with I owe)</span></div>
+        <div class="stat"><b style="color:var(--rd)">${K.money(d.owed_usd)}</b><span>I owe from before</span></div><div class="stat"><b style="color:var(--gr)">${K.money(d.paid_month_usd)}</b><span>Paid this month</span></div></div>
+      <div class="btns" style="margin:0"><button class="btn" id="mmadd">${icon('plus', 18)}Add a payment</button><button class="btn out" id="mmcat">${icon('list', 18)}Categories</button></div>
+      <div class="btns" style="margin:0"><button class="btn out" id="mmhis">${icon('chart', 18)}History</button><button class="btn out" id="mmtg">${icon('bell', 18)}Telegram alerts</button></div>
+      ${!d.alerts.chat ? '<div class="card" style="background:var(--ors);color:var(--or)"><b>Telegram alerts are not set yet.</b><div class="small">Tap Telegram alerts to choose your private group and times.</div></div>' : ''}
+      ${cats.map(c => { const bs = group(c); if (!bs.length) return ''; const tot = r2(bs.reduce((a, b) => a + usd(now(b), b.currency), 0));
+        return `<div class="card flush"><div class="list-item"><b class="grow">${esc(c.icon || '')} ${esc(c.name)}</b>${tot > 0 ? `<b style="color:var(--rd)">${K.money(tot)} to pay</b>` : '<span class="small muted">all paid</span>'}</div>
+          ${bs.sort((a, b) => now(b) - now(a) || a.name.localeCompare(b.name)).map(row).join('')}</div>`; }).join('') || '<div class="card"><b>No payments yet</b><div class="small muted">Tap "Add a payment": bank loans, rent, car, phone, school … each with its day of the month (or every day).</div></div>'}
+      <div class="small muted" style="line-height:1.5">Only you see this page. It is never in sales, expenses, profit or any business report. Riel is shown in $ at ${Math.round(+d.rate).toLocaleString('en-US')} ៛ = $1.</div></div>`;
+    $('#mmadd', main).onclick = () => billForm(null, d, again);
+    $('#mmcat', main).onclick = () => catsSheet(d, again);
+    $('#mmhis', main).onclick = () => historySheet();
+    $('#mmtg', main).onclick = () => alertsSheet(d, again);
+    $$('[data-mp]', main).forEach(b => b.onclick = () => paySheet(d.bills.find(x => x.id === +b.dataset.mp), again));
+    $$('[data-mb]', main).forEach(b => b.onclick = () => detailSheet(+b.dataset.mb, d, again));
+  }
+
+  // add / change a payment
+  function billForm(b, d, done) {
+    let cur = b ? b.currency : 'USD', fq = b ? b.freq : 'monthly';
+    const s = K.sheet(b ? 'Change: ' + b.name : 'Add a payment', `
+      <label class="f">Category<select class="inp" id="bcat"><option value="">📌 Other</option>${d.categories.map(c => `<option value="${c.id}" ${b && b.category_id === c.id ? 'selected' : ''}>${esc((c.icon || '') + ' ' + c.name)}</option>`).join('')}</select></label>
+      <label class="f">Name<input class="inp" id="bnm" maxlength="80" value="${esc(b ? b.name : '')}" placeholder="e.g. House rent, Car loan"></label>
+      <label class="f">Bank (optional)<input class="inp" id="bbk" maxlength="80" value="${esc(b ? b.bank || '' : '')}" placeholder="e.g. ABA, ACLEDA"></label>
+      <div class="btns" style="margin:0"><label class="f">Amount<input class="inp" id="bam" type="number" min="0" step="any" inputmode="decimal" value="${b ? b.amount : ''}"></label>
+        <div class="f"><span>Money</span><div class="seg" id="bcur"><button type="button" data-cu="USD" class="${cur === 'USD' ? 'on' : ''}">$ USD</button><button type="button" data-cu="KHR" class="${cur === 'KHR' ? 'on' : ''}">៛ Riel</button></div></div></div>
+      <div class="f"><span>How often</span><div class="seg"><button type="button" data-fq="monthly" class="${fq === 'monthly' ? 'on' : ''}">Every month</button><button type="button" data-fq="daily" class="${fq === 'daily' ? 'on' : ''}">Every day</button></div></div>
+      <label class="f" id="bdayw" style="${fq === 'monthly' ? '' : 'display:none'}">On day of the month (1–31; 31 = last day)<input class="inp" id="bday" type="number" min="1" max="31" inputmode="numeric" value="${b && b.day ? b.day : ''}"></label>
+      <div class="btns" style="margin:0"><label class="f">Start date (can be last year)<input class="inp" id="bst" type="date" value="${b ? b.start_date : today()}"></label><label class="f">End date (optional)<input class="inp" id="ben" type="date" value="${b ? b.end_date || '' : ''}"></label></div>
+      ${b ? '' : '<label class="f">Already paid until (optional)<input class="inp" id="bpu" type="date"></label><div class="small muted" style="margin-top:-6px">Started in the past? Choose the last day you already paid. Everything before it counts as paid; only what is after it becomes "I owe".</div>'}
+      <label class="f">Note (optional)<input class="inp" id="bno" maxlength="300" value="${esc(b ? b.note || '' : '')}"></label>
+      ${b ? `<label class="row" style="gap:10px"><input type="checkbox" id="bac" ${b.active ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--p)"><span>Still paying (untick when it is finished)</span></label>` : ''}
+      <button class="btn block" id="bsave">${icon('check', 18)}Save</button>`);
+    $$('[data-cu]', s.el).forEach(x => x.onclick = () => { cur = x.dataset.cu; $$('[data-cu]', s.el).forEach(y => y.classList.toggle('on', y === x)); });
+    $$('[data-fq]', s.el).forEach(x => x.onclick = () => { fq = x.dataset.fq; $$('[data-fq]', s.el).forEach(y => y.classList.toggle('on', y === x)); $('#bdayw', s.el).style.display = fq === 'monthly' ? '' : 'none'; });
+    $('#bsave', s.el).onclick = async e => {
+      const x = { id: b ? b.id : null, category_id: $('#bcat', s.el).value || null, name: $('#bnm', s.el).value, bank: $('#bbk', s.el).value, amount: $('#bam', s.el).value, currency: cur, freq: fq,
+        day: $('#bday', s.el).value, start_date: $('#bst', s.el).value, end_date: $('#ben', s.el).value || null, note: $('#bno', s.el).value,
+        paid_until: $('#bpu', s.el) ? $('#bpu', s.el).value || null : null, active: $('#bac', s.el) ? $('#bac', s.el).checked : true };
+      await busy(e.currentTarget, () => api.pmBillSave(x)); s.close(); toast('Saved'); done && done(); };
+  }
+
+  // pay all or part
+  function paySheet(b, done) {
+    const n = r2(+b.owed_before + +b.due_today); let m = 'aba';
+    const s = K.sheet('Pay: ' + b.name, `<div class="card" style="gap:4px">${+b.due_today > 0 ? `<div class="row"><span class="grow">Today</span><b>${amt(b.due_today, b.currency)}</b></div>` : ''}
+        ${+b.owed_before > 0 ? `<div class="row" style="color:var(--rd)"><span class="grow">I owe since ${esc(fmtD(b.owed_since))}</span><b>${amt(b.owed_before, b.currency)}</b></div>` : ''}
+        <div class="row" style="border-top:1px solid var(--line);padding-top:4px"><b class="grow">To pay now</b><b style="font-size:18px">${amt(n, b.currency)}</b></div></div>
+      <label class="f">How much you pay now (all or part) · ${b.currency === 'KHR' ? '៛' : '$'}<input class="inp" id="pam" type="number" min="0" step="any" inputmode="decimal" value="${n > 0 ? n : b.amount}"></label>
+      <div class="f"><span>Paid by</span><div class="seg">${METHODS.map(([k, l]) => `<button type="button" data-pm="${k}" class="${k === m ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <label class="f">Date you paid<input class="inp" id="pdt" type="date" value="${today()}" max="${today()}"></label>
+      <label class="f">Note (optional)<input class="inp" id="pno" maxlength="300"></label>
+      <label class="f">Receipt photo (optional)<input class="inp" id="pph" type="file" accept="image/*"></label>
+      <div class="small muted">The oldest month is paid first. If you pay less, the rest stays as "I owe" and goes to the next month by itself.</div>
+      <button class="btn block" id="pgo">${icon('check', 18)}Save payment</button>`);
+    $$('[data-pm]', s.el).forEach(x => x.onclick = () => { m = x.dataset.pm; $$('[data-pm]', s.el).forEach(y => y.classList.toggle('on', y === x)); });
+    $('#pgo', s.el).onclick = async e => { const f = $('#pph', s.el).files && $('#pph', s.el).files[0];
+      await busy(e.currentTarget, async () => { const id = await api.pmPay(b.id, +$('#pam', s.el).value, $('#pdt', s.el).value || null, m, $('#pno', s.el).value);
+        if (f) { const url = await api.uploadPhoto(f, 'mymoney'); await api.pmPayPhoto(id, url); } });
+      s.close(); toast('Payment saved'); done && done(); };
+  }
+
+  // one payment: months / days, payments, change, delete
+  async function detailSheet(id, d, done) {
+    const b = await api.pmBillDetail(id).catch(e => { toast(e.message); return null; }); if (!b) return;
+    const s = K.sheet((b.bank ? b.bank + ' · ' : '') + b.name, `<div class="small muted">${sched(b)} · ${amt(b.amount, b.currency)} · since ${esc(fmtD(b.start_date))}${b.note ? ' · ' + esc(b.note) : ''}</div>
+      <div class="btns" style="margin:0">${r2(+b.owed_before + +b.due_today) > 0 ? `<button class="btn" id="dpay">${icon('cash', 18)}Pay</button>` : ''}<button class="btn out" id="ded">${icon('pen', 18)}Change</button></div>
+      <div class="sec" style="margin:0">${b.freq === 'daily' ? 'Days' : 'Months'}</div>
+      <div class="card flush" style="max-height:300px;overflow:auto">${b.dues.map(x => { const left = r2(x.amount - x.paid);
+        return `<div class="list-item"><span class="grow">${esc(b.freq === 'daily' ? fmtD(x.due_date) : fmtM(x.due_date.slice(0, 7)) + ' · day ' + (+x.due_date.slice(8)))}</span>
+          ${x.marked ? '<span class="pill gr">paid before</span>' : left <= 0 ? '<span class="pill gr">paid</span>' : x.paid > 0 ? `<span class="pill or">${amt(left, b.currency)} left</span>` : `<span class="pill rd">${amt(left, b.currency)}</span>`}</div>`; }).join('') || '<div class="empty">Nothing yet</div>'}</div>
+      <div class="row" style="gap:8px"><label class="f grow" style="margin:0">Mark as paid before, until<input class="inp" id="dmu" type="date"></label><button class="btn sm out" id="dmk" style="align-self:flex-end">Mark</button></div>
+      <div class="sec" style="margin:0">Payments</div>
+      <div class="card flush">${b.payments.map(y => `<div class="list-item"><div class="grow"><div class="tt">${amt(y.amount, b.currency)} · ${esc((METHODS.find(z => z[0] === y.method) || [, y.method])[1])}</div>
+          <div class="st">${esc(fmtD(y.paid_on))}${y.note ? ' · ' + esc(y.note) : ''}${y.photo_url ? ` · <a href="${esc(y.photo_url)}" target="_blank" rel="noopener">receipt photo</a>` : ''}</div></div>
+          <button class="linkbtn small" data-dph="${y.id}" style="border:0;background:none;cursor:pointer" aria-label="Receipt photo">📷</button><button class="linkbtn small" data-dpx="${y.id}" style="border:0;background:none;color:var(--rd);cursor:pointer">Delete</button></div>`).join('') || '<div class="empty">No payment yet</div>'}</div>
+      <button class="btn out block" id="ddel" style="color:var(--rd)">${icon('x', 18)}Delete this payment completely</button>`);
+    const again = () => { s.close(); done && done(); };
+    if ($('#dpay', s.el)) $('#dpay', s.el).onclick = () => { s.close(); paySheet(b, done); };
+    $('#ded', s.el).onclick = () => { s.close(); billForm(b, d, done); };
+    $('#dmk', s.el).onclick = async e => { const u = $('#dmu', s.el).value; if (!u) return toast('Choose the date'); await busy(e.currentTarget, () => api.pmMark(b.id, u, true)); toast('Marked'); again(); };
+    $$('[data-dph]', s.el).forEach(x => x.onclick = async () => { const f = await pickFile(); if (!f) return; toast('Uploading…');
+      try { await api.pmPayPhoto(+x.dataset.dph, await api.uploadPhoto(f, 'mymoney')); toast('Photo saved'); again(); } catch (er) { toast(er.message || String(er)); } });
+    $$('[data-dpx]', s.el).forEach(x => x.onclick = async () => { if (!(await K.confirmSheet('Delete this payment?', 'Only if it was typed by mistake. What it paid becomes "I owe" again.', 'Delete', true))) return;
+      await busy(x, () => api.pmPayDelete(+x.dataset.dpx)); toast('Deleted'); again(); });
+    $('#ddel', s.el).onclick = async e => { if (!(await K.confirmSheet('Delete "' + b.name + '"?', 'All its months and payments are deleted. This cannot be undone. (To stop it but keep the history, use Change → untick "Still paying".)', 'Delete', true))) return;
+      await busy(e.currentTarget, () => api.pmBillDelete(b.id)); toast('Deleted'); again(); };
+  }
+
+  // categories
+  function catsSheet(d, done) {
+    const s = K.sheet('Categories', `<div class="card flush">${d.categories.map(c => `<div class="list-item" style="gap:8px"><input class="inp" data-ci="${c.id}" value="${esc(c.icon || '')}" maxlength="8" style="width:56px;text-align:center" aria-label="Icon">
+        <input class="inp grow" data-cn="${c.id}" value="${esc(c.name)}" maxlength="60" aria-label="Name"><button class="btn sm out" data-cs="${c.id}">Save</button><button class="ib" data-cx="${c.id}" aria-label="Delete">${icon('x', 18)}</button></div>`).join('') || '<div class="empty">No categories yet</div>'}</div>
+      <div class="sec">New category</div><div class="row" style="gap:8px"><input class="inp" id="nci" placeholder="🏦" maxlength="8" style="width:56px;text-align:center"><input class="inp grow" id="ncn" placeholder="e.g. Bank loans, House, Car, School" maxlength="60"><button class="btn sm" id="ncs">${icon('plus', 16)}Add</button></div>
+      <div class="small muted">Tip: use an emoji as the icon (🏦 🏠 🚗 📱 🎓 👷 💳).</div>`);
+    const again = () => { s.close(); done && done(); };
+    $('#ncs', s.el).onclick = async e => { await busy(e.currentTarget, () => api.pmCategorySave({ name: $('#ncn', s.el).value, icon: $('#nci', s.el).value })); toast('Added'); again(); };
+    $$('[data-cs]', s.el).forEach(x => x.onclick = async () => { const id = x.dataset.cs; await busy(x, () => api.pmCategorySave({ id, name: $(`[data-cn="${id}"]`, s.el).value, icon: $(`[data-ci="${id}"]`, s.el).value })); toast('Saved'); again(); });
+    $$('[data-cx]', s.el).forEach(x => x.onclick = async () => { if (!(await K.confirmSheet('Delete this category?', 'Only when it has no payments.', 'Delete', true))) return; await busy(x, () => api.pmCategoryDelete(+x.dataset.cx)); toast('Deleted'); again(); });
+  }
+
+  // history: each month, by category (USD)
+  function historySheet() {
+    let y = +today().slice(0, 4);
+    const s = K.sheet('History', '<div id="hb"></div>');
+    const draw = async () => { const el = $('#hb', s.el); el.innerHTML = K.loading; const h = await api.pmHistory(y).catch(e => { toast(e.message); return null; }); if (!h || !el.isConnected) return;
+      el.innerHTML = `<div class="row" style="gap:8px"><button class="btn sm out" id="hy0">‹ ${y - 1}</button><b class="grow" style="text-align:center;font-size:18px">${y}</b><button class="btn sm out" id="hy1">${y + 1} ›</button></div>
+        ${h.months.map(m => `<div class="card" style="gap:4px"><div class="row"><b class="grow">${esc(fmtM(m.month))}</b>${+m.owed > 0.004 ? `<span class="pill rd">owe ${K.money(m.owed)}</span>` : '<span class="pill gr">all paid</span>'}</div>
+          <div class="row small"><span class="grow">To pay ${K.money(m.to_pay)}</span><span style="color:var(--gr)">Paid ${K.money(m.paid)}</span></div>
+          ${(m.by_category || []).map(c => `<div class="row small muted"><span class="grow">${esc((c.icon || '📌') + ' ' + c.category)}</span><span>${K.money(c.paid)} / ${K.money(c.to_pay)}</span></div>`).join('')}</div>`).join('') || '<div class="empty">Nothing in this year</div>'}`;
+      $('#hy0', el).onclick = () => { y--; draw(); }; $('#hy1', el).onclick = () => { y++; draw(); }; };
+    draw();
+  }
+
+  // Telegram: private group + times
+  function alertsSheet(d, done) {
+    let times = (d.alerts.times || '').split(',').filter(Boolean), langs = (d.alerts.langs || 'km,en').split(',').filter(Boolean);
+    const s = K.sheet('Telegram alerts', `<div class="small muted" style="line-height:1.5">1. In Telegram make a <b>new group with only you</b>. 2. Add your K-TRONiCS bot to it and write any message there. 3. Tap <b>Find my groups</b> and choose it.</div>
+      <button class="btn out block" id="tfind">${icon('search', 18)}Find my groups</button><div id="tlist" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div class="btns" style="margin:0"><label class="f">Group name<input class="inp" id="tti" value="${esc(d.alerts.title || '')}"></label><label class="f">Group ID<input class="inp" id="tid" value="${esc(d.alerts.chat || '')}" placeholder="-100…"></label></div>
+      <div class="f"><span>Language of the message (tap 1, 2 or all 3)</span><div class="seg">${[['km', 'ភាសាខ្មែរ'], ['en', 'English'], ['zh', '中文']].map(([k, l]) => `<button type="button" data-lg="${k}" class="${langs.includes(k) ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div class="f"><span>Send at these times</span><div id="ttm" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>
+      <div class="row" style="gap:8px"><input class="inp" id="tnew" type="time" value="12:00" style="width:140px"><button class="btn sm out" id="tadd">${icon('plus', 16)}Add time</button></div>
+      <button class="btn block" id="tsave">${icon('check', 18)}Save</button><button class="btn out block" id="ttest">${icon('send', 18)}Send test</button>`);
+    const drawT = () => { $('#ttm', s.el).innerHTML = times.sort().map(t => `<button class="chip on" data-tx="${t}">${t} ✕</button>`).join('') || '<span class="small muted">No time yet</span>';
+      $$('[data-tx]', s.el).forEach(x => x.onclick = () => { times = times.filter(t => t !== x.dataset.tx); drawT(); }); };
+    drawT();
+    $$('[data-lg]', s.el).forEach(x => x.onclick = () => { const k = x.dataset.lg; if (langs.includes(k)) { if (langs.length === 1) return toast('Keep at least one language'); langs = langs.filter(z => z !== k); } else langs.push(k);
+      $$('[data-lg]', s.el).forEach(y => y.classList.toggle('on', langs.includes(y.dataset.lg))); });
+    $('#tadd', s.el).onclick = () => { const t = $('#tnew', s.el).value; if (t && !times.includes(t)) times.push(t); drawT(); };
+    $('#tfind', s.el).onclick = async e => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const r = await busy(e.currentTarget, async () => { const id = await api.tgFindChats(); for (let i = 0; i < 12; i++) { await sleep(i ? 700 : 500); const x = await api.tgResult(id); if (!x || !x.pending) return x; } return { ok: false, error: 'Telegram did not answer' }; }).catch(er => ({ ok: false, error: er.message }));
+      const gs = ((r && r.chats) || []).filter(c => c.type !== 'private');
+      $('#tlist', s.el).innerHTML = !r || !r.ok ? `<div class="small" style="color:var(--rd)">${esc((r && r.error) || 'Could not ask Telegram')}</div>` : gs.length ? gs.map(c => `<button class="btn out block" style="justify-content:flex-start" data-gid="${esc(c.id)}" data-gt="${esc(c.title)}">👥 ${esc(c.title)}</button>`).join('') : '<div class="small muted">No groups found yet. Write a message in the group, wait a few seconds and tap Find again.</div>';
+      $$('[data-gid]', s.el).forEach(x => x.onclick = () => { $('#tid', s.el).value = x.dataset.gid; $('#tti', s.el).value = x.dataset.gt; });
+    };
+    const saveIt = () => api.pmAlertSave({ chat: $('#tid', s.el).value.trim(), title: $('#tti', s.el).value.trim(), times, langs });
+    $('#tsave', s.el).onclick = async e => { await busy(e.currentTarget, saveIt); toast('Saved'); s.close(); done && done(); };
+    $('#ttest', s.el).onclick = async e => { await busy(e.currentTarget, async () => { await saveIt(); await api.pmAlertTest(); }); toast('Sent. Check the group in Telegram'); };
+  }
+
+  // routes: admin web (sidebar) and phone app (More)
+  if (K.route) K.route(/^\/mymoney$/, async () => {
+    const main = document.getElementById('root').classList.contains('admin-root') && K.adm && K.adm.shell ? K.adm.shell('mymoney', 'My own money', '', 'Only you · not in the business') : K.page({ title: 'My own money', sub: 'Only you · not in the business', back: '#/more' });
+    await page(main);
+  });
 })();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){});}</script>
