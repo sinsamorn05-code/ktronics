@@ -1623,6 +1623,9 @@ window.makeSupabaseApi = function (cfg) {
     pmAlertTest: () => q(sb.rpc('pm_alert_test')),
     pmAlertTplSave: x => q(sb.rpc('pm_alert_tpl_save', { p: x })),
     pmAlertPreview: x => q(sb.rpc('pm_alert_preview', { p: x })),
+    pmEarnSave: x => q(sb.rpc('pm_earn_save', { p: x })),
+    pmEarnPreview: x => q(sb.rpc('pm_earn_preview', { p: x })),
+    pmEarnTest: () => q(sb.rpc('pm_earn_test')),
     // AI assistant in Telegram (19 Nov 2026)
     aiMyLink: (fresh) => q(sb.rpc('ai_my_link', { p_new: !!fresh })),
     aiUnlink: (user) => q(sb.rpc('ai_unlink', { p_user: user || null })),
@@ -3983,7 +3986,7 @@ window.makeDemoApi = function () {
       const Ln = (P, en, km, zh) => { const l = (P.alerts.langs || 'en').split(','); return [l.includes('km') && km, l.includes('en') && en, l.includes('zh') && zh].filter(Boolean).join('\n') || en; };
       const std = P => ({ tpl: '💰 ' + L3(P, 'My money', 'ប្រាក់ផ្ទាល់ខ្លួន', '我的钱') + ' · {date} · {time}\n\n{payments}\n\n✅ ' + L3(P, 'Paid today', 'បានបង់ថ្ងៃនេះ', '今天已付') + ': {paid_today}\n✅ ' + L3(P, 'Paid this month', 'បានបង់ខែនេះ', '本月已付') + ': {paid_month}\n\n💵 '
           + L3(P, 'Total to pay this month', 'សរុបត្រូវបង់ខែនេះ', '本月应付合计') + ': {month_left}\n\n💵 ' + L3(P, 'Total to pay (all)', 'សរុបត្រូវបង់ទាំងអស់', '全部应付合计') + ': {all_left}\n\n🔴 ' + L3(P, 'Total owed from before', 'ជំពាក់សរុបទាំងអស់ពីមុន', '之前欠款合计') + ': {owed}',
-        item: '• {name}{bank}\n' + Ln(P, '- To pay this month: day {day}, {amount}{status}', '- ត្រូវបង់ខែនេះ ថ្ងៃទី {day} ចំនួន {amount}{status}', '- 本月应付：{day} 号，{amount}{status}') + '\n' + Ln(P, '- Owe in total: {old_owed} since {since}', '- ជំពាក់សរុប {old_owed} តាំងពីថ្ងៃ {since}', '- 共欠 {old_owed}，自 {since}') });
+        item: '• {name}{bank}\n' + Ln(P, '- To pay this month: day {day}, {amount}{status}', '- ត្រូវបង់ខែនេះ ថ្ងៃទី {day} ចំនួន {amount}{status}', '- 本月应付：{day} 号，{amount}{status}') + '\n' + Ln(P, '- This month: {late_days} days late', '- ខែនេះលើសថ្ងៃបង់ចំនួន {late_days} ថ្ងៃ', '- 本月已逾期 {late_days} 天') + '\n' + Ln(P, '- Owe in total: {old_owed} since {since}', '- ជំពាក់សរុប {old_owed} តាំងពីថ្ងៃ {since}', '- 共欠 {old_owed}，自 {since}') });
       const tfill = (tpl, v) => tpl.split('\n').filter(ln => !(ln.match(/\{([a-z_]+)\}/g) || []).some(k => k.slice(1, -1) in v && v[k.slice(1, -1)] == null))
         .map(ln => ln.replace(/\{([a-z_]+)\}/g, (m, k) => k in v ? v[k] : m)).join('\n');
       const mon = (a, c) => c === 'KHR' ? Math.round(a).toLocaleString('en-US') + ' ៛' : '$' + (+a).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3996,17 +3999,35 @@ window.makeDemoApi = function () {
           const day = b.freq === 'monthly' ? String(Math.min(b.day, last)) : (b.start_date > m0 ? +b.start_date.slice(8, 10) : 1) + '–' + (b.end_date && b.end_date < iso(tY, tM, last) ? +b.end_date.slice(8, 10) : last);
           const st = !b.month_total ? '' : !left ? ' ✅ ' + L3(P, 'paid', 'បានបង់', '已付') : b.month_paid > 0 ? ' (' + L3(P, 'left', 'នៅសល់', '还剩') + ' ' + mon(left, b.currency) + ')' : '';
           part += '\n' + tfill(itm, { name: b.name, bank: b.bank ? ' (' + b.bank + ')' : '', category: c.name, day, amount: b.month_total > 0 ? mon(b.month_total, b.currency) : null, paid: b.month_paid > 0 ? mon(b.month_paid, b.currency) : null,
-            left: left > 0 ? mon(left, b.currency) : null, status: st, old_owed: oldA > 0 ? mon(oldA, b.currency) : null, since: oldA > 0 ? fmt(old[0].due_date) : null });
+            left: left > 0 ? mon(left, b.currency) : null, status: st, late_days: (() => { const u = P.dues.filter(d => d.bill_id === b.id && d.due_date >= m0 && d.due_date < t && d.paid < d.amount).map(d => d.due_date).sort()[0];
+              return u ? String(Math.round((new Date(t + 'T12:00:00') - new Date(u + 'T12:00:00')) / 864e5)) : null; })(), old_owed: oldA > 0 ? mon(oldA, b.currency) : null, since: oldA > 0 ? fmt(old[0].due_date) : null });
           owed += usd(b.owed_before, b.currency); ml += usd(left, b.currency); al += usd(b.not_paid, b.currency); });
           if (part) pays += (pays ? '\n\n' : '') + (c.icon || '') + ' ' + c.name + part; });
         const pm = P.pays.filter(y => y.paid_on >= m0), cu = y => (P.bills.find(b => b.id === y.bill_id) || {}).currency, now = new Date();
         return tfill(tpl, { date: t.slice(8, 10) + '/' + t.slice(5, 7) + '/' + t.slice(0, 4), time: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
           payments: pays || '✅ ' + L3(P, 'Nothing to pay now.', 'មិនមានអ្វីត្រូវបង់ឥឡូវទេ។', '现在没有要付的。'), paid_today: mon(pm.filter(y => y.paid_on === t).reduce((a, y) => a + usd(y.amount, cu(y)), 0), 'USD'),
           paid_month: mon(pm.reduce((a, y) => a + usd(y.amount, cu(y)), 0), 'USD'), month_left: mon(ml, 'USD'), all_left: mon(al, 'USD'), owed: owed > 0 ? mon(owed, 'USD') : null }).slice(0, 4000); };
+      // 20 Nov 2026: "every day I need to earn" — like pm_earn_numbers / pm_earn_std / pm_earn_render
+      const earnN = P => { const t = today(), tY = +t.slice(0, 4), tM = +t.slice(5, 7) - 1, last = lastDay(tY, tM); let tot = 0, lft = 0, wd = 0;
+        P.bills.filter(b => b.active).forEach(b0 => { const b = bj(P, b0); tot += usd(b.month_total, b.currency); lft += usd(Math.max(b.month_total - b.month_paid, 0), b.currency); });
+        for (let k = 1; k <= last; k++) if (new Date(tY, tM, k).getDay() !== 0) wd++;
+        const dl = last - +t.slice(8, 10) + 1; return { month_total: r2(tot), work_days: wd, per_workday: r2(tot / Math.max(wd, 1)), month_left: r2(lft), days_left: dl, per_day_left: r2(lft / Math.max(dl, 1)) }; };
+      const earnStd = P => '💪 ' + L3(P, 'Every day I need to earn', 'ប្រាក់ត្រូវរកបានប្រចាំថ្ងៃ', '每天需要赚') + ' · {date}\n\n📅 ' + L3(P, 'Payments this month', 'ការបង់ប្រាក់ខែនេះ', '本月付款') + ': {month_total}\n🗓 '
+        + L3(P, 'Work days (Mon–Sat)', 'ថ្ងៃធ្វើការ (ច័ន្ទ–សៅរ៍)', '工作日（周一至周六）') + ': {work_days}\n💵 ' + L3(P, 'Every work day', 'ក្នុងមួយថ្ងៃធ្វើការ', '每个工作日') + ': {per_workday}\n\n⏳ '
+        + L3(P, 'Still to pay this month', 'នៅត្រូវបង់ខែនេះ', '本月还要付') + ': {month_left}\n📆 ' + L3(P, 'Days left', 'ថ្ងៃនៅសល់', '剩余天数') + ': {days_left}\n🔥 ' + L3(P, 'Every day from today', 'ចាប់ពីថ្ងៃនេះ រាល់ថ្ងៃ', '从今天起每天') + ': {per_day_left}';
+      const earnRender = (P, tpl0) => { const n = earnN(P), t = today(), now = new Date();
+        return tfill(tpl0 || P.earnTpl || earnStd(P), { date: t.slice(8, 10) + '/' + t.slice(5, 7) + '/' + t.slice(0, 4), time: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
+          month_total: mon(n.month_total, 'USD'), work_days: String(n.work_days), per_workday: mon(n.per_workday, 'USD'), month_left: n.month_left > 0 ? mon(n.month_left, 'USD') : null, days_left: String(n.days_left),
+          per_day_left: n.month_left > 0 ? mon(n.per_day_left, 'USD') : null }).slice(0, 4000); };
       return {
+        async pmEarnSave(x) { const P = own(); if ((x.tpl || '').length > 2000) fail('The message is too long');
+          P.earnTimes = [...new Set((x.times || []).filter(t => /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(t)))].sort().join(','); P.earnTpl = x.tpl || ''; save(); return wait(null); },
+        async pmEarnPreview(x) { const P = own(); fill(P); return wait(earnRender(P, x.tpl || '')); },
+        async pmEarnTest() { const P = own(); if (!P.alerts.chat) fail('Choose the Telegram group first'); return wait(1); },
         async pmOverview() { const P = own(); fill(P); save(); const t = today(), bills = P.bills.map(b => bj(P, b)).sort((a, b) => a.name.localeCompare(b.name));
           return wait({ today: t, rate: rate(), categories: clone(P.cats).sort((a, b) => a.sort - b.sort), bills, owed_usd: r2(bills.reduce((a, b) => a + usd(b.owed_before, b.currency), 0)), today_usd: r2(bills.reduce((a, b) => a + usd(b.due_today, b.currency), 0)),
             paid_month_usd: r2(P.pays.filter(y => y.paid_on >= t.slice(0, 8) + '01').reduce((a, y) => a + usd(y.amount, (P.bills.find(b => b.id === y.bill_id) || {}).currency), 0)), alerts: Object.assign({ tpl: '', item: '' }, clone(P.alerts), { std: std(P) }),
+            earn: Object.assign(earnN(P), { times: P.earnTimes ?? '07:00', tpl: P.earnTpl || '', std: earnStd(P) }),
             month_total_usd: r2(bills.reduce((a, b) => a + usd(b.month_total, b.currency), 0)), month_paid_usd: r2(bills.reduce((a, b) => a + usd(b.month_paid, b.currency), 0)), not_paid_usd: r2(bills.reduce((a, b) => a + usd(b.not_paid, b.currency), 0)) }); },
         async pmBillDetail(id) { const P = own(); fill(P); const b = P.bills.find(x => x.id === +id); if (!b) fail('Payment not found');
           return wait(Object.assign(bj(P, b), { dues: P.dues.filter(d => d.bill_id === b.id).sort((a, c) => a.due_date < c.due_date ? 1 : -1).slice(0, 400).map(d => ({ due_date: d.due_date, amount: d.amount, paid: d.paid, marked: d.marked })),
@@ -7831,6 +7852,7 @@ Object.assign(window.KT_KM, { 'Visit without shop': 'ចុះមើលដោយ
   '📸 Can visit without a shop': '📸 អាចចុះមើលដោយគ្មានហាង', '📸 Visits without shop (30 days)': '📸 ការចុះមើលដោយគ្មានហាង (30 ថ្ងៃ)', 'Sent to Telegram ✅': 'បានផ្ញើទៅ Telegram ✅' });
 Object.assign(window.KT_KM, { 'To pay this month (whole month)': 'ត្រូវបង់ខែនេះ (ពេញមួយខែ)', 'Total not paid (I owe + rest of this month)': 'សរុបមិនទាន់បង់ (ជំពាក់ + នៅសល់ខែនេះ)' });
 Object.assign(window.KT_KM, { '✏️ Edit message': '✏️ កែសារ', 'The message': 'សារ', 'Lines for each payment': 'បន្ទាត់សម្រាប់ការបង់នីមួយៗ', '👁 Preview with my numbers': '👁 មើលជាមុនជាមួយលេខរបស់ខ្ញុំ', '↩️ Reset': '↩️ ត្រឡប់ដើម', 'my own words': 'ពាក្យផ្ទាល់ខ្លួន' });
+Object.assign(window.KT_KM, { '💪 Daily earning message (its own times)': '💪 សារប្រាក់ត្រូវរកប្រចាំថ្ងៃ (ម៉ោងផ្ទាល់ខ្លួន)', '💪 Daily earning message': '💪 សារប្រាក់ត្រូវរកប្រចាំថ្ងៃ' });
 
 // Chinese (Simplified) words for the app. English text on screen is swapped for these when 中文 is chosen.
 // Same English keys as km.js. Add or fix any line: "English text": "中文",
@@ -9926,6 +9948,7 @@ Object.assign(window.KT_ZH, { 'Visit without shop': '无店铺拜访', '📸 Vis
   '📸 Can visit without a shop': '📸 可以无店铺拜访', '📸 Visits without shop (30 days)': '📸 无店铺拜访（30 天）', 'Sent to Telegram ✅': '已发送到 Telegram ✅' });
 Object.assign(window.KT_ZH, { 'To pay this month (whole month)': '本月应付（整个月）', 'Total not paid (I owe + rest of this month)': '未付合计（欠款 + 本月剩余）' });
 Object.assign(window.KT_ZH, { '✏️ Edit message': '✏️编辑消息', 'The message': '消息', 'Lines for each payment': '每笔付款的行', '👁 Preview with my numbers': '👁 用我的数字预览', '↩️ Reset': '↩️ 恢复默认', 'my own words': '自己的文字' });
+Object.assign(window.KT_ZH, { '💪 Daily earning message (its own times)': '💪 每日需赚消息（单独时间）', '💪 Daily earning message': '💪 每日需赚消息' });
 
 // Settings loading, notifications (bell + phone), and the Khmer language option.
 (function () {
@@ -18640,6 +18663,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="kpis"><div class="stat"><b>${K.money(d.month_total_usd || 0)}</b><span>To pay this month (whole month)</span>
           <span class="small" style="margin-top:2px"><span style="color:var(--gr)">paid ${K.money(d.month_paid_usd || 0)}</span> · <span style="color:var(--rd)">left ${K.money(r2((+d.month_total_usd || 0) - (+d.month_paid_usd || 0)))}</span></span></div>
         <div class="stat"><b style="color:${+d.not_paid_usd > 0 ? 'var(--rd)' : 'var(--gr)'}">${K.money(d.not_paid_usd || 0)}</b><span>Total not paid (I owe + rest of this month)</span></div></div>
+      ${d.earn ? `<div class="kpis"><div class="stat"><b>${K.money(d.earn.per_workday)}</b><span>💪 Earn every work day (${esc(d.earn.work_days)} days Mon–Sat)</span></div>
+        <div class="stat"><b style="color:${+d.earn.month_left > 0 ? 'var(--or)' : 'var(--gr)'}">${K.money(+d.earn.month_left > 0 ? d.earn.per_day_left : 0)}</b><span>🔥 Every day from today (${esc(d.earn.days_left)} days left)</span></div></div>` : ''}
       <div class="kpis"><div class="stat"><b style="color:${toPayNow > 0 ? 'var(--rd)' : 'var(--gr)'}">${K.money(toPayNow)}</b><span>To pay now (with I owe)</span></div>
         <div class="stat"><b style="color:var(--rd)">${K.money(d.owed_usd)}</b><span>I owe from before</span></div><div class="stat"><b style="color:var(--gr)">${K.money(d.paid_month_usd)}</b><span>Paid this month</span></div></div>
       <div class="btns" style="margin:0"><button class="btn" id="mmadd">${icon('plus', 18)}Add a payment</button><button class="btn out" id="mmcat">${icon('list', 18)}Categories</button></div>
@@ -18763,9 +18788,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       <div class="f"><span>Language of the message (tap 1, 2 or all 3)</span><div class="seg">${[['km', 'ភាសាខ្មែរ'], ['en', 'English'], ['zh', '中文']].map(([k, l]) => `<button type="button" data-lg="${k}" class="${langs.includes(k) ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div class="f"><span>Send at these times</span><div id="ttm" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>
       <div class="row" style="gap:8px"><input class="inp" id="tnew" type="time" value="12:00" style="width:140px"><button class="btn sm out" id="tadd">${icon('plus', 16)}Add time</button></div>
+      <button class="btn out block" id="tearn">💪 Daily earning message (its own times)</button>
       <button class="btn out block" id="tedit">✏️ Edit message${d.alerts.tpl || d.alerts.item ? ' <span class="pill gr">my own words</span>' : ''}</button>
       <button class="btn block" id="tsave">${icon('check', 18)}Save</button><button class="btn out block" id="ttest">${icon('send', 18)}Send test</button>`);
     $('#tedit', s.el).onclick = () => tplSheet(d, done);
+    $('#tearn', s.el).onclick = () => earnSheet(d, done);
     const drawT = () => { $('#ttm', s.el).innerHTML = times.sort().map(t => `<button class="chip on" data-tx="${t}">${t} ✕</button>`).join('') || '<span class="small muted">No time yet</span>';
       $$('[data-tx]', s.el).forEach(x => x.onclick = () => { times = times.filter(t => t !== x.dataset.tx); drawT(); }); };
     drawT();
@@ -18793,7 +18820,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         ['paid_today', 'paid today'], ['paid_month', 'paid this month'], ['month_left', 'still to pay this month'], ['all_left', 'all not paid (old + rest of this month)'], ['owed', 'owed from before (line left out when $0)']])}</div></details>
       <label class="f">Lines for each payment<textarea class="inp" id="tpl2" rows="6" style="font-family:inherit;line-height:1.45;min-height:170px">${esc(d.alerts.item || std.item || '')}</textarea></label>
       <details class="small"><summary><b>Codes for each payment</b></summary><div style="line-height:1.6;margin-top:4px">${codes([['name', 'payment name — keep it'], ['bank', '" (ABA)" or nothing'], ['category', 'category'], ['day', 'day of this month (every-day payments: 1–30)'],
-        ['amount', 'to pay this month'], ['paid', 'paid of this month'], ['left', 'still to pay this month'], ['status', '" ✅ paid" or " (left $x)"'], ['old_owed', 'owed from earlier months'], ['since', 'owed since (date)']])}</div></details>
+        ['amount', 'to pay this month'], ['paid', 'paid of this month'], ['left', 'still to pay this month'], ['status', '" ✅ paid" or " (left $x)"'], ['late_days', 'days late this month (line left out when not late)'], ['old_owed', 'owed from earlier months'], ['since', 'owed since (date)']])}</div></details>
       <button class="btn out block" id="tpv">👁 Preview with my numbers</button><pre id="tpvo" class="card small" style="white-space:pre-wrap;font-family:inherit;margin:0;display:none"></pre>
       <div class="btns" style="margin:0"><button class="btn out" id="tstd">↩️ Reset</button><button class="btn" id="tsv">${icon('check', 18)}Save</button></div>`);
     const val = () => { const a = $('#tpl1', s.el).value.replace(/\r/g, ''), b = $('#tpl2', s.el).value.replace(/\r/g, '');
@@ -18801,6 +18828,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     $('#tpv', s.el).onclick = async e => { const t = await busy(e.currentTarget, () => api.pmAlertPreview(val())); const o = $('#tpvo', s.el); o.style.display = ''; o.textContent = t; };
     $('#tstd', s.el).onclick = () => { $('#tpl1', s.el).value = std.tpl || ''; $('#tpl2', s.el).value = std.item || ''; toast('Back to the standard message. Tap Save to keep it.'); };
     $('#tsv', s.el).onclick = async e => { await busy(e.currentTarget, () => api.pmAlertTplSave(val())); toast('Saved'); s.close(); done && done(); };
+  }
+
+  // "every day I need to earn" — its own message and times, same group (20 Nov 2026, Mr. Lee: "This every day earns, I want to alert separate")
+  function earnSheet(d, done) {
+    const e = d.earn || {}; let times = (e.times || '').split(',').filter(Boolean);
+    const s = K.sheet('💪 Daily earning message', `<div class="small muted" style="line-height:1.5">A separate message to your My money group: this month's payments ÷ work days (Mon–Sat), and what is still to pay ÷ the days left.</div>
+      <div class="f"><span>Send at these times</span><div id="etm" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>
+      <div class="row" style="gap:8px"><input class="inp" id="enew" type="time" value="07:00" style="width:140px"><button class="btn sm out" id="eadd">${icon('plus', 16)}Add time</button></div>
+      <label class="f">The message<textarea class="inp" id="etpl" rows="10" style="font-family:inherit;line-height:1.45;min-height:250px">${esc(e.tpl || e.std || '')}</textarea></label>
+      <details class="small"><summary><b>Codes</b></summary><div style="line-height:1.6;margin-top:4px">${[['date', 'today'], ['time', 'the time it is sent'], ['month_total', 'payments this month'], ['work_days', 'work days this month (Mon–Sat)'], ['per_workday', 'to earn every work day'],
+        ['month_left', 'still to pay this month (line left out when $0)'], ['days_left', 'days left this month (today too)'], ['per_day_left', 'to earn every day from today (line left out when nothing is left)']].map(([k, t]) => `<div><b>{${k}}</b> ${t}</div>`).join('')}</div></details>
+      <button class="btn out block" id="epv">👁 Preview with my numbers</button><pre id="epvo" class="card small" style="white-space:pre-wrap;font-family:inherit;margin:0;display:none"></pre>
+      <div class="btns" style="margin:0"><button class="btn out" id="estd">↩️ Reset</button><button class="btn" id="esv">${icon('check', 18)}Save</button></div>
+      <button class="btn out block" id="etest">${icon('send', 18)}Send test</button>`);
+    const drawT = () => { $('#etm', s.el).innerHTML = times.sort().map(t => `<button class="chip on" data-ex="${t}">${t} ✕</button>`).join('') || '<span class="small muted">No time = not sent</span>';
+      $$('[data-ex]', s.el).forEach(x => x.onclick = () => { times = times.filter(t => t !== x.dataset.ex); drawT(); }); };
+    drawT();
+    $('#eadd', s.el).onclick = () => { const t = $('#enew', s.el).value; if (t && !times.includes(t)) times.push(t); drawT(); };
+    const val = () => { const a = $('#etpl', s.el).value.replace(/\r/g, ''); return { times, tpl: a.trim() === (e.std || '').trim() ? '' : a }; };
+    $('#epv', s.el).onclick = async ev => { const t = await busy(ev.currentTarget, () => api.pmEarnPreview(val())); const o = $('#epvo', s.el); o.style.display = ''; o.textContent = t; };
+    $('#estd', s.el).onclick = () => { $('#etpl', s.el).value = e.std || ''; toast('Back to the standard message. Tap Save to keep it.'); };
+    $('#esv', s.el).onclick = async ev => { await busy(ev.currentTarget, () => api.pmEarnSave(val())); toast('Saved'); s.close(); done && done(); };
+    $('#etest', s.el).onclick = async ev => { await busy(ev.currentTarget, async () => { await api.pmEarnSave(val()); await api.pmEarnTest(); }); toast('Sent. Check the group in Telegram'); };
   }
 
   // routes: admin web (sidebar) and phone app (More)
